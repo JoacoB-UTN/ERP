@@ -1,0 +1,39 @@
+{
+  "name": "erp-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-company ERP platform monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "postinstall": "npm run build:packages",
+    "build:packages": "npm run build --workspace=packages/config && npm run build --workspace=packages/shared",
+    "predev": "npm run build:packages",
+    "dev": "npm run dev --workspace=apps/api & npm run dev --workspace=apps/web & wait",
+    "dev:api": "npm run build:packages && npm run dev --workspace=apps/api",
+    "dev:web": "npm run build:packages && npm run dev --workspace=apps/web",
+    "prebuild": "npm run build:packages",
+    "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
+    "prelint": "npm run build:packages",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .gitignore",
+    "pretypecheck": "npm run build:packages",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "pretest": "npm run build:packages",
+    "test": "npm run test --workspace=apps/api",
+    "pretest:e2e": "npm run build:packages",
+    "test:e2e": "npm run test:e2e --workspace=apps/api",
+    "db:migrate": "npm run db:migrate --workspace=apps/api",
+    "db:seed": "npm run db:seed --workspace=apps/api",
+    "db:studio": "npm run db:studio --workspace=apps/api"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

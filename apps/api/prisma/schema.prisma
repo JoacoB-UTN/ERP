@@ -1,0 +1,140 @@
+// ERP platform — foundation schema.
+// Only the multi-tenancy skeleton (Tenant/Company/Branch/User/UserCompany)
+// is modeled here. Domain schemas (sales, inventory, accounting, ...) are
+// added in later tasks, one vertical slice at a time.
+//
+// Conventions (see CLAUDE.md):
+// - UUID primary keys.
+// - TIMESTAMPTZ for event timestamps.
+// - Money fields (none yet) must use NUMERIC(19,4), never float/double.
+// - Every tenant-owned table carries an indexed tenantId for scoping.
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat            = "cjs"
+  generatedFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------- Tenancy ----------
+
+enum TenantStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model Tenant {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String       @unique
+  status    TenantStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime     @updatedAt @db.Timestamptz(6)
+
+  companies     Company[]
+  branches      Branch[]
+  userCompanies UserCompany[]
+
+  @@map("tenants")
+}
+
+enum CompanyStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model Company {
+  id          String        @id @default(uuid()) @db.Uuid
+  tenantId    String        @db.Uuid
+  legalName   String
+  tradeName   String?
+  taxId       String
+  countryCode String
+  timezone    String
+  status      CompanyStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime      @updatedAt @db.Timestamptz(6)
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id])
+  branches      Branch[]
+  userCompanies UserCompany[]
+
+  // A given tax id should not be registered twice within the same tenant.
+  @@unique([tenantId, taxId])
+  @@index([tenantId])
+  @@map("companies")
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Branch {
+  id        String       @id @default(uuid()) @db.Uuid
+  tenantId  String       @db.Uuid
+  companyId String       @db.Uuid
+  code      String
+  name      String
+  status    BranchStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime     @updatedAt @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, code])
+  @@index([tenantId])
+  @@index([companyId])
+  @@map("branches")
+}
+
+// ---------- Identity ----------
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+  PENDING
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  firstName    String
+  lastName     String
+  email        String     @unique
+  passwordHash String
+  status       UserStatus @default(PENDING)
+  lastLoginAt  DateTime?  @db.Timestamptz(6)
+  createdAt    DateTime   @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime   @updatedAt @db.Timestamptz(6)
+
+  userCompanies UserCompany[]
+
+  @@map("users")
+}
+
+model UserCompany {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  tenantId  String   @db.Uuid
+  companyId String   @db.Uuid
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  user    User    @relation(fields: [userId], references: [id])
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([userId, companyId])
+  @@index([userId])
+  @@index([tenantId])
+  @@index([companyId])
+  @@map("user_companies")
+}

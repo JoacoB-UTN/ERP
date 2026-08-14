@@ -1,0 +1,13 @@
+{
+  "extends": "@erp/typescript-config/nestjs.json",
+  "compilerOptions": {
+    "resolvePackageJsonExports": true,
+    "isolatedModules": true,
+    "allowSyntheticDefaultImports": true,
+    "strictBindCallApply": false,
+    "noFallthroughCasesInSwitch": false,
+    "outDir": "./dist",
+    "baseUrl": "./"
+  },
+  "exclude": ["node_modules", "dist"]
+}
