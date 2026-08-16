@@ -3,9 +3,8 @@ import { Sidebar } from './sidebar';
 import { Header } from './header';
 
 /**
- * Structural shell for future modules: sidebar + header + main content
- * area. Responsive down to mobile (sidebar hides below `md`); no business
- * navigation exists yet, so the sidebar only shows a placeholder.
+ * Application shell: sidebar + header + main content area. Responsive
+ * down to mobile (sidebar hides below `md`).
  */
 export function AppShell({
   children,

@@ -64,10 +64,11 @@ complex, but the UI does not need to expose that complexity all at once.
   current task, let the user drill in for more.
 - Navigation organized by business area (sales, purchasing, accounting,
   etc.), not as a deeply nested tree unless a section genuinely needs it.
-- Eventual shell shape: collapsible left sidebar + top app bar (global
-  search, identity) + main workspace + contextual actions. This shell
-  exists today only as a structural placeholder — no business navigation
-  has been built yet.
+- Shell shape: left sidebar (grouped by business area — Inicio, Ventas,
+  Maestros, Stock, Precios, Administración, each permission-gated) + top
+  app bar (company/branch context, identity) + main workspace. The home
+  route (`/`) is a compact operational dashboard — see docs/dashboard.md —
+  not a placeholder landing page.
 
 ## Facturación: speed and keyboard-first operation
 
@@ -86,10 +87,12 @@ usability, and touch usability over feature density or visual richness.
   minimum necessary interaction: product search → cart → customer → seller
   → totals → payment → confirm, no unnecessary intermediate screens.
 
-Today, Facturación's shell is intentionally minimal: a single top bar (no
-sidebar) with non-functional "Facturación / POS" mode placeholders. This is
-deliberate — a sidebar-and-tree navigation model is the wrong shape for a
-tool meant to be operated with a handful of keystrokes.
+Facturación's shell is intentionally minimal: a single top bar (no
+sidebar) with two real modes, Ventas and POS, both functional — POS is a
+specialized fast-checkout mode inside Facturación, not a separate app (see
+docs/pos.md). The flat top bar is deliberate — a sidebar-and-tree
+navigation model is the wrong shape for a tool meant to be operated with a
+handful of keystrokes.
 
 ## Cross-cutting principles
 

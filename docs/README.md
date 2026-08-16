@@ -67,6 +67,10 @@ shared rules, then come back here for detail.
   never a Treasury/AR ledger). Keyboard-first checkout flow, payment
   panel, company isolation, Gestión integration, and current limitations
   (cash drawer, payment gateways, refunds, ... still deferred).
+- [dashboard.md](dashboard.md) — Gestión's home dashboard: the read-only
+  `GET /dashboard/summary` aggregate, permission-based per-field
+  omission, currency-safe sales-today aggregation, and how the frontend
+  renders it (loading/empty/error states, company isolation).
 
 ## Product direction
 

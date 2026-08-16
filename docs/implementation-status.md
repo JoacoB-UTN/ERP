@@ -250,6 +250,35 @@ no new backend endpoint, no new UI surface. See
 [pos.md](pos.md) — none of their documented invariants changed, all were
 re-verified.
 
+### Demo Dashboard / UX polish
+**Status: DONE.** Gestión's home route (`/`) is now a real permission-aware
+operational dashboard — see [dashboard.md](dashboard.md) — backed by one
+small read-only `GET /dashboard/summary` aggregate (company-scoped,
+per-field permission-gated, zero duplicated business rules: reuses
+`SalesService.list`/`InventoryService.listStock` wherever those already
+existed, with a single genuinely new currency-grouped Prisma `groupBy` for
+today's confirmed-sales total). Replaces the stale "Bienvenido / no hay
+módulos instalados" placeholder. Loading skeletons, a fresh-company empty
+state, and one retryable error state (single aggregate request, so no
+per-widget partial-failure machinery was needed) — never flashes 0/$0
+before data arrives. Wording is careful to describe internal sales, not
+fiscal revenue ("Ventas confirmadas hoy" / "Total operado hoy", never
+"Facturación fiscal" / "Ingresos contables"). Manually verified end-to-end:
+a Facturación sale and a POS cash sale both appear in the dashboard's
+summary/recent-sales within one query-cache refresh, and the confirmed
+POS sale's stock decrement is visible in Gestión's Movimientos ledger —
+see the hardening entry above for the same cross-app chain. Also fixed
+during this pass: a real date-formatting inconsistency (`dateStyle:
+'short'` producing "16/8/26" instead of "16 ago 2026") found in five
+places — Facturación's recent-sales list and Gestión's audit log/stock
+movements/customer/product/price-list history feeds — now all consistent
+with the rest of the app. Stale foundation-era copy removed from
+`AppShell`'s doc comment and `product-ui-principles.md`'s Gestión/
+Facturación sections (both still described their shells as "structural
+placeholders" long after real navigation/modes existed). No schema
+change, no new business logic — see dashboard.md for why the one new
+aggregate endpoint was justified.
+
 ## Foundation-only (deliberately incomplete)
 
 ### Gestión (as a product)
@@ -286,8 +315,11 @@ any kind.
 ledger posting.
 
 ### Reporting
-**Status: NOT IMPLEMENTED.** No dedicated reporting module or dashboard
-beyond the placeholder Gestión home page.
+**Status: NOT IMPLEMENTED.** No dedicated reporting/BI module — Gestión's
+home dashboard (see "Demo Dashboard / UX polish" above and
+[dashboard.md](dashboard.md)) is a compact operational summary, not a
+reporting surface: no historical trends, exports, or configurable
+widgets.
 
 ## Known technical debt
 
@@ -326,7 +358,8 @@ Facturación MVP, and POS MVP above — and has been hardened end to end
 above), with integration/concurrency test coverage proving all three
 entry points share one Sales domain, one pricing engine, and one
 inventory ledger. See [sales.md](sales.md), [facturacion.md](facturacion.md),
-and [pos.md](pos.md). The next milestones are demo dashboard/UX polish
-and demo data/presentation flow (Prompts #14/#15) before any advanced ERP
-module (accounting, fiscal, treasury). See [roadmap.md](roadmap.md) for
-the full milestone breakdown.
+[pos.md](pos.md), and [dashboard.md](dashboard.md) (Prompt #14, demo
+dashboard/UX polish — see above). The next milestone is demo data/
+presentation flow (Prompt #15) before any advanced ERP module
+(accounting, fiscal, treasury). See [roadmap.md](roadmap.md) for the full
+milestone breakdown.

@@ -2,23 +2,20 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { CompanyContextModule } from '../company-context/company-context.module';
 import { AuthorizationModule } from '../authorization/authorization.module';
-import { AuditModule } from '../audit/audit.module';
 import { InventoryModule } from '../inventory/inventory.module';
-import { PricingModule } from '../pricing/pricing.module';
-import { SalesController } from './sales.controller';
-import { SalesService } from './sales.service';
+import { SalesModule } from '../sales/sales.module';
+import { DashboardController } from './dashboard.controller';
+import { DashboardService } from './dashboard.service';
 
 @Module({
   imports: [
     AuthModule,
     CompanyContextModule,
     AuthorizationModule,
-    AuditModule,
     InventoryModule,
-    PricingModule,
+    SalesModule,
   ],
-  controllers: [SalesController],
-  providers: [SalesService],
-  exports: [SalesService],
+  controllers: [DashboardController],
+  providers: [DashboardService],
 })
-export class SalesModule {}
+export class DashboardModule {}
