@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last verified: 2026-08-16, after Prompt #11 (Facturación MVP) — against
+Last verified: 2026-08-16, after Prompt #12 (POS MVP) — against
 the code, migrations, and test suite in this repository, not against
 prior chat history or documentation intent.
 
@@ -153,12 +153,59 @@ visible). Not covered by a dedicated Facturación e2e spec — see "Explicitly
 NOT implemented" below for why, and `apps/facturacion/src/components/ventas/*.test.ts`
 (Vitest) for the new unit coverage this task added.
 
-Explicitly NOT implemented as part of this: POS mode, payment methods,
-customer balances/AR, treasury, fiscal invoices/ARCA/CAE, credit/debit
-notes, delivery notes, sales orders/quotes, returns, reversing a
-confirmed sale, tax/VAT calculation, promotions/customer-specific
-pricing, sales commissions, accounting entries, offline sync — see
-facturacion.md's "Current limitations" for the full list.
+Explicitly NOT implemented as part of this: POS mode (see POS below —
+now done as a separate follow-up), payment methods, customer balances/AR,
+treasury, fiscal invoices/ARCA/CAE, credit/debit notes, delivery notes,
+sales orders/quotes, returns, reversing a confirmed sale, tax/VAT
+calculation, promotions/customer-specific pricing, sales commissions,
+accounting entries, offline sync — see facturacion.md's "Current
+limitations" for the full list.
+
+### POS MVP
+**Status: DONE — MVP scope only, see [pos.md](pos.md) for the exact
+scope.** `apps/facturacion/src/app/(app)/pos` + `src/components/pos`. A
+specialized, ultra-fast checkout mode inside Facturación (not a separate
+app) reusing the exact same customer/product/pricing/inventory/Sales
+infrastructure facturacion.md documents — **zero new backend endpoints**
+beyond one optional `tender` field on the existing `POST
+/sales/:id/confirm`, and one new table, `SalesTender` (see below). Auto-
+focused product search, barcode add, quantity/discount via keyboard
+(+/-/Delete on an "active line"), F2 customer switch, F10 checkout with
+a payment panel (Efectivo/Tarjeta/Transferencia/Otro, live change
+calculation and client+server insufficient-cash validation for cash),
+customer persisted across consecutive POS sales in a session. Manually
+verified: barcode add + quantity-increment on repeat scan, +/- and F2/F10
+keyboard shortcuts (via direct KeyboardEvent dispatch — the browser
+automation tool used for verification has a timing quirk with
+programmatic Enter/+/- dispatch documented in facturacion.md's own
+verification notes; underlying app behavior confirmed correct), a full
+CASH checkout (received > total, correct change, stock decremented,
+`SalesTender` persisted) and a full CARD checkout (no cash fields, no
+`amountReceived`/`change`), client-side insufficient-cash rejection,
+"Nueva venta" preserving the customer while clearing the cart, and
+company-switch isolation (cart/customer cleared, "Sin depósito
+disponible"/"Sin lista de precios" shown, no cross-company data). Cross-
+app verified: both confirmed sales appeared in Gestión → Ventas with
+matching number/customer/total/status, and Gestión's sale detail now
+shows a compact "Método de pago" line when a tender exists. Covered by
+`apps/api/test/sales.e2e-spec.ts`'s new "payment / tender" suite (9
+tests: no-tender confirm, CASH with/without explicit amountReceived,
+insufficient-cash rejection with no orphan tender, CARD/TRANSFER/OTHER
+never carrying amountReceived, non-CASH amountReceived rejected,
+exactly-one-tender-per-sale, tender atomicity under an insufficient-
+stock rollback, and company isolation) and
+`apps/facturacion/src/components/pos/pos-tender.test.ts` (Vitest, cash/
+change math and tender-payload building).
+
+Explicitly NOT implemented as part of this: cash register opening/
+closing, a cash drawer ledger, bank reconciliation, split/partial
+payments, any real payment gateway or card-terminal integration, card
+tokenization, refunds/returns, credit/debit notes, reversing a confirmed
+sale, suspended/parked carts, promotions/customer-specific pricing,
+sales commissions, accounting entries, offline mode — see pos.md's
+"Current limitations" for the full list. **`SalesTender` is explicitly
+NOT a Treasury/AR ledger** — it's an operational payment snapshot only;
+no cash/bank/customer-account balance is ever updated by it.
 
 ## Foundation-only (deliberately incomplete)
 
@@ -168,13 +215,6 @@ module above has a real Gestión UI. No sales/purchases/treasury/
 accounting/reporting UI exists yet because those backend modules don't
 exist yet either.
 
-### POS
-**Status: NOT IMPLEMENTED.** POS is designed to be an operating mode
-inside Facturación (see AGENTS.md), not a separate app. No POS-specific
-code, route, or UI exists anywhere in the repository yet — Facturación's
-top bar shows a non-functional "POS" pill as a placeholder for the
-future mode switch.
-
 ## Not implemented
 
 ### Fiscal invoicing, sales orders/quotes, credit/debit notes, delivery notes
@@ -182,8 +222,8 @@ future mode switch.
 (see Sales above) and both Gestión and Facturación can build/confirm one,
 but no `SalesOrder`/`SalesQuote`/fiscal `Invoice`/`CreditNote`/`DebitNote`/
 `DeliveryNote` model, service, or route exists anywhere. See
-[roadmap.md](roadmap.md) for what comes next (POS mode, then end-to-end
-hardening) before any of these.
+[roadmap.md](roadmap.md) for what comes next (end-to-end hardening)
+before any of these.
 
 ### Purchases
 **Status: NOT IMPLEMENTED.** No `Supplier`/`PurchaseOrder`/`GoodsReceipt`
@@ -235,11 +275,11 @@ beyond the placeholder Gestión home page.
 ## Next recommended milestone
 
 The demonstrable vertical slice (create customer/product/stock/price →
-select customer/product → confirm a sale → inventory changes → visible
-back in Gestión) is now implemented from **both** Gestión and Facturación
-— see Sales and Facturación MVP above, [sales.md](sales.md), and
-[facturacion.md](facturacion.md). The next milestone is POS mode
-(Prompt #12), an operating mode inside Facturación, followed by
-end-to-end hardening (Prompt #13), before any advanced ERP module
-(accounting, fiscal, treasury). See [roadmap.md](roadmap.md) for the full
+select customer/product → confirm a sale, with a payment method at
+counter speed → inventory changes → visible back in Gestión) is now
+implemented from Gestión, Facturación, **and** POS — see Sales,
+Facturación MVP, and POS MVP above, [sales.md](sales.md),
+[facturacion.md](facturacion.md), and [pos.md](pos.md). The next
+milestone is end-to-end hardening (Prompt #13) before any advanced ERP
+module (accounting, fiscal, treasury). See [roadmap.md](roadmap.md) for the full
 milestone breakdown.

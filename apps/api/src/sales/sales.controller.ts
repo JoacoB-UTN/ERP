@@ -11,9 +11,11 @@ import {
 import {
   createSaleSchema,
   updateSaleSchema,
+  confirmSaleSchema,
   salesListQuerySchema,
   type CreateSaleInput,
   type UpdateSaleInput,
+  type ConfirmSaleInput,
   type SalesListQuery,
   type SalesListResponse,
   type SalesDetailResponse,
@@ -68,14 +70,19 @@ export class SalesController {
     return { salesDocument };
   }
 
+  /**
+   * `tender` is optional — a plain Facturación/Gestión confirm can omit
+   * it entirely; POS checkout always supplies one (see docs/pos.md).
+   */
   @RequirePermissions('sales.documents.confirm')
   @Post(':id/confirm')
   @HttpCode(200)
   async confirm(
     @CurrentRequestContext() ctx: RequestContext,
     @Param('id') id: string,
+    @Body(new ZodValidationPipe(confirmSaleSchema)) body: ConfirmSaleInput,
   ): Promise<SalesDetailResponse> {
-    const salesDocument = await this.salesService.confirm(ctx, id);
+    const salesDocument = await this.salesService.confirm(ctx, id, body.tender);
     return { salesDocument };
   }
 

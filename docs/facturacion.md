@@ -32,8 +32,18 @@ is "Venta" and the internal document number is `VTA-000123` — never
 "Factura A/B/C", never a CAE, never anything implying ARCA/AFIP
 submission. See sales.md's "What this module is — and isn't" for why.
 
-POS mode (Prompt #12) is a separate, later task — the "POS" pill in the
-top bar is still a non-functional placeholder.
+POS mode (Prompt #12) is now real — a specialized, ultra-fast checkout
+screen inside Facturación (same top bar, same Sales domain, same
+customer/product/pricing/inventory infrastructure this document
+describes), not a separate product. See [pos.md](pos.md) for everything
+POS-specific: the payment/tender concept, its own keyboard shortcuts,
+and its own manual verification. Facturación today is:
+
+```
+Facturación
+├── normal sales workflow  (/ventas/nueva, /ventas/:id, /ventas — this document)
+└── POS                    (/pos — see pos.md)
+```
 
 ## Relationship with Gestión
 
@@ -272,12 +282,14 @@ change.
 
 ## Current limitations (intentionally out of scope)
 
-Same "one Sales domain, demo core only" boundary sales.md draws, plus the
-UI-specific items this task explicitly did not build: POS mode (a
-separate operating mode inside Facturación, Prompt #12), payment methods,
-cash register / card terminal integration, split payments, accounts
-receivable / customer balances / collections, treasury, fiscal invoices
-(ARCA/CAE/fiscal QR/Factura A-B-C), credit/debit notes, delivery notes,
-sales orders/quotes, sales returns, reversing a confirmed sale,
-tax/VAT calculation, promotions or customer-specific pricing rules, sales
-commissions, accounting entries, and offline POS sync.
+Same "one Sales domain, demo core only" boundary sales.md draws. POS mode
+is now implemented (see [pos.md](pos.md)) with a minimal operational
+payment/tender concept — but cash register opening/closing, a cash
+drawer ledger, bank reconciliation, split/partial payments, a real
+payment gateway or card-terminal integration, accounts receivable /
+customer balances / collections, treasury, fiscal invoices (ARCA/CAE/
+fiscal QR/Factura A-B-C), credit/debit notes, delivery notes, sales
+orders/quotes, sales returns, reversing a confirmed sale, tax/VAT
+calculation, promotions or customer-specific pricing rules, sales
+commissions, accounting entries, and offline sync all remain out of
+scope — see pos.md's own "Current limitations" for the complete list.

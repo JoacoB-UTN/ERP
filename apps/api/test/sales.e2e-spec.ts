@@ -24,6 +24,13 @@ interface SaleLineBody {
   taxAmount: string;
   totalAmount: string;
 }
+interface SaleTenderBody {
+  method: string;
+  amountApplied: string;
+  amountReceived: string | null;
+  change: string | null;
+  reference: string | null;
+}
 interface SaleBody {
   id: string;
   number: string;
@@ -33,6 +40,7 @@ interface SaleBody {
   discountTotal: string;
   taxTotal: string;
   lines: SaleLineBody[];
+  tender: SaleTenderBody | null;
 }
 interface PriceListBody {
   id: string;
@@ -419,6 +427,9 @@ describe('Sales (e2e)', () => {
   afterAll(async () => {
     await prisma.auditLog.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.salesTender.deleteMany({
+      where: { salesDocument: { companyId: { in: [companyAId, companyBId] } } },
     });
     await prisma.salesDocumentLine.deleteMany({
       where: { salesDocument: { companyId: { in: [companyAId, companyBId] } } },
@@ -931,6 +942,216 @@ describe('Sales (e2e)', () => {
         },
       });
       expect(movementCount).toBe(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Payment / tender — see docs/pos.md. Purely operational metadata, never
+  // a Treasury/CashMovement/BankMovement/AccountingEntry.
+  // ---------------------------------------------------------------------
+  describe('payment / tender', () => {
+    /** A confirmable draft: fresh variant, price 100, plenty of stock, qty 2 / 10% discount -> total 180. */
+    async function confirmableDraft(agent: request.Agent) {
+      const variant = await freshVariant(productId, 'tender');
+      await setPrice(agent, priceListId, variant, '100');
+      await inventoryService.createInitialBalance(
+        { userId: userAdminId, companyId: companyAId, tenantId },
+        { warehouseId, lines: [{ productVariantId: variant, quantity: '50' }] },
+      );
+      return draftSale(agent, {
+        lines: [
+          {
+            productVariantId: variant,
+            quantity: '2',
+            discountPercentage: '10',
+          },
+        ],
+      });
+    }
+
+    it('confirming without a tender leaves tender null (plain Facturación/Gestión confirm)', async () => {
+      const agent = await loginAs(userAdminId);
+      const { body } = await confirmableDraft(agent);
+      const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+
+      const res = await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId);
+      expect(res.status).toBe(200);
+      expect(
+        (res.body as { salesDocument: SaleBody }).salesDocument.tender,
+      ).toBeNull();
+    });
+
+    it('CASH with amountReceived > total persists amountApplied=total and a computed change', async () => {
+      const agent = await loginAs(userAdminId);
+      const { body } = await confirmableDraft(agent);
+      const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+
+      const res = await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ tender: { method: 'CASH', amountReceived: '200' } });
+      expect(res.status).toBe(200);
+      const tender = (res.body as { salesDocument: SaleBody }).salesDocument
+        .tender;
+      expect(tender).not.toBeNull();
+      expect(tender!.method).toBe('CASH');
+      expect(tender!.amountApplied).toBe('180');
+      expect(tender!.amountReceived).toBe('200');
+      expect(tender!.change).toBe('20');
+    });
+
+    it('CASH with no amountReceived defaults received=total and change=0 (exact payment)', async () => {
+      const agent = await loginAs(userAdminId);
+      const { body } = await confirmableDraft(agent);
+      const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+
+      const res = await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ tender: { method: 'CASH' } });
+      expect(res.status).toBe(200);
+      const tender = (res.body as { salesDocument: SaleBody }).salesDocument
+        .tender;
+      expect(tender!.amountReceived).toBe('180');
+      expect(tender!.change).toBe('0');
+    });
+
+    it('rejects CASH with amountReceived below the total (Importe insuficiente) and leaves the sale DRAFT with no tender', async () => {
+      const agent = await loginAs(userAdminId);
+      const { body } = await draftSale(agent);
+      const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+
+      const res = await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ tender: { method: 'CASH', amountReceived: '100' } });
+      expect(res.status).toBe(400);
+      expect((res.body as ErrorEnvelope).error.code).toBe(
+        'SALE_TENDER_CASH_INSUFFICIENT',
+      );
+
+      const reloaded = await agent
+        .get(`/api/v1/sales/${saleId}`)
+        .set(COMPANY_ID_HEADER, companyAId);
+      expect(
+        (reloaded.body as { salesDocument: SaleBody }).salesDocument.status,
+      ).toBe('DRAFT');
+      expect(
+        (reloaded.body as { salesDocument: SaleBody }).salesDocument.tender,
+      ).toBeNull();
+
+      const tenderRow = await prisma.salesTender.findUnique({
+        where: { salesDocumentId: saleId },
+      });
+      expect(tenderRow).toBeNull();
+    });
+
+    it('CARD/TRANSFER/OTHER never carry amountReceived — amountApplied always equals the total', async () => {
+      const agent = await loginAs(userAdminId);
+      for (const method of ['CARD', 'TRANSFER', 'OTHER']) {
+        const { body } = await confirmableDraft(agent);
+        const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+        const res = await agent
+          .post(`/api/v1/sales/${saleId}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({ tender: { method } });
+        expect(res.status).toBe(200);
+        const tender = (res.body as { salesDocument: SaleBody }).salesDocument
+          .tender;
+        expect(tender!.method).toBe(method);
+        expect(tender!.amountApplied).toBe('180');
+        expect(tender!.amountReceived).toBeNull();
+        expect(tender!.change).toBeNull();
+      }
+    });
+
+    it('rejects amountReceived supplied for a non-CASH method (400, validation)', async () => {
+      const agent = await loginAs(userAdminId);
+      const { body } = await draftSale(agent);
+      const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+
+      const res = await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ tender: { method: 'CARD', amountReceived: '180' } });
+      expect(res.status).toBe(400);
+    });
+
+    it('exactly one tender per sale — the DB unique constraint backs the one-tender-per-MVP-sale rule', async () => {
+      const agent = await loginAs(userAdminId);
+      const { body } = await confirmableDraft(agent);
+      const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+      await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ tender: { method: 'CASH', amountReceived: '200' } });
+
+      const count = await prisma.salesTender.count({
+        where: { salesDocumentId: saleId },
+      });
+      expect(count).toBe(1);
+
+      // A retried confirm on the now-CONFIRMED sale is rejected before ever
+      // reaching tender creation — never a second tender row.
+      const retry = await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ tender: { method: 'CASH', amountReceived: '200' } });
+      expect(retry.status).toBe(409);
+      const countAfterRetry = await prisma.salesTender.count({
+        where: { salesDocumentId: saleId },
+      });
+      expect(countAfterRetry).toBe(1);
+    });
+
+    it('a tender is never orphaned: insufficient stock aborts the whole confirmation, including the tender', async () => {
+      const agent = await loginAs(userAdminId);
+      const variant = await freshVariant(productId, 'tender-rollback');
+      await setPrice(agent, priceListId, variant, '10');
+      await inventoryService.createInitialBalance(
+        { userId: userAdminId, companyId: companyAId, tenantId },
+        { warehouseId, lines: [{ productVariantId: variant, quantity: '1' }] },
+      );
+      const { body } = await draftSale(agent, {
+        lines: [
+          { productVariantId: variant, quantity: '5', discountPercentage: '0' },
+        ],
+      });
+      const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+
+      const res = await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ tender: { method: 'CASH', amountReceived: '100' } });
+      expect(res.status).toBe(409); // INSUFFICIENT_STOCK
+
+      const reloaded = await agent
+        .get(`/api/v1/sales/${saleId}`)
+        .set(COMPANY_ID_HEADER, companyAId);
+      expect(
+        (reloaded.body as { salesDocument: SaleBody }).salesDocument.status,
+      ).toBe('DRAFT');
+      const tenderRow = await prisma.salesTender.findUnique({
+        where: { salesDocumentId: saleId },
+      });
+      expect(tenderRow).toBeNull();
+    });
+
+    it('company isolation: a tender created in company A is not reachable scoped to company B', async () => {
+      const agent = await loginAs(userAdminId);
+      const { body } = await confirmableDraft(agent);
+      const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+      await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ tender: { method: 'CASH', amountReceived: '200' } });
+
+      const crossCompany = await agent
+        .get(`/api/v1/sales/${saleId}`)
+        .set(COMPANY_ID_HEADER, companyBId);
+      expect(crossCompany.status).toBe(404);
     });
   });
 

@@ -54,13 +54,19 @@ shared rules, then come back here for detail.
   DRAFT/CONFIRMED/CANCELLED state machine, price snapshotting via
   PricingService, atomic + idempotent confirmation and inventory
   decrement via InventoryService, permissions, audit, Gestión's
-  `/ventas`, and what's deferred (fiscal invoicing, AR, POS, ...).
+  `/ventas`, and what's deferred (fiscal invoicing, AR, ...).
 - [facturacion.md](facturacion.md) — the Facturación MVP: a fast
   operational sales UI over the exact same Sales domain sales.md
   describes (zero new endpoints/tables), customer/product/barcode
   lookup, pricing/inventory integration, draft/confirm lifecycle,
   keyboard shortcuts, permissions, company isolation, and current
-  limitations (POS, payments, fiscal invoicing, ... still deferred).
+  limitations (payments, fiscal invoicing, ... still deferred).
+- [pos.md](pos.md) — POS mode inside Facturación: the same Sales domain
+  and shared infrastructure, plus its one new concept — an optional,
+  purely operational `SalesTender` on confirm (cash/card/transfer/other,
+  never a Treasury/AR ledger). Keyboard-first checkout flow, payment
+  panel, company isolation, Gestión integration, and current limitations
+  (cash drawer, payment gateways, refunds, ... still deferred).
 
 ## Product direction
 

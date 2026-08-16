@@ -206,3 +206,12 @@ export const SalesDocumentStatus = {
   CANCELLED: 'CANCELLED',
 } as const;
 export type SalesDocumentStatus = (typeof SalesDocumentStatus)[keyof typeof SalesDocumentStatus];
+
+/** Operational payment method captured at checkout — see docs/pos.md. Purely descriptive; no payment gateway/bank integration behind any of these. */
+export const SalesTenderMethod = {
+  CASH: 'CASH',
+  CARD: 'CARD',
+  TRANSFER: 'TRANSFER',
+  OTHER: 'OTHER',
+} as const;
+export type SalesTenderMethod = (typeof SalesTenderMethod)[keyof typeof SalesTenderMethod];

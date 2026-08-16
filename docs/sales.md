@@ -352,22 +352,27 @@ exist yet.
 `Producto` and `Cliente` detail pages do **not** gain a sales tab in this
 task — kept out of scope per the task's own instruction to stay focused.
 
-## Facturación / future POS
+## Facturación / POS
 
-Facturación (Prompt #11) now has a real sales UI — see
-[facturacion.md](facturacion.md) — and calls the exact same `SalesService`
-methods this document describes (create/confirm/cancel a
-`SalesDocument`), not a parallel implementation. POS mode (Prompt #12,
-not yet implemented) will do the same.
+Facturación (Prompt #11) and its POS mode (Prompt #12) both have real
+sales UIs — see [facturacion.md](facturacion.md) and [pos.md](pos.md) —
+and call the exact same `SalesService` methods this document describes
+(create/confirm/cancel a `SalesDocument`), not a parallel implementation.
+POS's one addition is an optional `tender` on `confirm()` — see pos.md's
+"Payment / tender" for the full model; it is explicitly an operational
+payment snapshot, never a Treasury/AR ledger, and this document's own
+invariants (price snapshot, atomic + idempotent confirm, one sales
+domain) all still hold unchanged.
 
 ## Deferred
 
 Out of scope for this task, intentionally: customer account
-movements/receivables/balance/credit, payment methods and collections,
-fiscal invoices (ARCA/CAE/invoice numbering), credit notes, debit notes,
-delivery notes, sales quotes, sales orders, a customer account ledger,
-accounts receivable, payment terms, credit limit enforcement, salesperson
-commissions, a POS UI/cash register/card processing, promotions,
+movements/receivables/balance/credit, payment collections beyond the
+operational `SalesTender` snapshot (see pos.md), fiscal invoices
+(ARCA/CAE/invoice numbering), credit notes, debit notes, delivery notes,
+sales quotes, sales orders, a customer account ledger, accounts
+receivable, payment terms, credit limit enforcement, salesperson
+commissions, a cash register/card-terminal integration, promotions,
 customer-specific pricing, tax/VAT calculation, accounting entries,
 profitability/margin display, sales returns, and reversing a confirmed
 sale's inventory effect (a `CONFIRMED → CANCELLED` transition does not

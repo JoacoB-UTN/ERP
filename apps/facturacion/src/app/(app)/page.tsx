@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { Plus, Zap } from 'lucide-react';
 import { usePermissions } from '@/lib/auth-client';
 import { RecentSalesList } from '@/components/ventas/recent-sales-list';
 import { buttonVariants } from '@/components/ui/button';
@@ -22,10 +22,16 @@ export default function FacturacionHomePage() {
           <p className="text-sm text-muted-foreground">Vendé rápido: cliente, producto, confirmar.</p>
         </div>
         {!isLoading && can('sales.documents.create') && (
-          <Link href="/ventas/nueva" className={buttonVariants({ size: 'lg' })}>
-            <Plus className="size-4" />
-            Nueva venta
-          </Link>
+          <div className="flex gap-2">
+            <Link href="/ventas/nueva" className={buttonVariants({ size: 'lg' })}>
+              <Plus className="size-4" />
+              Nueva venta
+            </Link>
+            <Link href="/pos" className={buttonVariants({ size: 'lg', variant: 'outline' })}>
+              <Zap className="size-4" />
+              POS
+            </Link>
+          </div>
         )}
       </div>
 

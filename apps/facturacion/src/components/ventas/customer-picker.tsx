@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { formatCuit, customerTaxConditionLabel } from '@erp/shared';
 import type { CustomerLookupItem } from '@erp/shared';
@@ -14,6 +14,11 @@ export interface CustomerPickerSelection {
   code: string;
   taxId: string | null;
   taxCondition: string | null;
+}
+
+export interface CustomerPickerHandle {
+  /** No-op while a customer is already selected (search input isn't rendered then) — see POS's F2 handler, which clears first. */
+  focus: () => void;
 }
 
 function toSelection(item: CustomerLookupItem): CustomerPickerSelection {
@@ -32,19 +37,17 @@ function toSelection(item: CustomerLookupItem): CustomerPickerSelection {
  * a customer collapses the search into a compact summary card, never a
  * full customer administration form (that's Gestión's job).
  */
-export function CustomerPicker({
-  value,
-  onSelect,
-  onClear,
-  autoFocus,
-}: {
+export const CustomerPicker = forwardRef<CustomerPickerHandle, {
   value: CustomerPickerSelection | null;
   onSelect: (selection: CustomerPickerSelection) => void;
   onClear: () => void;
   autoFocus?: boolean;
-}) {
+}>(function CustomerPicker({ value, onSelect, onClear, autoFocus }, ref) {
   const [term, setTerm] = useState('');
   const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }));
 
   const lookupQuery = useCustomerLookup({ search: term.trim() || undefined, limit: 8 }, { enabled: term.trim().length > 0 });
   const items = lookupQuery.data?.items ?? [];
@@ -70,6 +73,7 @@ export function CustomerPicker({
   return (
     <div className="relative">
       <Input
+        ref={inputRef}
         autoFocus={autoFocus}
         value={term}
         onChange={(e) => {
@@ -122,4 +126,4 @@ export function CustomerPicker({
       )}
     </div>
   );
-}
+});
