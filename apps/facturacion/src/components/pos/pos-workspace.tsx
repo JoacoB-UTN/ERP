@@ -23,6 +23,7 @@ import { saleErrorMessage } from '@/components/ventas/ventas-errors';
 import { PrintReceipt } from '@/components/ventas/print-receipt';
 import { PosCart } from './pos-cart';
 import { PaymentPanel } from './payment-panel';
+import { resolvePosKeydownAction } from './pos-keyboard';
 
 /**
  * POS mode — a specialized, ultra-fast checkout screen inside Facturación
@@ -69,6 +70,10 @@ export function PosWorkspace() {
   const searchRef = useRef<ProductSearchHandle>(null);
   const customerRef = useRef<CustomerPickerHandle>(null);
   const companyRef = useRef<string | null>(companyId);
+  // Holds the current render's keydown closure — see the keyboard-shortcut
+  // effects below for why this exists (fixes a stale-closure bug found
+  // during external review).
+  const keydownHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
 
   const currencyCode = activePriceList?.currencyCode ?? null;
 
@@ -110,45 +115,65 @@ export function PosWorkspace() {
     if (ready) searchRef.current?.focus();
   }, [ready]);
 
+  // Re-derived after every render (no dependency array) so the handler
+  // always closes over the LATEST customer/lines/checkout state. The
+  // previous version kept a single handler alive across renders and only
+  // rebuilt it when `lines.length` (used as a cheap proxy for "the cart
+  // changed") changed — but bumping a line's quantity with +/- changes
+  // `lines` without changing its length, so F10 could fire a
+  // `handleOpenCheckout` closure that still saw the OLD quantity. Tracking
+  // every piece of state `handleOpenCheckout`/`persistDraft` touch
+  // (customer, lines, warehouse, price list, savedSaleId, ...) as explicit
+  // effect deps would be fragile and easy to under-specify again; instead
+  // the actual DOM listener (bound once, below) always calls through this
+  // ref, which this effect keeps pointed at a fresh closure on every
+  // render — there is no dependency array to get wrong.
   useEffect(() => {
-    function canOpenCheckout() {
-      return canConfirm && !successSale && customer !== null && lines.length > 0 && !checkoutOpen && !openingCheckout;
-    }
-    function handler(e: KeyboardEvent) {
+    keydownHandlerRef.current = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      const inField = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+      const action = resolvePosKeydownAction({
+        key: e.key,
+        inField: target.tagName === 'INPUT' || target.tagName === 'TEXTAREA',
+        // The payment dialog owns keyboard interaction while it's open,
+        // opening, or confirming — global shortcuts must not reach the
+        // customer/cart behind it.
+        modalActive: checkoutOpen || openingCheckout || confirming,
+        hasActiveKey: activeKey !== null,
+        canOpenCheckout: canConfirm && !successSale && customer !== null && lines.length > 0,
+      });
+      if (!action) return;
+      e.preventDefault();
+      switch (action.type) {
+        case 'toggle-customer':
+          if (customer) {
+            setCustomer(null);
+            setTimeout(() => customerRef.current?.focus(), 0);
+          } else {
+            customerRef.current?.focus();
+          }
+          break;
+        case 'open-checkout':
+          void handleOpenCheckout();
+          break;
+        case 'bump-quantity':
+          if (activeKey) bumpQuantity(activeKey, action.delta);
+          break;
+        case 'remove-line':
+          if (activeKey) removeLine(activeKey);
+          break;
+      }
+    };
+  });
 
-      if (e.key === 'F2') {
-        e.preventDefault();
-        if (customer) {
-          setCustomer(null);
-          setTimeout(() => customerRef.current?.focus(), 0);
-        } else {
-          customerRef.current?.focus();
-        }
-        return;
-      }
-      if (e.key === 'F10') {
-        e.preventDefault();
-        if (canOpenCheckout()) void handleOpenCheckout();
-        return;
-      }
-      if (inField) return; // never hijack normal typing in the search/customer inputs
-      if (e.key === '+' && activeKey) {
-        e.preventDefault();
-        bumpQuantity(activeKey, 1);
-      } else if (e.key === '-' && activeKey) {
-        e.preventDefault();
-        bumpQuantity(activeKey, -1);
-      } else if (e.key === 'Delete' && activeKey) {
-        e.preventDefault();
-        removeLine(activeKey);
-      }
+  // Bound exactly once — dispatches to whatever `keydownHandlerRef` points
+  // at, which is always this render's freshest closure (see above).
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      keydownHandlerRef.current(e);
     }
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customer, activeKey, lines.length, canConfirm, successSale, checkoutOpen, openingCheckout]);
+  }, []);
 
   function addLine(selection: ProductSearchSelection) {
     setLines((prev) => {
