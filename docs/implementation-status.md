@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last verified: 2026-08-16, after Prompt #10 (Demo Sales Core) — against
+Last verified: 2026-08-16, after Prompt #11 (Facturación MVP) — against
 the code, migrations, and test suite in this repository, not against
 prior chat history or documentation intent.
 
@@ -65,9 +65,9 @@ into Roles, Auth, Customers, Products, Warehouses, Inventory
 CustomerCategory, CUIT/document validation, code sequencing, search,
 history. Gestión: `/clientes` list/create/detail/edit. No Facturación
 customer administration UI (by design — see
-[product-ui-principles.md](product-ui-principles.md)); a lightweight
-`GET /customers/lookup` exists for a future Facturación selector but is
-not yet consumed by Facturación. Covered by `customers.e2e-spec.ts`.
+[product-ui-principles.md](product-ui-principles.md)); `GET
+/customers/lookup` is now consumed by Facturación's `CustomerPicker` (see
+[facturacion.md](facturacion.md)). Covered by `customers.e2e-spec.ts`.
 
 ### Products
 **Status: DONE**
@@ -75,8 +75,10 @@ not yet consumed by Facturación. Covered by `customers.e2e-spec.ts`.
 covered under Inventory below for the stock side). Product/
 ProductVariant/ProductCode/ProductCategory/Brand/UnitOfMeasure. Gestión:
 `/productos` list/create/detail/edit + categorías/marcas/unidades. `GET
-/products/lookup` exists for a future Facturación/POS selector but is
-not yet consumed by Facturación. Covered by `products.e2e-spec.ts`.
+/products/lookup` still has no caller — Facturación's product search uses
+`GET /inventory/lookup` instead (see [facturacion.md](facturacion.md)),
+since it already returns warehouse-scoped availability alongside product
+identity in one call. Covered by `products.e2e-spec.ts`.
 
 ### Inventory
 **Status: DONE**
@@ -84,10 +86,10 @@ not yet consumed by Facturación. Covered by `products.e2e-spec.ts`.
 `InventoryBalance` projection, `StockReservation` (service-level only —
 no public API yet, see below), `StockAdjustment` (draft/confirm/cancel).
 Gestión: `/stock` (Existencias/Movimientos/Ajustes/Depósitos + Carga
-inicial). Facturación: warehouse-selection **foundation only** (selector
-in the top bar; no stock-aware sale flow exists there yet — see Sales
-below for the one place a sale currently *does* move stock, from
-Gestión). Covered by `inventory.e2e-spec.ts` (concurrency,
+inicial). Facturación: the warehouse selector now drives a real
+stock-aware sale flow (`GET /inventory/lookup` for product search +
+availability — see [facturacion.md](facturacion.md)) in addition to
+Gestión's own sale flow. Covered by `inventory.e2e-spec.ts` (concurrency,
 reconciliation/rebuild, negative-stock policy) and `sales.e2e-spec.ts`
 (the `SALE` movement type, added by Prompt #10).
 
@@ -103,9 +105,11 @@ reservation — there's no sales flow yet to reserve stock for.
 (recursive, cycle-safe), bulk adjustment (preview/confirm), Decimal-safe
 arithmetic. Gestión: `/listas-de-precios` list/create/detail (fixed price
 table + derived read-only view), bulk update UI, per-variant price
-history, Product detail "Precios" tab. Facturación: price-list-selection
-**foundation only** (selector in the top bar; no sale/cart consumes it
-yet). Covered by `pricing.e2e-spec.ts`.
+history, Product detail "Precios" tab. Facturación: the price-list
+selector now drives real cart pricing (`POST /pricing/lookup/batch`,
+batched across the search results and cart lines — see
+[facturacion.md](facturacion.md)), including a reprice-and-notify on
+price-list change. Covered by `pricing.e2e-spec.ts`.
 
 ### Sales (demo core)
 **Status: DONE — demo core only, see [sales.md](sales.md) for the exact
@@ -115,19 +119,46 @@ invoice), DRAFT/CONFIRMED/CANCELLED state machine, atomic + idempotent
 confirmation, price snapshotting via `PricingService`, inventory
 decrement via a new `InventoryService.applySaleLine` (SERVICE lines
 never move stock). Gestión: `/ventas` list/nueva/detail/editar, with live
-price + availability lookup while building a draft. No Facturación sales
-UI yet (that's a later task — Facturación will call this same
-`SalesService`, not a parallel implementation). Covered by
-`sales.e2e-spec.ts` (pricing snapshot, inventory effect, confirmation
-atomicity, idempotent confirm, status transitions, decimal precision,
-company isolation, all 5 permission codes).
+price + availability lookup while building a draft. Facturación
+(Prompt #11) now has its own sales UI calling this exact same
+`SalesService` — see Facturación below and
+[facturacion.md](facturacion.md). Covered by `sales.e2e-spec.ts` (pricing
+snapshot, inventory effect, confirmation atomicity, idempotent confirm,
+status transitions, decimal precision, company isolation, all 5
+permission codes).
 
 Explicitly NOT implemented as part of this: customer account/
 receivables, payment methods, fiscal invoices/ARCA/CAE, credit notes,
 delivery notes, sales quotes/orders, tax calculation, POS UI, or
 reversing a confirmed sale — see sales.md's "Deferred" section for the
-full list. Do not read "Sales: DONE" as "Facturación MVP: DONE" — the
-next roadmap milestone is exactly that gap.
+full list.
+
+### Facturación MVP
+**Status: DONE — MVP scope only, see [facturacion.md](facturacion.md) for
+the exact scope.** `apps/facturacion/src/app/(app)/ventas/*` +
+`src/components/ventas`. A real operational sale workflow — customer
+search, product search/barcode-scan with live price and availability,
+cart with editable quantity/discount, save-draft and confirm — built
+entirely on Prompt #10's `SalesService` with **zero new backend
+endpoints, zero new Sales tables**. `/ventas/nueva` (new sale),
+`/ventas/:id` (draft edit or confirmed/cancelled read-only detail),
+`/ventas` (recent sales + drafts, status filter), plus a "Nueva
+venta"/"Ventas recientes" home page. Manually verified: full golden-path
+demo (search → price/stock → add → discount → save draft → confirm →
+stock decremented → visible in Gestión → Ventas with matching
+`StockMovement`), barcode exact-match add, a mixed PRODUCT+SERVICE sale
+(SERVICE line priced and totaled but generates no `StockMovement`), and
+company-switch isolation (cart/customer cleared, no cross-company data
+visible). Not covered by a dedicated Facturación e2e spec — see "Explicitly
+NOT implemented" below for why, and `apps/facturacion/src/components/ventas/*.test.ts`
+(Vitest) for the new unit coverage this task added.
+
+Explicitly NOT implemented as part of this: POS mode, payment methods,
+customer balances/AR, treasury, fiscal invoices/ARCA/CAE, credit/debit
+notes, delivery notes, sales orders/quotes, returns, reversing a
+confirmed sale, tax/VAT calculation, promotions/customer-specific
+pricing, sales commissions, accounting entries, offline sync — see
+facturacion.md's "Current limitations" for the full list.
 
 ## Foundation-only (deliberately incomplete)
 
@@ -136,12 +167,6 @@ next roadmap milestone is exactly that gap.
 module above has a real Gestión UI. No sales/purchases/treasury/
 accounting/reporting UI exists yet because those backend modules don't
 exist yet either.
-
-### Facturación (as a product)
-**Status: FOUNDATION ONLY.** Session/company/branch/warehouse/price-list
-context is fully wired (selectors, isolation, re-validation). No sale,
-invoice, cart, checkout, or payment flow of any kind exists. The
-authenticated home page is a placeholder.
 
 ### POS
 **Status: NOT IMPLEMENTED.** POS is designed to be an operating mode
@@ -154,10 +179,11 @@ future mode switch.
 
 ### Fiscal invoicing, sales orders/quotes, credit/debit notes, delivery notes
 **Status: NOT IMPLEMENTED.** The demo `SalesDocument`/`SALE` core exists
-(see Sales above) but no `SalesOrder`/`SalesQuote`/fiscal `Invoice`/
-`CreditNote`/`DebitNote`/`DeliveryNote` model, service, or route exists.
-No cart or checkout flow, no Facturación sales UI. This is the top
-roadmap priority — see [roadmap.md](roadmap.md).
+(see Sales above) and both Gestión and Facturación can build/confirm one,
+but no `SalesOrder`/`SalesQuote`/fiscal `Invoice`/`CreditNote`/`DebitNote`/
+`DeliveryNote` model, service, or route exists anywhere. See
+[roadmap.md](roadmap.md) for what comes next (POS mode, then end-to-end
+hardening) before any of these.
 
 ### Purchases
 **Status: NOT IMPLEMENTED.** No `Supplier`/`PurchaseOrder`/`GoodsReceipt`
@@ -194,10 +220,10 @@ beyond the placeholder Gestión home page.
   started) for the domains that are still genuinely unimplemented. Not
   cleaned up as part of Prompt #9.5 (organizational task, no code
   changes).
-- **`Customer.lookup` and `Product.lookup` are unused.** Both exist as
-  lightweight endpoints intended for a future Facturación selector, but
-  Facturación doesn't call either yet — there's no sale flow to need
-  them for.
+- **`Product.lookup` is still unused.** `Customer.lookup` is now consumed
+  by Facturación's `CustomerPicker`; `Product.lookup` remains uncalled by
+  either frontend — Facturación's product search uses `GET
+  /inventory/lookup` instead (see facturacion.md).
 - **`StockReservation` has no public API.** Service-level only (see
   Inventory above).
 - **No GitHub remote existed and no commit history existed past the
@@ -208,12 +234,12 @@ beyond the placeholder Gestión home page.
 
 ## Next recommended milestone
 
-The demonstrable vertical slice described here previously (Gestión →
-create customer/product/stock/price → confirm a sale → inventory
-changes → visible back in Gestión) is now implemented, entirely from
-Gestión — see Sales above and [sales.md](sales.md). The next milestone is
-giving Facturación an actual sales UI that calls the same `SalesService`
-(Prompt #11 — Facturación MVP), followed by POS mode (Prompt #12) and
+The demonstrable vertical slice (create customer/product/stock/price →
+select customer/product → confirm a sale → inventory changes → visible
+back in Gestión) is now implemented from **both** Gestión and Facturación
+— see Sales and Facturación MVP above, [sales.md](sales.md), and
+[facturacion.md](facturacion.md). The next milestone is POS mode
+(Prompt #12), an operating mode inside Facturación, followed by
 end-to-end hardening (Prompt #13), before any advanced ERP module
 (accounting, fiscal, treasury). See [roadmap.md](roadmap.md) for the full
 milestone breakdown.

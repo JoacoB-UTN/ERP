@@ -354,11 +354,11 @@ task — kept out of scope per the task's own instruction to stay focused.
 
 ## Facturación / future POS
 
-This task does **not** implement a Facturación sales UI — that's a later
-task. Facturación will call the **same** `SalesService` methods this
-document describes (create/confirm/cancel a `SalesDocument`), not a
-parallel implementation; POS mode will do the same. Facturación remains
-visually unchanged by this task.
+Facturación (Prompt #11) now has a real sales UI — see
+[facturacion.md](facturacion.md) — and calls the exact same `SalesService`
+methods this document describes (create/confirm/cancel a
+`SalesDocument`), not a parallel implementation. POS mode (Prompt #12,
+not yet implemented) will do the same.
 
 ## Deferred
 

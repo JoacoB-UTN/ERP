@@ -264,7 +264,7 @@ future ledger, never a stored column).
 | Endpoint | Permission | Notes |
 | --- | --- | --- |
 | `GET /customers` | `customers.read` | Paginated, searchable, filterable |
-| `GET /customers/lookup` | `customers.read` | Lightweight — future Facturación selector |
+| `GET /customers/lookup` | `customers.read` | Lightweight — backs Facturación's `CustomerPicker` |
 | `GET/PATCH /customers/:id` | `customers.read`/`update` | |
 | `GET /customers/:id/history` | `customers.read` | Customer-scoped audit history |
 | `POST /customers` | `customers.create` | Nested addresses/contacts/categories, atomic |
@@ -287,7 +287,7 @@ live.
 | Endpoint | Permission | Notes |
 | --- | --- | --- |
 | `GET /products` | `products.read` | Paginated, searchable, filterable |
-| `GET /products/lookup` | `products.read` | Sellable-variant granularity — future Facturación/POS selector |
+| `GET /products/lookup` | `products.read` | Sellable-variant granularity — still unused; Facturación's product search uses `/inventory/lookup` instead (also returns availability) |
 | `GET/PATCH /products/:id` | `products.read`/`update` | |
 | `GET /products/:id/history` | `products.read` | Product-scoped audit history |
 | `POST /products` | `products.create` | Nested variants/codes, atomic |
@@ -312,15 +312,15 @@ adjustments (draft/confirm/cancel).
 | `POST/PATCH /warehouses` | `inventory.warehouses.create`/`update` | |
 | `POST /warehouses/:id/(de)activate` | `inventory.warehouses.deactivate` | Rejected while stock/reservations remain |
 | `GET /inventory/stock` | `inventory.stock.read` | Físico/Reservado/Disponible, paginated/filterable |
-| `GET /inventory/lookup` | `inventory.stock.read` | Future Facturación/POS selector |
+| `GET /inventory/lookup` | `inventory.stock.read` | Backs Facturación's product search (name/SKU/barcode + price + availability) |
 | `POST /inventory/initial-balance` | `inventory.initial-balance.create` | One-time per variant+warehouse |
 | `GET /inventory/movements` | `inventory.movements.read` | Immutable ledger, read-only |
 | `GET/POST /inventory/adjustments` | `inventory.adjustments.read`/`create` | Draft; only `/confirm` moves stock |
 | `POST /inventory/adjustments/:id/confirm` | `inventory.adjustments.confirm` | Separate permission — the one action that moves stock |
 
 In Gestión, go to **Stock** (Existencias/Movimientos/Ajustes/Depósitos).
-Facturación has a warehouse-selection **foundation only** — a selector in
-the top bar, no stock-aware sale flow yet — see docs/inventory.md.
+Facturación's warehouse selector now drives a real stock-aware sale flow
+— see docs/facturacion.md.
 
 ## Pricing
 
@@ -342,9 +342,8 @@ distinct from `AuditLog`.
 | `GET /pricing/lookup` | `pricing.prices.read` | Never returns 0 for a missing price |
 | `GET /pricing/products/:productId/prices` | `pricing.prices.read` | Backs Product detail's "Precios" tab |
 
-In Gestión, go to **Listas de precios**. Facturación has a price-list
-selection **foundation only** — a selector in the top bar, no sale/cart
-consumes it yet — see docs/pricing.md.
+In Gestión, go to **Listas de precios**. Facturación's price-list
+selector now drives real cart pricing — see docs/facturacion.md.
 
 ## Sales (demo core)
 
@@ -364,9 +363,9 @@ one transaction updates status, deducts inventory-tracked lines through
 | `POST /sales/:id/confirm` | `sales.documents.confirm` | DRAFT only, transactional, idempotent |
 | `POST /sales/:id/cancel` | `sales.documents.cancel` | DRAFT only, no inventory effect |
 
-In Gestión, go to **Ventas**. No Facturación sales UI exists yet —
-Facturación/POS will call this same `SalesService`, not a parallel
-implementation — see docs/sales.md.
+In Gestión, go to **Ventas**. Facturación's `/ventas/nueva` calls this
+exact same `SalesService`, not a parallel implementation — see
+docs/facturacion.md. POS (not yet implemented) will do the same.
 
 ## Development
 
