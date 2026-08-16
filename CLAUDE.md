@@ -96,3 +96,15 @@ edits a historical `PriceListItem` row in place — it creates a new row +
 documented auto-close rule. `PRICE_LIST_CYCLE` is rejected at write time
 in `PriceListsService`; a DERIVED list's price is always computed at read
 time from its base, never materialized.
+
+## Sales (demo core — SalesDocument)
+
+[docs/sales.md](docs/sales.md). One document type (`SALE`) — not a fiscal
+invoice. `SalesService.confirm()` is the one place both a `StockMovement`
+(via `InventoryService.applySaleLine`) and the `CONFIRMED` status change
+happen, inside one `$transaction`; the status flip is a conditional
+`UPDATE ... WHERE status = 'DRAFT'` done first, so a concurrent or
+retried confirm never double-deducts stock. Every line's `unitPrice`/
+`description` is resolved once through `PricingService` and stored as a
+snapshot on `SalesDocumentLine` — never re-read live. Facturación/POS
+must call `SalesService`, never a parallel sales model.

@@ -1078,6 +1078,56 @@ export class InventoryService {
     });
   }
 
+  /**
+   * Exposed for SalesService — see sales.service.ts and docs/sales.md.
+   * Always an OUT movement (`movementType: 'SALE'`), unlike
+   * applyAdjustmentLine's signed in/out — a sale line only ever removes
+   * stock in this task (no returns yet). Returns null (no movement, no
+   * balance change) for a line whose product doesn't track inventory —
+   * e.g. a SERVICE line — per the sales spec's non-inventory-item rule.
+   */
+  async applySaleLine(
+    tx: Prisma.TransactionClient,
+    ctx: RequestContext,
+    params: {
+      warehouse: Warehouse;
+      productVariantId: string;
+      quantity: string;
+      referenceType: string;
+      referenceId: string;
+      occurredAt: Date;
+    },
+  ): Promise<StockMovement | null> {
+    const variant = await this.loadVariantContext(
+      ctx.companyId,
+      params.productVariantId,
+    );
+    if (!variant.product.trackInventory) return null;
+    if (
+      exceedsDecimalPrecision(
+        params.quantity,
+        variant.product.baseUnit.decimalPlaces,
+      )
+    ) {
+      throw new InvalidQuantityPrecisionException(
+        variant.product.baseUnit.name,
+        variant.product.baseUnit.decimalPlaces,
+      );
+    }
+    const outboundQuantity = new Prisma.Decimal(params.quantity)
+      .neg()
+      .toString();
+    return this.applyMovement(tx, ctx, {
+      warehouse: params.warehouse,
+      variant,
+      movementType: 'SALE',
+      quantity: outboundQuantity,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      occurredAt: params.occurredAt,
+    });
+  }
+
   /** Exposed for WarehousesService/StockAdjustmentsService company-scoped warehouse loading — avoids a second, slightly different query implementation elsewhere. */
   async loadWarehouse(
     companyId: string,

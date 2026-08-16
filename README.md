@@ -4,10 +4,11 @@ A multi-tenant, multi-company ERP platform with two frontend products —
 **Gestión** (backoffice) and **Facturación** (fast operational sales,
 with a future POS mode) — sharing one backend, one database, and one
 domain layer. Authentication, multi-company context, RBAC, audit,
-Customers, Products, Inventory, and Pricing are implemented; Sales,
-Purchases, Treasury, Tax/Fiscal, Accounting, and Reporting are not yet —
-see [docs/implementation-status.md](docs/implementation-status.md) for
-the verified, current state of every module.
+Customers, Products, Inventory, Pricing, and a demo Sales core are
+implemented; fiscal invoicing, Purchases, Treasury, Tax/Fiscal,
+Accounting, and Reporting are not yet — see
+[docs/implementation-status.md](docs/implementation-status.md) for the
+verified, current state of every module.
 
 ## Documentation
 
@@ -345,6 +346,28 @@ In Gestión, go to **Listas de precios**. Facturación has a price-list
 selection **foundation only** — a selector in the top bar, no sale/cart
 consumes it yet — see docs/pricing.md.
 
+## Sales (demo core)
+
+Full architecture: [docs/sales.md](docs/sales.md). An internal
+`SalesDocument`/`SalesDocumentLine` — one document type (`SALE`), NOT a
+fiscal/electronic invoice. DRAFT/CONFIRMED/CANCELLED; a line's price and
+description are resolved once through `PricingService` and snapshotted,
+never re-resolved after the fact. Confirming is atomic and idempotent —
+one transaction updates status, deducts inventory-tracked lines through
+`InventoryService`, and records an audit event, or none of it happens.
+
+| Endpoint | Permission | Notes |
+| --- | --- | --- |
+| `GET/POST /sales` | `sales.documents.read`/`create` | Search by number or customer |
+| `GET /sales/:id` | `sales.documents.read` | |
+| `PATCH /sales/:id` | `sales.documents.update` | DRAFT only |
+| `POST /sales/:id/confirm` | `sales.documents.confirm` | DRAFT only, transactional, idempotent |
+| `POST /sales/:id/cancel` | `sales.documents.cancel` | DRAFT only, no inventory effect |
+
+In Gestión, go to **Ventas**. No Facturación sales UI exists yet —
+Facturación/POS will call this same `SalesService`, not a parallel
+implementation — see docs/sales.md.
+
 ## Development
 
 ```bash
@@ -398,6 +421,7 @@ apps/api/src/
   warehouses/      /warehouses master data — see Inventory above
   inventory/       /inventory/* (stock, movements, adjustments) — see Inventory above
   pricing/         /pricing/* (lists, prices, lookup) — see Pricing above
+  sales/           /sales/* (demo core — SalesDocument) — see Sales above
   common/filters/   Global exception filter (error envelope)
   common/pipes/     ZodValidationPipe
   queue/           README only — BullMQ boundary, not wired up yet
@@ -417,6 +441,7 @@ apps/gestion/src/  and  apps/facturacion/src/
   app/(app)/productos/       Gestión-only: product list/create/detail/edit + categorías/marcas/unidades — see Products above
   app/(app)/stock/           Gestión-only: existencias/movimientos/ajustes/depósitos — see Inventory above
   app/(app)/listas-de-precios/  Gestión-only: price list list/create/detail/bulk-update — see Pricing above
+  app/(app)/ventas/         Gestión-only: sale list/nueva/detail/edit — see Sales above
   components/layout/  app shell (sidebar+header for Gestión, single top bar for Facturación), company/branch/warehouse/price-list selectors, access-denied states
   components/providers/ QueryProvider (TanStack Query)
   components/ui/    shadcn/ui primitives

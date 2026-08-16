@@ -18,6 +18,7 @@ import { ProductsModule } from './products/products.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PricingModule } from './pricing/pricing.module';
+import { SalesModule } from './sales/sales.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 @Module({
@@ -64,6 +65,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
     WarehousesModule,
     InventoryModule,
     PricingModule,
+    SalesModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

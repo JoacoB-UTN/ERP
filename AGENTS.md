@@ -74,6 +74,13 @@ choice.
 - **Products do not own authoritative sale prices.** Sale prices belong
   to `PriceList`/`PriceListItem`/`ProductVariant`, resolved only through
   `PricingService`. A missing price is never silently zero.
+- **A confirmed sale (`SalesDocument`) is immutable through normal
+  editing**, and each confirmed, inventory-tracked line produces a real
+  `StockMovement` (never a hardcoded projection). A line's price/
+  description is a snapshot taken at confirmation time — never
+  re-resolved from the current `Product`/`PriceListItem` afterward. There
+  is one sales domain (`SalesService`); Facturación/POS call it, never
+  duplicate it.
 - **Confirmed financial/inventory transactions are not physically
   deleted.** Corrections are new, reversing entries — never an edit or
   delete of history (`StockMovement`, confirmed `StockAdjustment`,

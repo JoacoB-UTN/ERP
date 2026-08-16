@@ -11,3 +11,4 @@ export * from './customers';
 export * from './products';
 export * from './inventory';
 export * from './pricing';
+export * from './sales';

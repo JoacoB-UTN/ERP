@@ -51,6 +51,7 @@ export const AUDITABLE_ENTITY_TYPES = [
   'Warehouse',
   'StockAdjustment',
   'PriceList',
+  'SalesDocument',
 ] as const;
 export type AuditableEntityType = (typeof AUDITABLE_ENTITY_TYPES)[number];
 
@@ -146,6 +147,7 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   // metadata (see docs/pricing.md), never as their own row — same pattern
   // as ProductVariant — but the label is registered for completeness.
   PriceListItem: 'Precio',
+  SalesDocument: 'Venta',
 };
 
 /** Friendly labels for the fields most likely to show up in before/after diffs. Unknown fields fall back to the raw key (section 50) — no attempt to translate everything. */

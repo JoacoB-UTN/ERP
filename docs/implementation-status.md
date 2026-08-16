@@ -1,8 +1,8 @@
 # Implementation Status
 
-Last verified: 2026-08-16 (against the code, migrations, and test suite in
-this repository — not against prior chat history or documentation
-intent).
+Last verified: 2026-08-16, after Prompt #10 (Demo Sales Core) — against
+the code, migrations, and test suite in this repository, not against
+prior chat history or documentation intent.
 
 This file is authoritative for "what exists right now." If it disagrees
 with a domain doc, the domain doc is stale — fix it. If it disagrees with
@@ -85,9 +85,11 @@ not yet consumed by Facturación. Covered by `products.e2e-spec.ts`.
 no public API yet, see below), `StockAdjustment` (draft/confirm/cancel).
 Gestión: `/stock` (Existencias/Movimientos/Ajustes/Depósitos + Carga
 inicial). Facturación: warehouse-selection **foundation only** (selector
-in the top bar; no stock-aware sale flow exists to use it yet). Covered
-by `inventory.e2e-spec.ts` (concurrency, reconciliation/rebuild,
-negative-stock policy).
+in the top bar; no stock-aware sale flow exists there yet — see Sales
+below for the one place a sale currently *does* move stock, from
+Gestión). Covered by `inventory.e2e-spec.ts` (concurrency,
+reconciliation/rebuild, negative-stock policy) and `sales.e2e-spec.ts`
+(the `SALE` movement type, added by Prompt #10).
 
 Sub-item — **Stock reservations**: **PARTIAL**. `InventoryService.reserve`/
 `release`/`consume` are implemented and tested at the service level, but
@@ -104,6 +106,28 @@ table + derived read-only view), bulk update UI, per-variant price
 history, Product detail "Precios" tab. Facturación: price-list-selection
 **foundation only** (selector in the top bar; no sale/cart consumes it
 yet). Covered by `pricing.e2e-spec.ts`.
+
+### Sales (demo core)
+**Status: DONE — demo core only, see [sales.md](sales.md) for the exact
+scope.** `apps/api/src/sales`. `SalesDocument`/`SalesDocumentLine`
+(document type `SALE` only — an internal transaction, NOT a fiscal
+invoice), DRAFT/CONFIRMED/CANCELLED state machine, atomic + idempotent
+confirmation, price snapshotting via `PricingService`, inventory
+decrement via a new `InventoryService.applySaleLine` (SERVICE lines
+never move stock). Gestión: `/ventas` list/nueva/detail/editar, with live
+price + availability lookup while building a draft. No Facturación sales
+UI yet (that's a later task — Facturación will call this same
+`SalesService`, not a parallel implementation). Covered by
+`sales.e2e-spec.ts` (pricing snapshot, inventory effect, confirmation
+atomicity, idempotent confirm, status transitions, decimal precision,
+company isolation, all 5 permission codes).
+
+Explicitly NOT implemented as part of this: customer account/
+receivables, payment methods, fiscal invoices/ARCA/CAE, credit notes,
+delivery notes, sales quotes/orders, tax calculation, POS UI, or
+reversing a confirmed sale — see sales.md's "Deferred" section for the
+full list. Do not read "Sales: DONE" as "Facturación MVP: DONE" — the
+next roadmap milestone is exactly that gap.
 
 ## Foundation-only (deliberately incomplete)
 
@@ -128,11 +152,12 @@ future mode switch.
 
 ## Not implemented
 
-### Sales
-**Status: NOT IMPLEMENTED.** No `SalesOrder`/`SalesQuote`/`Invoice`/
+### Fiscal invoicing, sales orders/quotes, credit/debit notes, delivery notes
+**Status: NOT IMPLEMENTED.** The demo `SalesDocument`/`SALE` core exists
+(see Sales above) but no `SalesOrder`/`SalesQuote`/fiscal `Invoice`/
 `CreditNote`/`DebitNote`/`DeliveryNote` model, service, or route exists.
-No cart or checkout flow. This is the top roadmap priority — see
-[roadmap.md](roadmap.md).
+No cart or checkout flow, no Facturación sales UI. This is the top
+roadmap priority — see [roadmap.md](roadmap.md).
 
 ### Purchases
 **Status: NOT IMPLEMENTED.** No `Supplier`/`PurchaseOrder`/`GoodsReceipt`
@@ -183,9 +208,12 @@ beyond the placeholder Gestión home page.
 
 ## Next recommended milestone
 
-A demonstrable vertical slice (Gestión → create customer/product/stock/
-price → Facturación → select customer, look up product, see price/stock,
-build and confirm a simulated sale → inventory changes → visible back in
-Gestión), before any advanced ERP module (accounting, fiscal, treasury).
-See [roadmap.md](roadmap.md) for the full milestone breakdown — nothing
-in that roadmap is implemented yet.
+The demonstrable vertical slice described here previously (Gestión →
+create customer/product/stock/price → confirm a sale → inventory
+changes → visible back in Gestión) is now implemented, entirely from
+Gestión — see Sales above and [sales.md](sales.md). The next milestone is
+giving Facturación an actual sales UI that calls the same `SalesService`
+(Prompt #11 — Facturación MVP), followed by POS mode (Prompt #12) and
+end-to-end hardening (Prompt #13), before any advanced ERP module
+(accounting, fiscal, treasury). See [roadmap.md](roadmap.md) for the full
+milestone breakdown.

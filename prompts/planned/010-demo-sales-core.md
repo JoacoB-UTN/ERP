@@ -1,11 +1,11 @@
 # Task 010 — Demo Sales Core
 
-Status: PLANNED
+Status: IN PROGRESS — implementation and verification complete, not yet merged
 Depends on: 009 (Pricing)
-Agent: UNASSIGNED
+Agent: Claude
 Base branch: main
-Branch:
-PR:
+Branch: agent/claude-demo-sales-core
+PR: (not yet opened — see final report for exact push/PR status)
 
 ## Objective
 
@@ -24,16 +24,38 @@ Before making changes:
 - Inspect the current implementation of each — treat repository state as
   source of truth, not this file.
 
-## Acceptance criteria
+## Acceptance criteria (as actually implemented — see docs/sales.md)
 
-Not yet specified in detail — this file is a placeholder for the
-suggested next milestone (see `docs/roadmap.md`), not a ready-to-execute
-task. Before starting, expand this file with a concrete data model,
-API surface, and test plan, following the pattern already established by
-`docs/pricing.md`/`docs/inventory.md` (permanent invariants, Decimal
-safety, company isolation, audit).
+- `SalesDocument`/`SalesDocumentLine`/`SalesDocumentSequence` Prisma
+  models, one document type (`SALE`), DRAFT/CONFIRMED/CANCELLED state
+  machine.
+- Every line's price/description resolved once through `PricingService`
+  and snapshotted — never re-resolved after the fact, including after
+  confirmation.
+- `InventoryService.applySaleLine` — inventory-tracked lines generate a
+  real `StockMovement` (`movementType: 'SALE'`) on confirm; SERVICE/
+  non-tracked lines never do; DRAFT has zero inventory effect.
+- `confirm()` is one atomic transaction (status change + inventory
+  movements + audit) and idempotent under both sequential retry and a
+  genuine concurrent race (conditional `UPDATE ... WHERE status =
+  'DRAFT'` done first).
+- `sales.documents.read/create/update/confirm/cancel` permissions, wired
+  into the existing system roles.
+- `GET/POST /sales`, `GET/PATCH /sales/:id`,
+  `POST /sales/:id/confirm`, `POST /sales/:id/cancel`.
+- Gestión: `/ventas` list/nueva/detail/editar, with live price +
+  availability lookup while building a draft.
+- `apps/api/test/sales.e2e-spec.ts` — 25 tests covering pricing snapshot,
+  inventory effect, confirmation atomicity, idempotent confirm, status
+  transitions, decimal precision, company isolation, and all 5
+  permission codes. Full existing suite (159 e2e + 55 unit) still green.
+- `docs/sales.md` written; `docs/implementation-status.md`,
+  `docs/roadmap.md`, `AGENTS.md`, `CLAUDE.md`, `docs/README.md`, and root
+  `README.md` updated.
 
 ## Out of scope
 
 Full Sales module (quotes, delivery notes, credit/debit notes),
-Accounts Receivable, any UI (that's 011/012), tax/fiscal calculation.
+Accounts Receivable, any Facturación/POS UI (that's 011/012), tax/fiscal
+calculation, confirmed-sale reversal/credit notes. See docs/sales.md's
+"Deferred" section for the complete list.
