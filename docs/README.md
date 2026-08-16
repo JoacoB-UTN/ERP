@@ -1,7 +1,25 @@
 # docs
 
-- [product-ui-principles.md](product-ui-principles.md) — Gestión vs.
-  Facturación, POS as a Facturación mode, shared backend, UX direction.
+Start with [AGENTS.md](../AGENTS.md) at the repository root for the
+shared rules, then come back here for detail.
+
+## Core
+
+- [architecture.md](architecture.md) — stack, repository map, and what
+  owns what, with a high-level diagram.
+- [implementation-status.md](implementation-status.md) — what's actually
+  DONE / PARTIAL / NOT IMPLEMENTED, verified against code. Read this
+  before assuming a module exists.
+- [roadmap.md](roadmap.md) — the demo-first milestone plan and the
+  high-level full-ERP roadmap.
+- [development-workflow.md](development-workflow.md) — real commands
+  (install/dev/test/build/migrate/seed), branch naming, PR/merge
+  strategy.
+- [multi-agent-workflow.md](multi-agent-workflow.md) — how Claude Code,
+  Codex, and humans coordinate parallel work safely.
+
+## Domain modules
+
 - [multi-company-architecture.md](multi-company-architecture.md) —
   tenant/company/branch model, request company context, `X-Company-Id`/
   `X-Branch-Id`, frontend company selection and cache isolation.
@@ -31,5 +49,11 @@
   audit, Gestión's `/listas-de-precios`, and the Facturación price-list
   selection foundation.
 
-More design docs/ADRs will land here as the platform grows (domain module
-contracts, accounting/inventory ledger design, etc.).
+## Product direction
+
+- [product-ui-principles.md](product-ui-principles.md) — Gestión vs.
+  Facturación, POS as a Facturación mode, shared backend, UX direction.
+
+More design docs land here as the platform grows, one file per domain
+module — see [architecture.md](architecture.md) for the pattern to
+follow.

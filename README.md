@@ -1,69 +1,31 @@
 # ERP Platform
 
-Foundation for a multi-company ERP platform, plus production-quality
-authentication and the two-frontend product split. No business domain
-(sales, inventory, purchasing, invoicing, accounting, fiscal integrations)
-is implemented yet; see `CLAUDE.md` for the rules that govern frontend
-product boundaries, and `docs/product-ui-principles.md` for the full UX
-direction.
+A multi-tenant, multi-company ERP platform with two frontend products —
+**Gestión** (backoffice) and **Facturación** (fast operational sales,
+with a future POS mode) — sharing one backend, one database, and one
+domain layer. Authentication, multi-company context, RBAC, audit,
+Customers, Products, Inventory, and Pricing are implemented; Sales,
+Purchases, Treasury, Tax/Fiscal, Accounting, and Reporting are not yet —
+see [docs/implementation-status.md](docs/implementation-status.md) for
+the verified, current state of every module.
+
+## Documentation
+
+Read [AGENTS.md](AGENTS.md) first — it's the shared rules file for every
+coding agent (and human) working in this repository. Then see
+[docs/README.md](docs/README.md) for the full documentation index:
+architecture, implementation status, roadmap, development workflow, and
+the multi-agent collaboration workflow. `CLAUDE.md` supplements
+`AGENTS.md` with Claude Code-specific detail.
 
 ## Architecture
 
 Modular monolith (not microservices) on the backend, split into **two
-separate frontend products** that share the same API/auth/DB/domain layer —
-see `CLAUDE.md` and `docs/product-ui-principles.md` for why, and what must
-never be duplicated between them.
-
-```
-apps/
-  api/            NestJS backend
-  gestion/         Next.js — ERP backoffice ("Gestión")
-  facturacion/     Next.js — fast operational sales app ("Facturación")
-packages/
-  config/          Shared, validated environment schema (Zod)
-  shared/          Framework-agnostic types + Zod schemas shared by all apps
-  auth-client/     Shared TanStack Query auth client (login/me/refresh/logout/…)
-  eslint-config/    Shared ESLint flat config
-  typescript-config/ Shared tsconfig bases
-infrastructure/    Reserved for deployment infra (empty for now)
-docs/              product-ui-principles.md + reserved for future design docs/ADRs
-```
-
-### Backend (`apps/api`)
-
-NestJS + TypeScript + Prisma + PostgreSQL + Redis.
-
-- `src/config` — global, validated env config (`AppConfigModule`). Fails
-  fast (throws at boot) if required variables are missing/invalid.
-- `src/database` — `PrismaService` (global), connects via `@prisma/adapter-pg`.
-- `src/redis` — `RedisService` (global), a plain connection only — no queues
-  yet (see `src/queue/README.md`).
-- `src/health` — `GET /api/v1/health`.
-- `src/auth` — authentication: Argon2id passwords, short-lived JWT access
-  tokens + rotating refresh sessions (`UserSession`), password reset
-  (`PasswordResetToken`), rate limiting, structured security-event logging.
-  See "Authentication" below.
-- `src/common/filters` — global exception filter producing the standard
-  error envelope.
-- `src/modules/*` — one empty, documented folder per future domain module
-  (from `CLAUDE.md`'s "Expected modules" list). No logic lives there yet.
-
-### Frontend: Gestión (`apps/gestion`) and Facturación (`apps/facturacion`)
-
-Both: Next.js (App Router) + TypeScript + Tailwind + shadcn/ui + TanStack
-Query + React Hook Form + Zod, consuming `@erp/auth-client` and
-`@erp/shared` for auth and validation.
-
-- **Gestión** — sidebar + top bar shell, session-gated `(app)` route group,
-  login/forgot-password/reset-password pages. No business modules yet — the
-  authenticated home is a placeholder.
-- **Facturación** — single top-bar shell (deliberately no sidebar — see
-  `docs/product-ui-principles.md`), same auth pages, non-functional
-  "Facturación / POS" mode placeholders in the top bar. No sales flows or
-  POS yet.
-
-Neither app duplicates auth or validation logic — both call the same
-`@erp/auth-client` hooks against the same API.
+separate frontend products** that share the same API/auth/DB/domain
+layer. Full stack, repository map, and a diagram:
+[docs/architecture.md](docs/architecture.md). Product boundary rationale
+and what must never be duplicated between the two frontends:
+[docs/product-ui-principles.md](docs/product-ui-principles.md).
 
 ## Requirements
 
@@ -149,7 +111,10 @@ Models: `Tenant`, `Company`, `Branch`, `User`, `UserCompany`, `UserSession`,
 `AuditLog`, `Customer`, `CustomerAddress`, `CustomerContact`,
 `CustomerCategory`, `CustomerCategoryAssignment`, `CustomerCodeSequence`,
 `Product`, `ProductVariant`, `ProductCode`, `ProductCategory`, `Brand`,
-`UnitOfMeasure`, `ProductCodeSequence` — see `apps/api/prisma/schema.prisma`.
+`UnitOfMeasure`, `ProductCodeSequence`, `Warehouse`, `StockMovement`,
+`InventoryBalance`, `StockReservation`, `StockAdjustment`,
+`StockAdjustmentLine`, `StockAdjustmentSequence`, `Currency`, `PriceList`,
+`PriceListItem`, `PriceHistory` — see `apps/api/prisma/schema.prisma`.
 The seed creates:
 
 - **Demo Organization** (tenant) → **Demo Company**, branches _Casa
@@ -173,6 +138,13 @@ The seed creates:
 - 8 standard units of measure per company, and 4 illustrative products in
   Demo Company (a barcoded simple product, a plain simple product, a
   2-variant product, and a service) — see [docs/products.md](docs/products.md).
+- 2 warehouses (Depósito Central, Depósito Sucursal 2) with initial stock
+  via real `StockMovement` rows in Demo Company — see
+  [docs/inventory.md](docs/inventory.md).
+- 3 global currencies (ARS/USD/EUR) and 3 price lists in Demo Company
+  (Minorista — fixed, predeterminada; Mayorista — derived, -10%;
+  Distribuidor — derived, -15%), with initial prices via real
+  `PriceListItem` rows — see [docs/pricing.md](docs/pricing.md).
 
 The admin user's email/password come from `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`. Idempotent — safe to re-run, and re-running rotates the password if `SEED_ADMIN_PASSWORD` changed.
 
@@ -307,8 +279,9 @@ Facturación by design — see docs/customers.md.
 Full architecture: [docs/products.md](docs/products.md). The second
 business/master-data module — a shared, company-scoped product catalog
 (Product/ProductVariant/ProductCode/ProductCategory/Brand/UnitOfMeasure).
-No stock quantities or authoritative prices yet (see CLAUDE.md — those
-derive from future Inventory/Price List modules, never stored columns).
+`Product` never owns authoritative stock or sale price — see Inventory
+and Pricing below (and CLAUDE.md's invariants) for where those actually
+live.
 
 | Endpoint | Permission | Notes |
 | --- | --- | --- |
@@ -323,6 +296,54 @@ derive from future Inventory/Price List modules, never stored columns).
 
 In Gestión, go to **Productos**. No product administration UI exists in
 Facturación by design — see docs/products.md.
+
+## Inventory
+
+Full architecture: [docs/inventory.md](docs/inventory.md). Ledger-based
+stock — `StockMovement` is the only authoritative source of physical
+inventory, `InventoryBalance` a rebuildable projection. Warehouses,
+reservations (service-level only, no public API yet), and stock
+adjustments (draft/confirm/cancel).
+
+| Endpoint | Permission | Notes |
+| --- | --- | --- |
+| `GET /warehouses` | `inventory.warehouses.read` | |
+| `POST/PATCH /warehouses` | `inventory.warehouses.create`/`update` | |
+| `POST /warehouses/:id/(de)activate` | `inventory.warehouses.deactivate` | Rejected while stock/reservations remain |
+| `GET /inventory/stock` | `inventory.stock.read` | Físico/Reservado/Disponible, paginated/filterable |
+| `GET /inventory/lookup` | `inventory.stock.read` | Future Facturación/POS selector |
+| `POST /inventory/initial-balance` | `inventory.initial-balance.create` | One-time per variant+warehouse |
+| `GET /inventory/movements` | `inventory.movements.read` | Immutable ledger, read-only |
+| `GET/POST /inventory/adjustments` | `inventory.adjustments.read`/`create` | Draft; only `/confirm` moves stock |
+| `POST /inventory/adjustments/:id/confirm` | `inventory.adjustments.confirm` | Separate permission — the one action that moves stock |
+
+In Gestión, go to **Stock** (Existencias/Movimientos/Ajustes/Depósitos).
+Facturación has a warehouse-selection **foundation only** — a selector in
+the top bar, no stock-aware sale flow yet — see docs/inventory.md.
+
+## Pricing
+
+Full architecture: [docs/pricing.md](docs/pricing.md). `Product` never
+owns a sale price — prices belong to `PriceList`/`PriceListItem`,
+resolved through `PricingService`. FIXED lists hold explicit prices;
+DERIVED lists compute from another list + an adjustment, recursively, and
+are never materialized. `PriceHistory` tracks commercial price evolution,
+distinct from `AuditLog`.
+
+| Endpoint | Permission | Notes |
+| --- | --- | --- |
+| `GET/POST /pricing/lists` | `pricing.lists.read`/`create` | |
+| `PATCH /pricing/lists/:id` | `pricing.lists.update` | `pricingMode`/`currencyId` locked after creation |
+| `POST /pricing/lists/:id/(de)activate` | `pricing.lists.deactivate` | |
+| `PUT /pricing/lists/:id/products/:variantId` | `pricing.prices.update` | FIXED lists only |
+| `PUT /pricing/lists/:id/prices` | `pricing.prices.update` | Batch set, transactional |
+| `POST /pricing/lists/:id/bulk-adjust(/preview)` | `pricing.prices.bulk_update` | Preview writes nothing; confirm is transactional |
+| `GET /pricing/lookup` | `pricing.prices.read` | Never returns 0 for a missing price |
+| `GET /pricing/products/:productId/prices` | `pricing.prices.read` | Backs Product detail's "Precios" tab |
+
+In Gestión, go to **Listas de precios**. Facturación has a price-list
+selection **foundation only** — a selector in the top bar, no sale/cart
+consumes it yet — see docs/pricing.md.
 
 ## Development
 
@@ -374,10 +395,15 @@ apps/api/src/
   audit/           AuditService, AuditSanitizer — see Audit trail above
   customers/       /customers + /customer-categories — see Customers above
   products/        /products + /product-categories + /brands + /units — see Products above
+  warehouses/      /warehouses master data — see Inventory above
+  inventory/       /inventory/* (stock, movements, adjustments) — see Inventory above
+  pricing/         /pricing/* (lists, prices, lookup) — see Pricing above
   common/filters/   Global exception filter (error envelope)
   common/pipes/     ZodValidationPipe
   queue/           README only — BullMQ boundary, not wired up yet
-  modules/         One README-only folder per future domain module
+  modules/         Stale — one README-only folder per originally-planned domain;
+                   several now have a real implementation elsewhere in src/
+                   (see docs/implementation-status.md's "known technical debt")
 apps/api/prisma/
   schema.prisma
   seed.ts
@@ -389,8 +415,14 @@ apps/gestion/src/  and  apps/facturacion/src/
   app/(app)/administracion/  Gestión-only: roles list/editor, user list + role assignment, audit list/detail
   app/(app)/clientes/        Gestión-only: customer list/create/detail/edit — see Customers above
   app/(app)/productos/       Gestión-only: product list/create/detail/edit + categorías/marcas/unidades — see Products above
-  components/layout/  app shell (sidebar+header for Gestión, single top bar for Facturación), company/branch selectors, access-denied states
+  app/(app)/stock/           Gestión-only: existencias/movimientos/ajustes/depósitos — see Inventory above
+  app/(app)/listas-de-precios/  Gestión-only: price list list/create/detail/bulk-update — see Pricing above
+  components/layout/  app shell (sidebar+header for Gestión, single top bar for Facturación), company/branch/warehouse/price-list selectors, access-denied states
   components/providers/ QueryProvider (TanStack Query)
   components/ui/    shadcn/ui primitives
   lib/auth-client.ts  thin wrapper around @erp/auth-client for this app
+
+docs/     — see docs/README.md for the full index
+prompts/  — durable task specifications, see prompts/README.md
+.github/  — CI workflow, PR template, issue templates
 ```
