@@ -2,11 +2,11 @@
 
 A multi-tenant, multi-company ERP platform with two frontend products —
 **Gestión** (backoffice) and **Facturación** (fast operational sales,
-with a future POS mode) — sharing one backend, one database, and one
+including a POS mode) — sharing one backend, one database, and one
 domain layer. Authentication, multi-company context, RBAC, audit,
-Customers, Products, Inventory, Pricing, and a demo Sales core are
-implemented; fiscal invoicing, Purchases, Treasury, Tax/Fiscal,
-Accounting, and Reporting are not yet — see
+Customers, Products, Inventory, Pricing, and a demo Sales core (with
+Facturación/POS sales UIs) are implemented; fiscal invoicing, Purchases,
+Treasury, Tax/Fiscal, Accounting, and Reporting are not yet — see
 [docs/implementation-status.md](docs/implementation-status.md) for the
 verified, current state of every module.
 
@@ -360,12 +360,14 @@ one transaction updates status, deducts inventory-tracked lines through
 | `GET/POST /sales` | `sales.documents.read`/`create` | Search by number or customer |
 | `GET /sales/:id` | `sales.documents.read` | |
 | `PATCH /sales/:id` | `sales.documents.update` | DRAFT only |
-| `POST /sales/:id/confirm` | `sales.documents.confirm` | DRAFT only, transactional, idempotent |
+| `POST /sales/:id/confirm` | `sales.documents.confirm` | DRAFT only, transactional, idempotent; optional `{ tender }` body — see docs/pos.md |
 | `POST /sales/:id/cancel` | `sales.documents.cancel` | DRAFT only, no inventory effect |
 
-In Gestión, go to **Ventas**. Facturación's `/ventas/nueva` calls this
-exact same `SalesService`, not a parallel implementation — see
-docs/facturacion.md. POS (not yet implemented) will do the same.
+In Gestión, go to **Ventas**. Facturación's `/ventas/nueva` and POS
+(`/pos`) both call this exact same `SalesService`, not a parallel
+implementation — see docs/facturacion.md and docs/pos.md. POS's `tender`
+is a purely operational payment snapshot (cash/card/transfer/other),
+never a Treasury/AR ledger.
 
 ## Development
 

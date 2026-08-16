@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Pencil, Check, Ban } from 'lucide-react';
-import { formatDecimalDisplay, formatMoney, salesDocumentStatusLabel } from '@erp/shared';
+import { formatDecimalDisplay, formatMoney, salesDocumentStatusLabel, salesTenderMethodLabel } from '@erp/shared';
 import { usePermissions, useSale, useConfirmSale, useCancelSale } from '@/lib/auth-client';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Unauthorized } from '@/components/layout/unauthorized';
@@ -64,7 +64,7 @@ export default function VentaDetailPage() {
     if (!ok) return;
     setActionError(undefined);
     try {
-      await confirmSale.mutateAsync(sale.id);
+      await confirmSale.mutateAsync({ id: sale.id });
     } catch (err) {
       setActionError(saleErrorMessage(err));
     }
@@ -154,6 +154,21 @@ export default function VentaDetailPage() {
                 >
                   Ver movimientos de stock
                 </Link>
+              </dd>
+            </div>
+          )}
+          {sale.tender && (
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">Método de pago</dt>
+              <dd className="mt-0.5">
+                {salesTenderMethodLabel(sale.tender.method)}
+                {sale.tender.amountReceived && sale.tender.change && (
+                  <span className="text-muted-foreground">
+                    {' '}
+                    · Recibido {formatMoney(sale.tender.amountReceived, sale.currencyCode)} · Vuelto{' '}
+                    {formatMoney(sale.tender.change, sale.currencyCode)}
+                  </span>
+                )}
               </dd>
             </div>
           )}

@@ -107,4 +107,7 @@ happen, inside one `$transaction`; the status flip is a conditional
 retried confirm never double-deducts stock. Every line's `unitPrice`/
 `description` is resolved once through `PricingService` and stored as a
 snapshot on `SalesDocumentLine` — never re-read live. Facturación/POS
-must call `SalesService`, never a parallel sales model.
+must call `SalesService`, never a parallel sales model. POS's optional
+`SalesTender` (payment method snapshot) is created inside that same
+`confirm()` transaction — see [docs/pos.md](docs/pos.md) — and is never
+a Treasury/AR write.

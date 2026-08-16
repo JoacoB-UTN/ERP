@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tansta
 import type {
   CreateSaleInput,
   UpdateSaleInput,
+  ConfirmSaleTenderInput,
   SalesListQuery,
   SalesListResponse,
   SalesDetailResponse,
@@ -90,11 +91,19 @@ export function createSalesClient(config: SalesClientConfig) {
     });
   }
 
+  /**
+   * `tender` is optional — a plain Facturación/Gestión confirm omits it;
+   * POS checkout always supplies one (see docs/pos.md).
+   */
   function useConfirmSale() {
     const queryClient = useQueryClient();
     const companyId = useActiveCompanyId();
     return useMutation({
-      mutationFn: (id: string) => apiFetch<SalesDetailResponse>(`/sales/${id}/confirm`, { method: 'POST' }),
+      mutationFn: ({ id, tender }: { id: string; tender?: ConfirmSaleTenderInput }) =>
+        apiFetch<SalesDetailResponse>(`/sales/${id}/confirm`, {
+          method: 'POST',
+          json: tender ? { tender } : undefined,
+        }),
       onSuccess: () => {
         invalidateSales(queryClient, companyId);
         invalidateInventory(queryClient, companyId);

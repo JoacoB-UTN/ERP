@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { SalesDocumentStatus, SalesDocumentType } from './enums';
-import { quantitySchema } from './decimal';
+import { SalesDocumentStatus, SalesDocumentType, SalesTenderMethod } from './enums';
+import { quantitySchema, moneySchema } from './decimal';
 import type { PaginationMeta } from './api';
 
 /**
@@ -71,6 +71,39 @@ export const updateSaleSchema = z.object({
 });
 export type UpdateSaleInput = z.infer<typeof updateSaleSchema>;
 
+// ---------- Confirm (optional payment/tender) ----------
+
+const salesTenderMethodValues = Object.values(SalesTenderMethod) as [
+  SalesTenderMethod,
+  ...SalesTenderMethod[],
+];
+
+/**
+ * Optional payment/tender captured at checkout (POS or a plain
+ * Facturación confirm) — see docs/pos.md. `amountReceived` only ever
+ * applies to CASH; the server always sets `amountApplied` to the sale's
+ * own total (full payment only, no partial/split payments in this MVP)
+ * and computes change at read time — neither is ever accepted from the
+ * client. Omitted entirely, `tender` stays absent on the confirmed sale,
+ * matching today's plain Facturación/Gestión confirm behavior.
+ */
+export const confirmSaleTenderSchema = z
+  .object({
+    method: z.enum(salesTenderMethodValues),
+    amountReceived: moneySchema.optional(),
+    reference: z.string().trim().max(200).optional(),
+  })
+  .refine((v) => v.method === 'CASH' || v.amountReceived === undefined, {
+    message: 'El importe recibido solo aplica a pagos en efectivo.',
+    path: ['amountReceived'],
+  });
+export type ConfirmSaleTenderInput = z.infer<typeof confirmSaleTenderSchema>;
+
+export const confirmSaleSchema = z.object({
+  tender: confirmSaleTenderSchema.optional(),
+});
+export type ConfirmSaleInput = z.infer<typeof confirmSaleSchema>;
+
 // ---------- List query ----------
 
 export const salesListQuerySchema = z.object({
@@ -119,6 +152,22 @@ export interface SalesDocumentSummaryDto {
   createdBy: { id: string; name: string | null } | null;
 }
 
+/**
+ * Read-side view of a confirmed sale's payment/tender — see docs/pos.md.
+ * `change` is computed here (amountReceived - amountApplied for CASH),
+ * never stored, so it can never drift from its inputs. `null` when the
+ * sale was confirmed without a tender (e.g. a plain Facturación/Gestión
+ * draft confirm that never went through POS checkout).
+ */
+export interface SalesTenderDto {
+  method: SalesTenderMethod;
+  amountApplied: string;
+  amountReceived: string | null;
+  change: string | null;
+  reference: string | null;
+  createdAt: string;
+}
+
 export interface SalesDocumentDetailDto extends SalesDocumentSummaryDto {
   branchId: string | null;
   subtotal: string;
@@ -126,6 +175,7 @@ export interface SalesDocumentDetailDto extends SalesDocumentSummaryDto {
   taxTotal: string;
   notes: string | null;
   lines: SalesDocumentLineDto[];
+  tender: SalesTenderDto | null;
   createdAt: string;
   confirmedAt: string | null;
   confirmedBy: { id: string; name: string | null } | null;
@@ -151,4 +201,15 @@ export const SALES_DOCUMENT_STATUS_LABELS: Record<string, string> = {
 
 export function salesDocumentStatusLabel(value: string): string {
   return SALES_DOCUMENT_STATUS_LABELS[value] ?? value;
+}
+
+export const SALES_TENDER_METHOD_LABELS: Record<string, string> = {
+  CASH: 'Efectivo',
+  CARD: 'Tarjeta',
+  TRANSFER: 'Transferencia',
+  OTHER: 'Otro',
+};
+
+export function salesTenderMethodLabel(value: string): string {
+  return SALES_TENDER_METHOD_LABELS[value] ?? value;
 }

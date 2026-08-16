@@ -1,9 +1,10 @@
 # Roadmap
 
 Two layers: a near-term **demo milestone** (a small, real, end-to-end
-vertical slice), and a **full ERP roadmap** kept intentionally
-high-level. See [implementation-status.md](implementation-status.md) for
-what already exists — nothing in this document is implemented yet.
+vertical slice — now complete, see below) and a **full ERP roadmap** kept
+intentionally high-level and NOT yet implemented. See
+[implementation-status.md](implementation-status.md) for the verified,
+current state of every module.
 
 ## Why demo-first
 
@@ -48,17 +49,19 @@ POS mode (inside Facturación)
 Every piece on the Gestión side of that flow already exists (Customers,
 Products, Inventory, Pricing — see implementation-status.md), and the
 sale itself exists (Prompt #10, see [sales.md](sales.md)). The Facturación
-side of the same flow is now implemented too (Prompt #11, see
+side of the same flow is implemented too (Prompt #11, see
 [facturacion.md](facturacion.md)): select customer, search/scan a
 product, see its real price and warehouse availability, build a sale,
 confirm it, watch inventory actually change, see it back in Gestión.
-What's still missing is **POS mode** — a separate operating mode inside
-Facturación for fast counter-sale entry with payment methods — that's
-the actual next milestone.
+**POS mode is now implemented as well** (Prompt #12, see
+[pos.md](pos.md)) — fast counter-sale entry with a payment method
+(cash/card/transfer/other), all inside Facturación, calling the same
+Sales domain. The full demo milestone described above is complete; the
+next milestone is end-to-end hardening (Prompt #13).
 
 ### Suggested upcoming milestones
 
-Planning suggestions only, except #10 and #11 which are now implemented —
+Planning suggestions only, except #10-#12 which are now implemented —
 not committed to this exact scope or order for the rest. See
 `prompts/planned/`/`prompts/completed/` for the actual task record of
 each.
@@ -73,7 +76,12 @@ each.
                                  Customer/product/barcode search, cart, draft/
                                  confirm, calling the SAME SalesService from
                                  #10 — zero new endpoints or tables.
-12  POS MVP                   — fast entry, cart, payment method, confirm (POS mode)
+12  POS MVP                   — DONE (see prompts/completed/, docs/pos.md).
+                                 Keyboard-first checkout mode inside
+                                 Facturación; one new table (SalesTender, an
+                                 operational payment snapshot, never Treasury)
+                                 and one optional field on the existing
+                                 confirm endpoint — still the same SalesService.
 13  End-to-end integration    — hardening across Gestión/Facturación/POS sale
                                  confirmation, pricing resolution, and inventory
                                  effect (mostly integration tests + edge cases,

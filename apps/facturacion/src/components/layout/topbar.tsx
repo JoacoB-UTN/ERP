@@ -13,11 +13,12 @@ import { PriceListSelector } from './price-list-selector';
 
 /**
  * Single top bar, no sidebar — Facturación is a fast, low-navigation
- * operational tool, not a backoffice with deep module trees. The mode
- * pills are non-functional placeholders for the future Facturación/POS
- * split (see docs/product-ui-principles.md). Company (legally/financially
- * significant here) and branch are shown right next to the wordmark so
- * they're never ambiguous — see CLAUDE.md.
+ * operational tool, not a backoffice with deep module trees. Ventas and
+ * POS are both real modes now (see docs/facturacion.md and docs/pos.md) —
+ * POS is a specialized checkout mode inside Facturación, not a separate
+ * app. Company (legally/financially significant here) and branch are
+ * shown right next to the wordmark so they're never ambiguous — see
+ * CLAUDE.md.
  */
 export function Topbar({ userLabel, userEmail }: { userLabel: string; userEmail: string }) {
   const router = useRouter();
@@ -47,7 +48,15 @@ export function Topbar({ userLabel, userEmail }: { userLabel: string; userEmail:
           >
             Ventas
           </Link>
-          <span className="cursor-not-allowed rounded-md px-2.5 py-1 opacity-50">POS</span>
+          <Link
+            href="/pos"
+            className={cn(
+              'rounded-md px-2.5 py-1 font-medium',
+              pathname.startsWith('/pos') ? 'bg-muted text-foreground' : 'hover:text-foreground',
+            )}
+          >
+            POS
+          </Link>
         </nav>
         <span className="h-5 w-px bg-border" />
         <CompanySelector />

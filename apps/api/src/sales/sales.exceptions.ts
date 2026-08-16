@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 
 /**
  * Same "don't reveal existence outside the caller's scope" reasoning used
@@ -53,5 +57,15 @@ export class SalePriceListInvalidException extends ConflictException {
     message = 'La lista de precios seleccionada no es válida para ventas.',
   ) {
     super({ message, code: 'SALE_PRICE_LIST_INVALID' });
+  }
+}
+
+/** A CASH tender's amountReceived was less than the sale total — see docs/pos.md. No partial payment exists in this MVP. */
+export class SaleTenderCashInsufficientException extends BadRequestException {
+  constructor() {
+    super({
+      message: 'Importe insuficiente.',
+      code: 'SALE_TENDER_CASH_INSUFFICIENT',
+    });
   }
 }

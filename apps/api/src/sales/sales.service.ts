@@ -3,6 +3,7 @@ import { Prisma } from '../generated/prisma/client';
 import type {
   SalesDocument,
   SalesDocumentLine,
+  SalesTender,
   ProductVariant,
   Product,
   Warehouse,
@@ -13,11 +14,13 @@ import type {
 import type {
   CreateSaleInput,
   UpdateSaleInput,
+  ConfirmSaleTenderInput,
   SalesListQuery,
   SalesListResponse,
   SalesDocumentDetailDto,
   SalesDocumentSummaryDto,
   SalesDocumentLineDto,
+  SalesTenderDto,
 } from '@erp/shared';
 import { exceedsDecimalPrecision } from '@erp/shared';
 import { PrismaService } from '../database/prisma.service';
@@ -35,6 +38,7 @@ import {
   SaleCustomerInactiveException,
   SaleWarehouseInvalidException,
   SalePriceListInvalidException,
+  SaleTenderCashInsufficientException,
 } from './sales.exceptions';
 
 type VariantWithUnit = ProductVariant & {
@@ -49,6 +53,7 @@ type SaleWithRelations = SalesDocument & {
   priceList: PriceList;
   currency: Currency;
   lines: LineWithVariant[];
+  tender: SalesTender | null;
 };
 
 interface BuiltLine {
@@ -69,6 +74,7 @@ const SALE_INCLUDE = {
   priceList: true,
   currency: true,
   lines: { include: { variant: { include: { product: true } } } },
+  tender: true,
 } satisfies Prisma.SalesDocumentInclude;
 
 /** Per-line arithmetic — see docs/sales.md's documented totals convention. Decimal-safe throughout, never floating point. */
@@ -178,6 +184,21 @@ function toSummary(
   };
 }
 
+/** `change` is derived here, never stored — see docs/pos.md. */
+function toTenderDto(t: SalesTender): SalesTenderDto {
+  const amountReceived = t.amountReceived?.toString() ?? null;
+  return {
+    method: t.method,
+    amountApplied: t.amountApplied.toString(),
+    amountReceived,
+    change: amountReceived
+      ? t.amountReceived!.sub(t.amountApplied).toString()
+      : null,
+    reference: t.reference,
+    createdAt: t.createdAt.toISOString(),
+  };
+}
+
 function toDetail(
   s: SaleWithRelations,
   names: Map<string, string>,
@@ -190,6 +211,7 @@ function toDetail(
     taxTotal: s.taxTotal.toString(),
     notes: s.notes,
     lines: s.lines.map(toLineDto),
+    tender: s.tender ? toTenderDto(s.tender) : null,
     createdAt: s.createdAt.toISOString(),
     confirmedAt: s.confirmedAt?.toISOString() ?? null,
     confirmedBy: s.confirmedBy
@@ -507,15 +529,33 @@ export class SalesService {
    * rows affected and rolls back before ever touching inventory, so stock
    * is deducted exactly once even under a race, not just under sequential
    * retries.
+   *
+   * `tender` is optional — a plain Facturación/Gestión confirm can omit
+   * it entirely (see docs/sales.md), while POS checkout always supplies
+   * one (see docs/pos.md). CASH is validated (amountReceived >= total)
+   * BEFORE the transaction opens, so an insufficient-cash error never
+   * touches the DRAFT->CONFIRMED guard or inventory. The SalesTender row
+   * is created in the SAME transaction as the status change and the
+   * inventory movements — a confirmed sale can never end up without its
+   * tender, and a rolled-back confirm never leaves an orphan tender.
    */
   async confirm(
     ctx: RequestContext,
     id: string,
+    tender?: ConfirmSaleTenderInput,
   ): Promise<SalesDocumentDetailDto> {
     const existing = await this.findScopedOrThrow(ctx.companyId, id);
     if (existing.status === 'CONFIRMED')
       throw new SaleAlreadyConfirmedException();
     if (existing.status !== 'DRAFT') throw new SaleNotEditableException();
+
+    const total = existing.total.toString();
+    if (tender?.method === 'CASH' && tender.amountReceived !== undefined) {
+      // Decimal-safe — never Number() on money, see AGENTS.md and docs/pos.md.
+      if (new Prisma.Decimal(tender.amountReceived).lessThan(total)) {
+        throw new SaleTenderCashInsufficientException();
+      }
+    }
 
     await this.prisma.$transaction(async (tx) => {
       const guarded = await tx.salesDocument.updateMany({
@@ -539,6 +579,24 @@ export class SalesService {
         });
       }
 
+      if (tender) {
+        await tx.salesTender.create({
+          data: {
+            salesDocumentId: existing.id,
+            method: tender.method,
+            // Full payment only in this MVP — amountApplied always equals
+            // the sale's own total, never a client-supplied amount.
+            amountApplied: total,
+            amountReceived:
+              tender.method === 'CASH'
+                ? (tender.amountReceived ?? total)
+                : null,
+            reference: tender.reference ?? null,
+            createdBy: ctx.userId,
+          },
+        });
+      }
+
       await this.auditService.recordFromContext(
         ctx,
         {
@@ -553,6 +611,7 @@ export class SalesService {
             priceListName: existing.priceList.name,
             total: existing.total.toString(),
             lineCount: existing.lines.length,
+            ...(tender ? { tenderMethod: tender.method } : {}),
           },
         },
         tx,

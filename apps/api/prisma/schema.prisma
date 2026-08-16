@@ -1378,6 +1378,17 @@ enum SalesDocumentStatus {
   CANCELLED
 }
 
+/// Operational payment method captured at POS/Facturación checkout — see
+/// docs/pos.md. Purely descriptive of how the customer says they paid;
+/// none of these integrate a real payment rail (no gateway, no card
+/// tokenization, no bank reconciliation).
+enum SalesTenderMethod {
+  CASH
+  CARD
+  TRANSFER
+  OTHER
+}
+
 model SalesDocumentSequence {
   companyId String @id @db.Uuid
   lastValue Int    @default(0)
@@ -1451,7 +1462,8 @@ model SalesDocument {
   priceList PriceList @relation(fields: [priceListId], references: [id])
   currency  Currency  @relation(fields: [currencyId], references: [id])
 
-  lines SalesDocumentLine[]
+  lines  SalesDocumentLine[]
+  tender SalesTender?
 
   @@unique([companyId, number])
   @@index([tenantId])
@@ -1505,4 +1517,43 @@ model SalesDocumentLine {
   @@index([salesDocumentId])
   @@index([productVariantId])
   @@map("sales_document_lines")
+}
+
+/// An OPERATIONAL snapshot of how a sale was paid, captured at POS/
+/// Facturación checkout — see docs/pos.md. This is deliberately NOT a
+/// TreasuryMovement/CashMovement/BankMovement/AccountingEntry: it never
+/// updates a cash balance, bank balance, or customer account. Exactly one
+/// tender per SalesDocument in this MVP (no split payments) — the 1:1
+/// relation is enforced by the unique salesDocumentId. Created atomically
+/// with confirmation, inside the same transaction as the DRAFT->CONFIRMED
+/// status change and the inventory-tracked lines' StockMovement rows
+/// (see SalesService.confirm) — a confirmed sale never ends up without
+/// its tender, and a failed confirmation never leaves an orphan tender.
+model SalesTender {
+  id              String @id @default(uuid()) @db.Uuid
+  salesDocumentId String @unique @db.Uuid
+
+  method SalesTenderMethod
+
+  /// Amount actually applied to the sale — always equals
+  /// SalesDocument.total at confirmation time (full payment only, no
+  /// partial/split payments in this MVP).
+  amountApplied Decimal @db.Decimal(19, 4)
+  /// CASH only: amount physically received from the customer, >=
+  /// amountApplied. Null for every other method. Change is
+  /// (amountReceived - amountApplied), computed at read time — never
+  /// stored, so it can never drift from its inputs.
+  amountReceived Decimal? @db.Decimal(19, 4)
+
+  /// Optional, harmless operational note (e.g. "últimos 4 dígitos ****1234"
+  /// entered manually by the operator). Never a real card number, CVV, or
+  /// any sensitive payment credential — see docs/pos.md.
+  reference String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  createdBy String?  @db.Uuid
+
+  salesDocument SalesDocument @relation(fields: [salesDocumentId], references: [id])
+
+  @@map("sales_tenders")
 }

@@ -254,7 +254,7 @@ export function SaleWorkspace({ saleId }: { saleId: string | null }) {
         setConfirmOpen(false);
         return;
       }
-      const result = await confirmSale.mutateAsync(id);
+      const result = await confirmSale.mutateAsync({ id });
       setConfirmOpen(false);
       setSuccessSale(result.salesDocument);
     } catch (err) {

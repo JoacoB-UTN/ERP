@@ -14,7 +14,7 @@ frontend products**:
 - **Gestión** (`apps/gestion`) — the ERP backoffice/administration app.
 - **Facturación** (`apps/facturacion`) — the fast operational sales app.
   **POS is a mode inside Facturación**, not a separate app or backend —
-  it does not exist yet (see `docs/implementation-status.md`).
+  see `docs/pos.md` and `docs/implementation-status.md`.
 
 Both frontends call the same API, the same database, the same users,
 companies, Customers, Products, Inventory, and Pricing. Never create a
@@ -81,6 +81,11 @@ choice.
   re-resolved from the current `Product`/`PriceListItem` afterward. There
   is one sales domain (`SalesService`); Facturación/POS call it, never
   duplicate it.
+- **`SalesTender` (POS/Facturación payment metadata) is an operational
+  snapshot, not a Treasury ledger.** Confirming a sale with a tender
+  never updates a cash balance, bank balance, or customer account — see
+  `docs/pos.md`. Do not wire it into any future Treasury/AR module
+  without a deliberate, separate design decision.
 - **Confirmed financial/inventory transactions are not physically
   deleted.** Corrections are new, reversing entries — never an edit or
   delete of history (`StockMovement`, confirmed `StockAdjustment`,
