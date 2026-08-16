@@ -9,7 +9,7 @@ import {
 } from '@erp/shared';
 
 function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' });
+  return new Date(iso).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function formatFieldValue(field: string, value: unknown): string {

@@ -22,6 +22,7 @@ import { createWarehouseContextClient } from './warehouse-context-hooks';
 import { createPricingClient } from './pricing-hooks';
 import { createPriceListContextClient } from './price-list-context-hooks';
 import { createSalesClient } from './sales-hooks';
+import { createDashboardClient } from './dashboard-hooks';
 
 export const AUTH_ME_QUERY_KEY = ['auth', 'me'] as const;
 
@@ -39,6 +40,7 @@ export * from './warehouse-context-hooks';
 export * from './pricing-hooks';
 export * from './price-list-context-hooks';
 export * from './sales-hooks';
+export * from './dashboard-hooks';
 
 /**
  * Builds the set of auth AND company-context hooks for one app (see
@@ -99,6 +101,10 @@ export function createAuthClient(config: ApiClientConfig) {
     useActiveCompanyId: companyContext.useActiveCompanyId,
   });
   const salesClient = createSalesClient({
+    apiFetch,
+    useActiveCompanyId: companyContext.useActiveCompanyId,
+  });
+  const dashboardClient = createDashboardClient({
     apiFetch,
     useActiveCompanyId: companyContext.useActiveCompanyId,
   });
@@ -203,6 +209,7 @@ export function createAuthClient(config: ApiClientConfig) {
     ...pricingClient,
     ...priceListContextClient,
     ...salesClient,
+    ...dashboardClient,
   };
 }
 

@@ -22,7 +22,7 @@ const selectClassName =
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('es-AR', {
-    dateStyle: 'short',
+    dateStyle: 'medium',
     timeStyle: 'short',
   });
 }

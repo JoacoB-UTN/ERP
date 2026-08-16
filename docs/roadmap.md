@@ -62,8 +62,13 @@ has been hardened end to end (Prompt #13, see
 tests and manual verification confirm Gestión, Facturación, and POS all
 share one Sales domain, one pricing engine, and one inventory ledger, and
 one real frontend defect (a swallowed confirm-failure error message) was
-found and fixed in the process. The next milestones are demo dashboard/
-UX polish and demo data/presentation flow (Prompts #14/#15).
+found and fixed in the process. **Demo dashboard/UX polish is now
+complete as well** (Prompt #14, see [dashboard.md](dashboard.md)) —
+Gestión's home page is a real permission-aware operational dashboard
+backed by one small read-only aggregate endpoint, replacing the stale
+placeholder home page; stale foundation-era copy and a real date-format
+inconsistency across several history/audit screens were fixed in the
+process. The next milestone is demo data/presentation flow (Prompt #15).
 
 ### Suggested upcoming milestones
 
@@ -94,7 +99,12 @@ each.
                                  effect — new integration/concurrency tests, one
                                  real frontend defect found and fixed (a
                                  swallowed confirm-failure error message).
-14  Demo Dashboard / UX polish
+14  Demo Dashboard / UX polish   — DONE (see prompts/completed/, docs/dashboard.md).
+                                 Real Gestión home dashboard (GET
+                                 /dashboard/summary, permission-gated,
+                                 zero duplicated business rules), stale
+                                 copy fixes, and a real date-formatting
+                                 consistency fix across five screens.
 15  Demo data + presentation flow
 ```
 
