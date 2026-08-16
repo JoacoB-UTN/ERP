@@ -23,7 +23,7 @@ function DialogBackdrop({ className, ...props }: React.ComponentProps<typeof Dia
     <DialogPrimitive.Backdrop
       data-slot="dialog-backdrop"
       className={cn(
-        'fixed inset-0 z-50 bg-black/50 transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0',
+        'fixed inset-0 z-50 bg-foreground/35 transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0',
         className,
       )}
       {...props}
@@ -31,14 +31,18 @@ function DialogBackdrop({ className, ...props }: React.ComponentProps<typeof Dia
   );
 }
 
-function DialogContent({ className, children, ...props }: React.ComponentProps<typeof DialogPrimitive.Popup>) {
+function DialogContent({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Popup>) {
   return (
     <DialogPortal>
       <DialogBackdrop />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl bg-popover p-5 text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-none transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0',
+          'fixed top-1/2 left-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-lg shadow-foreground/10 outline-none transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0',
           className,
         )}
         {...props}
@@ -53,13 +57,16 @@ function DialogTitle({ className, ...props }: React.ComponentProps<typeof Dialog
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn('text-base font-semibold', className)}
+      className={cn('text-base leading-6 font-semibold', className)}
       {...props}
     />
   );
 }
 
-function DialogDescription({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Description>) {
+function DialogDescription({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Description>) {
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
@@ -70,7 +77,9 @@ function DialogDescription({ className, ...props }: React.ComponentProps<typeof 
 }
 
 function DialogFooter({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot="dialog-footer" className={cn('mt-4 flex justify-end gap-2', className)} {...props} />;
+  return (
+    <div data-slot="dialog-footer" className={cn('mt-4 flex justify-end gap-2', className)} {...props} />
+  );
 }
 
 export { Dialog, DialogClose, DialogContent, DialogTitle, DialogDescription, DialogFooter };

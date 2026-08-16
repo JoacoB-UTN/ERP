@@ -23,7 +23,7 @@ export function FormSection({
 }) {
   return (
     <details
-      className="group rounded-xl border border-border [&[open]>summary]:border-b [&[open]>summary]:border-border"
+      className="group rounded-lg border border-border bg-card [&[open]>summary]:border-b [&[open]>summary]:border-border"
       open={defaultOpen}
     >
       <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3">
