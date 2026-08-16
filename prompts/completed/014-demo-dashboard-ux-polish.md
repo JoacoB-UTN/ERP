@@ -94,6 +94,48 @@ small, justified, read-only aggregate endpoint.
   one new endpoint is justified in detail in
   [docs/dashboard.md](../../docs/dashboard.md).
 
+## Post-completion correctness fix
+
+External review of this prompt found two related bugs in "Ventas
+confirmadas hoy"'s day-boundary logic, both fixed on the same branch
+before merge — see [docs/dashboard.md](../../docs/dashboard.md)'s new
+"Hoy means confirmedAt, in the company's own timezone" section for full
+detail:
+
+1. **Wrong timestamp field.** The original query filtered on
+   `occurredAt` (a sale's editable business/backdating date) instead of
+   `confirmedAt` (the actual confirm timestamp) — a draft created
+   yesterday and confirmed today was incorrectly excluded from today's
+   count. Fixed by switching the filter to `confirmedAt`.
+2. **Server-timezone day boundary.** `todayRange()` computed calendar-day
+   boundaries using `new Date()`/`Date.getFullYear()` etc., which reflect
+   the API server's own process/OS timezone rather than the active
+   `Company.timezone`. Fixed by computing the boundary in Postgres via a
+   parameterized `AT TIME ZONE` query keyed off the company's own IANA
+   timezone — DST-safe, no hardcoded offset. A related driver-level pitfall
+   surfaced while fixing this: this project's dev database session
+   defaults to a non-UTC `TimeZone` GUC
+   (`America/Argentina/Buenos_Aires`), under which the pg driver's default
+   `$queryRaw` `timestamptz` → `Date` parsing silently drops the row's
+   offset instead of applying it. Worked around by having Postgres format
+   the boundaries as explicit-UTC ISO-8601 strings and parsing them in JS
+   directly, rather than trusting the raw-query driver parsing.
+
+Regression added: 3 new e2e tests in `apps/api/test/dashboard.e2e-spec.ts`
+(a dedicated, fully isolated company/fixture set, timezone
+`America/Argentina/Buenos_Aires`) — occurred-yesterday-confirmed-today is
+included; occurred-today-confirmed-a-different-day is excluded; an
+instant 30 minutes before local midnight (23:30 local, which crosses into
+the next UTC calendar day) is still included in the earlier local day,
+and the symmetric lower-boundary case (30 minutes before/after local
+start) is checked the same way. All boundary instants are computed
+independently of the implementation, via a small `Intl`-based test helper
+(no new dependency), so these tests actually exercise the fix rather than
+re-deriving the same computation. Full regression after the fix: `npm run
+lint` (clean), `npm run typecheck` (clean), `npm test` (55/55), `npm run
+test:e2e` (197/197, up from 194), `npm run test:facturacion` (33/33),
+`npm run build` (clean).
+
 ## Out of scope
 
 New business modules; any dashboard metric without a legitimate existing

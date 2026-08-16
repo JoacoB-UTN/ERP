@@ -75,23 +75,76 @@ export class DashboardService {
     };
   }
 
-  private todayRange(): { start: Date; end: Date } {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    return { start, end };
+  /**
+   * "Today" for a company means the current calendar day in *that
+   * company's own* IANA timezone (`Company.timezone`), never the API
+   * server's process timezone — a server running in UTC must not report
+   * a different "today" than the same instant would mean in Buenos
+   * Aires. Computed entirely in Postgres (`AT TIME ZONE`, which is
+   * DST-aware for any real IANA zone) rather than hand-rolled in JS,
+   * since Node has no reliable way to convert a wall-clock day boundary
+   * in an arbitrary IANA zone back to a UTC instant without a timezone
+   * database of its own. The zone name is bound as a query parameter —
+   * `AT TIME ZONE` accepts a text expression, so this is fully
+   * parameterized and carries no injection risk. See docs/dashboard.md.
+   */
+  private async getCompanyLocalDayRange(
+    companyId: string,
+  ): Promise<{ start: Date; end: Date }> {
+    // The two boundaries are returned as `to_char`-formatted UTC ISO-8601
+    // strings (explicit "Z"), not as raw `timestamptz` values — the pg
+    // driver's default DateTime parsing for `$queryRaw` results is only
+    // reliable when the database session's own `TimeZone` GUC is UTC;
+    // under a non-UTC session timezone (this one runs
+    // America/Argentina/Buenos_Aires) it silently drops the row's offset
+    // instead of applying it, corrupting the instant by exactly that
+    // offset. Formatting to an unambiguous UTC string server-side and
+    // parsing it with `new Date()` ourselves sidesteps that driver
+    // behavior entirely, regardless of session timezone.
+    const rows = await this.prisma.$queryRaw<
+      Array<{ start: string; end: string }>
+    >`
+      SELECT
+        to_char(
+          (date_trunc('day', now() AT TIME ZONE c.timezone) AT TIME ZONE c.timezone) AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        ) AS start,
+        to_char(
+          ((date_trunc('day', now() AT TIME ZONE c.timezone) + interval '1 day') AT TIME ZONE c.timezone) AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        ) AS "end"
+      FROM companies c
+      WHERE c.id = ${companyId}::uuid
+    `;
+    const [range] = rows;
+    if (!range) {
+      throw new Error(
+        `Company ${companyId} not found while computing dashboard day range`,
+      );
+    }
+    return { start: new Date(range.start), end: new Date(range.end) };
   }
 
-  /** Prisma `groupBy` + `_sum` — a real SQL SUM over Decimal columns, never JS-number accumulation. Grouped by currency so sales in different currencies are never blended into one misleading figure. */
+  /**
+   * "Confirmadas hoy" is anchored to `confirmedAt` — the moment the sale
+   * was actually confirmed — never `occurredAt` (the sale's editable
+   * business/backdating date, see docs/sales.md). A draft created
+   * yesterday and confirmed today belongs in today's confirmed count; a
+   * sale merely dated today but confirmed a different local day does
+   * not.
+   *
+   * Prisma `groupBy` + `_sum` — a real SQL SUM over Decimal columns,
+   * never JS-number accumulation. Grouped by currency so sales in
+   * different currencies are never blended into one misleading figure.
+   */
   private async getSalesToday(companyId: string) {
-    const { start, end } = this.todayRange();
+    const { start, end } = await this.getCompanyLocalDayRange(companyId);
     const groups = await this.prisma.salesDocument.groupBy({
       by: ['currencyId'],
       where: {
         companyId,
         status: 'CONFIRMED',
-        occurredAt: { gte: start, lt: end },
+        confirmedAt: { gte: start, lt: end },
       },
       _sum: { total: true },
       _count: { _all: true },
