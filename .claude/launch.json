@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "erp-platform-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace=apps/api"],
+      "port": 3001
+    },
+    {
+      "name": "erp-platform-gestion",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace=apps/gestion"],
+      "port": 3000
+    },
+    {
+      "name": "erp-platform-facturacion",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace=apps/facturacion"],
+      "port": 3002
+    }
+  ]
+}

@@ -9,6 +9,15 @@ import { AppConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
+import { AuthModule } from './auth/auth.module';
+import { CompanyContextModule } from './company-context/company-context.module';
+import { AuthorizationModule } from './authorization/authorization.module';
+import { AdministrationModule } from './administration/administration.module';
+import { CustomersModule } from './customers/customers.module';
+import { ProductsModule } from './products/products.module';
+import { WarehousesModule } from './warehouses/warehouses.module';
+import { InventoryModule } from './inventory/inventory.module';
+import { PricingModule } from './pricing/pricing.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 @Module({
@@ -46,6 +55,15 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
     DatabaseModule,
     RedisModule,
     HealthModule,
+    AuthModule,
+    CompanyContextModule,
+    AuthorizationModule,
+    AdministrationModule,
+    CustomersModule,
+    ProductsModule,
+    WarehousesModule,
+    InventoryModule,
+    PricingModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

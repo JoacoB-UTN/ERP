@@ -15,3 +15,10 @@ export interface HealthResponse {
     redis: 'ok' | 'error';
   };
 }
+
+/** Standard page/pageSize pagination envelope — see docs/audit-architecture.md for the first consumer (GET /administration/audit). */
+export interface PaginationMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+}

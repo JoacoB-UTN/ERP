@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
+import cookieParser from 'cookie-parser';
 import { Logger } from 'nestjs-pino';
 import type { Env } from '@erp/config';
 import { AppModule } from './app.module';
@@ -20,8 +21,17 @@ async function bootstrap() {
   app.use(helmet());
   app.use(json({ limit: '1mb' }));
   app.use(urlencoded({ extended: true, limit: '1mb' }));
+  app.use(cookieParser());
 
-  app.enableCors({ origin: configService.get('CORS_ORIGIN', { infer: true }) });
+  // Comma-separated allow-list — never a wildcard, since credentialed
+  // (cookie-based) requests require an explicit origin. Both Gestión and
+  // Facturación must be listed here to authenticate.
+  const allowedOrigins = configService
+    .get('CORS_ORIGIN', { infer: true })
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  app.enableCors({ origin: allowedOrigins, credentials: true });
 
   app.setGlobalPrefix('api/v1');
 
