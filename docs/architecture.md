@@ -18,12 +18,13 @@ implemented vs. planned, see [implementation-status.md](implementation-status.md
           (backoffice)                  (fast operational sales)
                                                 │
                                                 └── POS mode
-                                                    (not implemented yet)
+                                                    (/pos — see docs/pos.md)
 ```
 
 One backend, one database, one set of users/companies/domain rules.
 Gestión and Facturación are two Next.js frontends against the same API —
-neither owns its own copy of business logic.
+neither owns its own copy of business logic. There is no `apps/pos` —
+POS is a mode inside Facturación, not a separate frontend.
 
 ## Repository map
 
@@ -72,6 +73,7 @@ import list):
 | Warehouses | `src/warehouses` | Warehouse master data |
 | Inventory | `src/inventory` | Stock ledger, adjustments, reservations |
 | Pricing | `src/pricing` | Price lists, resolution, price history |
+| Sales | `src/sales` | `SalesDocument` (internal sale, not a fiscal invoice), draft/confirm/cancel, `SalesTender` |
 
 `src/modules/*` is a **stale leftover** from the original foundation
 commit — one README-only placeholder folder per originally-planned domain
@@ -143,22 +145,37 @@ concurrency-safe balance mutation. See [inventory.md](inventory.md).
 Decimal-safe arithmetic, bulk adjustment, price history distinct from
 `AuditLog`. See [pricing.md](pricing.md).
 
+## Sales
+
+`src/sales`. `SalesDocument`/`SalesDocumentLine` — an internal commercial
+transaction (document type `SALE` only), never a fiscal/electronic
+invoice. DRAFT/CONFIRMED/CANCELLED state machine, atomic + idempotent
+confirmation, price snapshot via `PricingService`, inventory decrement
+via `InventoryService`. `SalesTender` (POS/Facturación payment metadata)
+is an operational snapshot, never a Treasury ledger. This is the one
+Sales domain — Gestión's `/ventas`, Facturación's `/ventas/nueva`, and
+POS's `/pos` all call the same `SalesService`, never a parallel
+implementation. See [sales.md](sales.md), [facturacion.md](facturacion.md),
+and [pos.md](pos.md).
+
 ## Frontend: Gestión (`apps/gestion`)
 
 Next.js (App Router) + TypeScript + Tailwind + shadcn/ui + TanStack Query
 + React Hook Form + Zod. Sidebar + top-bar shell, session/company/
 permission-gated `(app)` route group. Current nav: Clientes, Productos
-(+ Categorías/Marcas/Unidades), Listas de precios, Stock (Existencias/
-Movimientos/Ajustes/Depósitos), Administración (Usuarios/Roles/Auditoría).
+(+ Categorías/Marcas/Unidades), Listas de precios, Ventas, Stock
+(Existencias/Movimientos/Ajustes/Depósitos), Administración
+(Usuarios/Roles/Auditoría).
 
 ## Frontend: Facturación (`apps/facturacion`)
 
 Next.js (App Router), same stack. Single top-bar shell (deliberately no
 sidebar — see [product-ui-principles.md](product-ui-principles.md)),
-same auth pages. Currently a session/company/branch/warehouse/price-list
-**context foundation only** — company/branch/warehouse/price-list
-selectors in the top bar, non-functional "Facturación / POS" mode pills.
-No sale, invoice, cart, or POS flow exists yet.
+same auth pages. Company/branch/warehouse/price-list selectors live in
+the top bar. A real operational sale workflow (`/ventas/nueva`,
+`/ventas/:id`, `/ventas`) and a keyboard-first POS checkout mode (`/pos`)
+both call the exact same backend `SalesService` Gestión's own `/ventas`
+uses — see [facturacion.md](facturacion.md) and [pos.md](pos.md).
 
 ## Shared packages
 

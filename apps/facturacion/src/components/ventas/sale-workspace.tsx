@@ -25,6 +25,17 @@ import { PrintReceipt } from './print-receipt';
 import { saleErrorMessage } from './ventas-errors';
 
 /**
+ * `/ventas/nueva` and `/ventas/[id]` are separate page components, so
+ * `router.replace()` between them fully unmounts/remounts `SaleWorkspace`
+ * — any `error` set just before that navigate is otherwise lost before it
+ * ever paints (found during Prompt #13 hardening: confirming an
+ * insufficient-stock draft from a blank workspace silently showed no
+ * error at all). Stashed here right before the navigate, consumed once by
+ * the freshly-mounted destination instance below.
+ */
+const CONFIRM_ERROR_STORAGE_KEY = 'facturacion:sale-workspace:confirm-error';
+
+/**
  * The main Facturación operational workspace — used for both a brand new
  * sale (`saleId: null`) and continuing/confirming an existing DRAFT
  * (`saleId` set). Warehouse and price list are never re-implemented here
@@ -65,6 +76,24 @@ export function SaleWorkspace({ saleId }: { saleId: string | null }) {
   const companyRef = useRef<string | null>(companyId);
 
   const currencyCode = activePriceList?.currencyCode ?? null;
+
+  // Pick up an error stashed by a confirm-failure redirect (see
+  // CONFIRM_ERROR_STORAGE_KEY above) — a one-time consume, not a
+  // persistent state restore. Read + remove happen INSIDE the deferred
+  // callback (not before scheduling it) so React 18 Strict Mode's dev
+  // double-invoke (mount -> cleanup -> mount) can't consume the stash on
+  // a pass that then gets cancelled — cleanup here only ever cancels a
+  // still-pending timeout, never touches sessionStorage itself.
+  useEffect(() => {
+    if (!saleId) return;
+    const id = setTimeout(() => {
+      const stashed = sessionStorage.getItem(CONFIRM_ERROR_STORAGE_KEY);
+      if (!stashed) return;
+      sessionStorage.removeItem(CONFIRM_ERROR_STORAGE_KEY);
+      setError(stashed);
+    }, 0);
+    return () => clearTimeout(id);
+  }, [saleId]);
 
   // Populate local editing state once from an existing DRAFT sale.
   useEffect(() => {
@@ -259,13 +288,17 @@ export function SaleWorkspace({ saleId }: { saleId: string | null }) {
       setSuccessSale(result.salesDocument);
     } catch (err) {
       setConfirmOpen(false);
-      setError(saleErrorMessage(err));
+      const message = saleErrorMessage(err);
+      setError(message);
       // Reconcile against the backend's actual state — e.g. another session
       // consumed the stock this confirm needed (see docs/facturacion.md's
       // insufficient-stock-race behavior). If we drafted straight from a
       // blank workspace, move to the sale's own route so its state (and any
-      // retry) reflects reality instead of a stale blank-cart URL.
+      // retry) reflects reality instead of a stale blank-cart URL. That
+      // navigate unmounts this component before the error above ever
+      // paints, so stash it for the destination instance to pick up.
       if (id && !saleId) {
+        sessionStorage.setItem(CONFIRM_ERROR_STORAGE_KEY, message);
         router.replace(`/ventas/${id}`);
       } else {
         void saleQuery.refetch();

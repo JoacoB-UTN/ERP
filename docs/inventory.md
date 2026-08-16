@@ -441,10 +441,16 @@ where the filter includes it, `warehouseId`) — e.g.
 `['company', companyId, 'inventory', 'stock', filters]` — so switching
 companies can never show stale stock from the previous one (see CLAUDE.md).
 
-## Facturación / future POS
+## Facturación / POS
 
-This task adds **only** a warehouse-selection *foundation* to Facturación
-— no sale, invoice, or POS behavior exists yet (see "Deferred").
+Facturación's `/ventas/nueva` sale workflow and its POS checkout mode
+(`/pos`) both consume this foundation for real — see
+[facturacion.md](facturacion.md) and [pos.md](pos.md): `GET
+/inventory/lookup` backs product search with live warehouse-scoped
+availability, and confirming a sale from either surface calls
+`InventoryService.applySaleLine` through `SalesService.confirm` (see
+[sales.md](sales.md)), the same atomic upsert-increment path described
+above — never a parallel stock-mutation code path for Facturación/POS.
 
 A `WarehouseSelector` sits in the topbar next to the branch selector,
 backed by `useActiveWarehouse()` in `@erp/auth-client` — deliberately the

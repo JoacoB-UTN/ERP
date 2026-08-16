@@ -1,11 +1,13 @@
 # Task 012 — POS MVP
 
-Status: IN PROGRESS — implementation and manual verification complete, not yet merged
+Status: COMPLETED — merged to main
 Depends on: 011 (Facturación MVP)
 Agent: Claude
 Base branch: main
 Branch: agent/claude-pos-mvp
-PR: (not yet opened — see final report for exact push/PR status)
+PR: #4, merged as commit b60dc63 (includes three post-review decimal-safety
+and keyboard-stale-closure hardening rounds pushed to the same branch
+before merge — see Prompt #13's record for the follow-up hardening pass)
 
 ## Objective
 

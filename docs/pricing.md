@@ -410,11 +410,15 @@ Facturación operational-pricing keys additionally include `priceListId`
 (e.g. `['company', companyId, 'pricing', 'lookup', priceListId, query]`)
 — see CLAUDE.md's cache-isolation rule.
 
-## Facturación / future POS
+## Facturación / POS
 
-This task adds **only** a price-list-selection *foundation* to
-Facturación — no cart, invoice, order, checkout, payment, or POS
-behavior exists yet (see "Deferred").
+Facturación's `/ventas/nueva` and POS (`/pos`) both drive real cart
+pricing through this foundation — see [facturacion.md](facturacion.md)
+and [pos.md](pos.md): `POST /pricing/lookup/batch` resolves every visible
+search result and cart line in one batched call (never a request per
+row), and confirming a sale snapshots each line's price via
+`SalesService`/`PricingService.getPrice` (see [sales.md](sales.md)) —
+never a second, frontend-side pricing calculation.
 
 A `PriceListSelector` sits in the topbar next to the warehouse selector,
 backed by `useActivePriceList()` in `@erp/auth-client` — the same shape
