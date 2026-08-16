@@ -48,6 +48,12 @@ shared rules, then come back here for detail.
   arithmetic, effective-date/overlap rules, bulk adjustment, permissions,
   audit, Gestión's `/listas-de-precios`, and the Facturación price-list
   selection foundation.
+- [sales.md](sales.md) — the demo Sales Core (SalesDocument/
+  SalesDocumentLine, document type `SALE` — not a fiscal invoice),
+  DRAFT/CONFIRMED/CANCELLED state machine, price snapshotting via
+  PricingService, atomic + idempotent confirmation and inventory
+  decrement via InventoryService, permissions, audit, Gestión's
+  `/ventas`, and what's deferred (fiscal invoicing, AR, POS, ...).
 
 ## Product direction
 

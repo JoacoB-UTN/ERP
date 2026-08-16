@@ -8,23 +8,29 @@ export interface VariantPickerSelection {
   productId: string;
   label: string;
   sku: string | null;
+  productType: string;
 }
 
 /**
  * Search-as-you-type variant picker for adjustment/initial-balance lines —
  * built on the inventory-aware lookup (see docs/inventory.md) rather than
  * the plain product lookup, so it can eventually surface `available` per
- * warehouse. Service products are filtered out client-side as a UX
- * shortcut; the backend independently rejects non-trackable products
- * (`PRODUCT_DOES_NOT_TRACK_INVENTORY`) regardless of what this shows.
+ * warehouse. Service products are filtered out client-side by default (a
+ * UX shortcut — the backend independently rejects non-trackable products
+ * with `PRODUCT_DOES_NOT_TRACK_INVENTORY` regardless of what this shows);
+ * pass `allowServices` for callers like Sales where a SERVICE line is
+ * legitimate.
  */
 export function VariantPicker({
   warehouseId,
   excludeVariantIds = [],
+  allowServices = false,
   onSelect,
 }: {
   warehouseId: string | null;
   excludeVariantIds?: string[];
+  /** Sales lines may include non-inventory SERVICE products (see docs/sales.md); adjustment/initial-balance lines never can. */
+  allowServices?: boolean;
   onSelect: (selection: VariantPickerSelection) => void;
 }) {
   const [term, setTerm] = useState('');
@@ -35,7 +41,7 @@ export function VariantPicker({
     { enabled: term.trim().length > 0 },
   );
   const items = (lookupQuery.data?.items ?? []).filter(
-    (item) => item.productType !== 'SERVICE' && !excludeVariantIds.includes(item.variantId),
+    (item) => (allowServices || item.productType !== 'SERVICE') && !excludeVariantIds.includes(item.variantId),
   );
 
   return (
@@ -72,6 +78,7 @@ export function VariantPicker({
                   productId: item.productId,
                   label: item.variantName ? `${item.name} · ${item.variantName}` : item.name,
                   sku: item.sku,
+                  productType: item.productType,
                 });
                 setTerm('');
                 setOpen(false);

@@ -46,22 +46,38 @@ POS mode (inside Facturación)
 ```
 
 Every piece on the Gestión side of that flow already exists (Customers,
-Products, Inventory, Pricing — see implementation-status.md). Nothing on
-the Facturación/sale side exists yet: no cart, no sale confirmation, no
-inventory-affecting checkout. That gap is the actual next milestone.
+Products, Inventory, Pricing — see implementation-status.md). The sale
+itself now exists too (Prompt #10, see [sales.md](sales.md)) — but only
+reachable from Gestión's `/ventas` today: select customer, search a
+product, see its real price and warehouse availability, build a sale,
+confirm it, watch inventory actually change, see it in Stock. What's
+still missing is the **Facturación** side of that same flow — Facturación
+has no cart, no sale-building UI, and doesn't call `SalesService` yet
+(nor does POS mode exist). That gap is the actual next milestone.
 
 ### Suggested upcoming milestones
 
-Planning suggestions only — not started, not committed to this exact
-scope or order. See `prompts/planned/` for any of these once a task
-specification actually exists for it.
+Planning suggestions only, except #10 which is now implemented — not
+committed to this exact scope or order for the rest. See
+`prompts/planned/`/`prompts/completed/` for the actual task record of
+each.
 
 ```
-10  Demo Sales Core           — minimal SalesOrder/sale model, backend only
-11  Facturación MVP           — select customer/product, build a sale, confirm
+10  Demo Sales Core           — DONE (see prompts/completed/, docs/sales.md).
+                                 SalesDocument/SalesDocumentLine, DRAFT/
+                                 CONFIRMED/CANCELLED, price snapshot via
+                                 PricingService, inventory decrement via
+                                 InventoryService, Gestión /ventas UI.
+                                 No Facturación UI yet — see #11.
+11  Facturación MVP           — select customer/product, build a sale, confirm —
+                                 calling the SAME SalesService from #10, not a
+                                 parallel implementation
 12  POS MVP                   — fast entry, cart, payment method, confirm (POS mode)
-13  End-to-end integration    — sale confirmation reliably moves inventory,
-                                 resolves price, and is visible in Gestión
+13  End-to-end integration    — hardening across Gestión/Facturación/POS sale
+                                 confirmation, pricing resolution, and inventory
+                                 effect (mostly integration tests + edge cases,
+                                 not new features — the core paths from #10
+                                 already work)
 14  Demo Dashboard / UX polish
 15  Demo data + presentation flow
 ```

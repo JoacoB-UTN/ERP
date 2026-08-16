@@ -192,3 +192,17 @@ export const AuditAction = {
   EXPORT: 'EXPORT',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
+
+/** Only one document type in this task — an internal sale, not a fiscal invoice. See docs/sales.md. */
+export const SalesDocumentType = {
+  SALE: 'SALE',
+} as const;
+export type SalesDocumentType = (typeof SalesDocumentType)[keyof typeof SalesDocumentType];
+
+/** See docs/sales.md for the exact state machine — CONFIRMED and CANCELLED are both terminal. */
+export const SalesDocumentStatus = {
+  DRAFT: 'DRAFT',
+  CONFIRMED: 'CONFIRMED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type SalesDocumentStatus = (typeof SalesDocumentStatus)[keyof typeof SalesDocumentStatus];

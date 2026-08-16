@@ -54,6 +54,7 @@ model Tenant {
   priceLists         PriceList[]
   priceListItems     PriceListItem[]
   priceHistory       PriceHistory[]
+  salesDocuments     SalesDocument[]
 
   @@map("tenants")
 }
@@ -99,6 +100,8 @@ model Company {
   priceLists              PriceList[]
   priceListItems          PriceListItem[]
   priceHistory            PriceHistory[]
+  salesDocuments          SalesDocument[]
+  salesDocumentSequence   SalesDocumentSequence?
 
   // A given tax id should not be registered twice within the same tenant.
   @@unique([tenantId, taxId])
@@ -128,6 +131,7 @@ model Branch {
   warehouses       Warehouse[]
   stockMovements   StockMovement[]
   stockAdjustments StockAdjustment[]
+  salesDocuments   SalesDocument[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -506,6 +510,7 @@ model Customer {
   addresses           CustomerAddress[]
   contacts            CustomerContact[]
   categoryAssignments CustomerCategoryAssignment[]
+  salesDocuments      SalesDocument[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -756,6 +761,7 @@ model ProductVariant {
   adjustmentLines   StockAdjustmentLine[]
   priceListItems    PriceListItem[]
   priceHistory      PriceHistory[]
+  salesDocumentLines SalesDocumentLine[]
 
   @@index([productId, sku])
   @@index([sku])
@@ -968,6 +974,7 @@ model Warehouse {
   stockReservations StockReservation[]
   inventoryBalances InventoryBalance[]
   stockAdjustments  StockAdjustment[]
+  salesDocuments    SalesDocument[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -1187,7 +1194,8 @@ model Currency {
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
 
-  priceLists PriceList[]
+  priceLists     PriceList[]
+  salesDocuments SalesDocument[]
 
   @@map("currencies")
 }
@@ -1263,8 +1271,9 @@ model PriceList {
   basePriceList PriceList?  @relation("PriceListDerivation", fields: [basePriceListId], references: [id])
   derivedLists  PriceList[] @relation("PriceListDerivation")
 
-  items   PriceListItem[]
-  history PriceHistory[]
+  items          PriceListItem[]
+  history        PriceHistory[]
+  salesDocuments SalesDocument[]
 
   @@unique([companyId, code])
   @@unique([companyId, name])
@@ -1347,4 +1356,153 @@ model PriceHistory {
   @@index([tenantId])
   @@index([companyId, priceListId, productVariantId, effectiveFrom])
   @@map("price_history")
+}
+
+// ---------- Sales (demo core — see docs/sales.md) ----------
+
+/// Only one document type exists in this task — an internal ERP sale
+/// transaction, NOT a fiscal/electronic invoice (no ARCA/CAE/invoice
+/// numbering — see docs/sales.md). Reserved as an enum (rather than a
+/// bare "this is always a sale" assumption) so a future Quote/Order type
+/// never requires renaming this one.
+enum SalesDocumentType {
+  SALE
+}
+
+/// See docs/sales.md for the exact state machine. CONFIRMED and
+/// CANCELLED are both terminal — there is no reachable transition out of
+/// either in this task (confirmed-sale reversal is explicitly deferred).
+enum SalesDocumentStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+model SalesDocumentSequence {
+  companyId String @id @db.Uuid
+  lastValue Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("sales_document_sequences")
+}
+
+/// An internal ERP commercial sale transaction — see docs/sales.md. NOT a
+/// fiscal/electronic invoice. DRAFT sales have no inventory effect;
+/// CONFIRMED sales generate real StockMovement (SALE) rows for
+/// inventory-tracked lines, atomically with the status change. Confirmed
+/// sales are immutable through normal editing — corrections/returns are
+/// explicitly deferred (see docs/sales.md's deferred list), matching the
+/// same "no reversal in this task" decision already made for
+/// StockAdjustment.
+model SalesDocument {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+
+  companyId String  @db.Uuid
+  branchId  String? @db.Uuid
+
+  documentType SalesDocumentType @default(SALE)
+  /// Company-scoped sequence via SalesDocumentSequence — e.g. VTA-000001.
+  /// Never MAX(number)+1 (see docs/sales.md).
+  number String
+
+  warehouseId String @db.Uuid
+  customerId  String @db.Uuid
+  priceListId String @db.Uuid
+  /// Always derived from priceList.currencyId at creation time — never
+  /// accepted as a conflicting value from the request body (see
+  /// docs/sales.md).
+  currencyId  String @db.Uuid
+
+  status SalesDocumentStatus @default(DRAFT)
+
+  /// Sum of line netAmount — see docs/sales.md's documented totals
+  /// convention (subtotal is NET of line discounts, not gross).
+  subtotal Decimal @default(0) @db.Decimal(19, 4)
+  /// Sum of line discountAmount.
+  discountTotal Decimal @default(0) @db.Decimal(19, 4)
+  /// Always 0 in this task — no tax engine exists yet (see docs/sales.md
+  /// and CLAUDE.md). Stored, not computed, so a future tax engine has
+  /// somewhere to write to without a schema change.
+  taxTotal Decimal @default(0) @db.Decimal(19, 4)
+  /// subtotal + taxTotal (taxTotal always 0 today) — the final payable
+  /// amount.
+  total Decimal @default(0) @db.Decimal(19, 4)
+
+  notes String?
+
+  occurredAt  DateTime  @db.Timestamptz(6)
+  confirmedAt DateTime? @db.Timestamptz(6)
+  cancelledAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  createdBy   String? @db.Uuid
+  confirmedBy String? @db.Uuid
+  cancelledBy String? @db.Uuid
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  company   Company   @relation(fields: [companyId], references: [id])
+  branch    Branch?   @relation(fields: [branchId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+  customer  Customer  @relation(fields: [customerId], references: [id])
+  priceList PriceList @relation(fields: [priceListId], references: [id])
+  currency  Currency  @relation(fields: [currencyId], references: [id])
+
+  lines SalesDocumentLine[]
+
+  @@unique([companyId, number])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([companyId, customerId])
+  @@index([companyId, warehouseId])
+  @@index([companyId, occurredAt])
+  @@map("sales_documents")
+}
+
+/// A line always snapshots its commercial data at the moment it's
+/// added/re-priced — description and unitPrice are never re-derived from
+/// the current Product/PriceList after the fact, including after
+/// confirmation (see docs/sales.md's snapshot rule). No tenantId/
+/// companyId of its own — scoped implicitly via salesDocument, same
+/// pattern as StockAdjustmentLine/PriceListItem's line-level models.
+model SalesDocumentLine {
+  id              String @id @default(uuid()) @db.Uuid
+  salesDocumentId String @db.Uuid
+
+  productVariantId String @db.Uuid
+
+  /// Snapshot of the product/variant display name at sale time.
+  description String
+
+  /// NUMERIC(19,6) — same precision as StockMovement.quantity, supports
+  /// fractional units without floating-point arithmetic. Always > 0.
+  quantity Decimal @db.Decimal(19, 6)
+  /// Snapshot of the price PricingService resolved when this line was
+  /// added — never re-resolved from the current PriceList, including
+  /// after confirmation.
+  unitPrice Decimal @db.Decimal(19, 4)
+
+  /// 0-100. Direction is implicit (always a discount) — see
+  /// docs/sales.md.
+  discountPercentage Decimal @default(0) @db.Decimal(5, 2)
+  discountAmount     Decimal @default(0) @db.Decimal(19, 4)
+
+  /// (quantity * unitPrice) - discountAmount.
+  netAmount Decimal @default(0) @db.Decimal(19, 4)
+  /// Always 0 in this task — see SalesDocument.taxTotal.
+  taxAmount Decimal @default(0) @db.Decimal(19, 4)
+  /// netAmount + taxAmount (taxAmount always 0 today).
+  totalAmount Decimal @default(0) @db.Decimal(19, 4)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  salesDocument SalesDocument  @relation(fields: [salesDocumentId], references: [id])
+  variant       ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@index([salesDocumentId])
+  @@index([productVariantId])
+  @@map("sales_document_lines")
 }

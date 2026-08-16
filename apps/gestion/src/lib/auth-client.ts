@@ -26,6 +26,7 @@ export const {
   useActiveCompany,
   useBranches,
   useActiveBranch,
+  useActiveBranchId,
   usePermissions,
   useRoles,
   useRole,
@@ -120,4 +121,10 @@ export const {
   usePriceLookup,
   useLookupPricesBatch,
   useProductPrices,
+  useSales,
+  useSale,
+  useCreateSale,
+  useUpdateSale,
+  useConfirmSale,
+  useCancelSale,
 } = authClient;

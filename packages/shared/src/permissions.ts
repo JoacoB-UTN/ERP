@@ -327,6 +327,46 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     description: 'Actualizar precios en forma masiva',
   },
 
+  // ---- Sales (demo core — see docs/sales.md) ----
+  // Distinct from the sales.orders.*/sales.invoices.* codes below, which
+  // are reserved for future Pedido de Venta / fiscal Factura concepts —
+  // this is the SalesDocument (type SALE) implemented in this task.
+  {
+    code: 'sales.documents.read',
+    module: 'sales',
+    resource: 'documents',
+    action: 'read',
+    description: 'Ver ventas',
+  },
+  {
+    code: 'sales.documents.create',
+    module: 'sales',
+    resource: 'documents',
+    action: 'create',
+    description: 'Crear ventas',
+  },
+  {
+    code: 'sales.documents.update',
+    module: 'sales',
+    resource: 'documents',
+    action: 'update',
+    description: 'Modificar ventas en borrador',
+  },
+  {
+    code: 'sales.documents.confirm',
+    module: 'sales',
+    resource: 'documents',
+    action: 'confirm',
+    description: 'Confirmar ventas',
+  },
+  {
+    code: 'sales.documents.cancel',
+    module: 'sales',
+    resource: 'documents',
+    action: 'cancel',
+    description: 'Anular ventas en borrador',
+  },
+
   // ---- Future modules (codes registered now; no functionality yet) ----
   {
     code: 'inventory.transfers.create',

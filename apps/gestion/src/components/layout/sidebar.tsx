@@ -2,7 +2,18 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Building2, Home, Users, ShieldCheck, History, Contact, Package, Warehouse, Tag } from 'lucide-react';
+import {
+  Building2,
+  Home,
+  Users,
+  ShieldCheck,
+  History,
+  Contact,
+  Package,
+  Warehouse,
+  Tag,
+  ShoppingCart,
+} from 'lucide-react';
 import { usePermissions } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 
@@ -43,6 +54,7 @@ export function Sidebar() {
   const canSeeCustomers = !isLoading && can('customers.read');
   const canSeeProducts = !isLoading && can('products.read');
   const canSeePriceLists = !isLoading && can('pricing.lists.read');
+  const canSeeSales = !isLoading && can('sales.documents.read');
   const canSeeStock =
     !isLoading &&
     canAny([
@@ -87,6 +99,12 @@ export function Sidebar() {
             <NavLink
               item={{ href: '/stock', label: 'Stock', icon: Warehouse }}
               active={pathname.startsWith('/stock')}
+            />
+          )}
+          {canSeeSales && (
+            <NavLink
+              item={{ href: '/ventas', label: 'Ventas', icon: ShoppingCart }}
+              active={pathname.startsWith('/ventas')}
             />
           )}
         </div>
