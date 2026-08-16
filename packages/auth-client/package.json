@@ -1,0 +1,25 @@
+{
+  "name": "@erp/auth-client",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5",
+    "react": "^19"
+  },
+  "dependencies": {
+    "@erp/shared": "*"
+  },
+  "devDependencies": {
+    "@erp/typescript-config": "*",
+    "@tanstack/react-query": "^5.101.4",
+    "@types/react": "^19",
+    "react": "^19",
+    "typescript": "^5.7.3"
+  }
+}

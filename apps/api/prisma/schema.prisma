@@ -12,7 +12,7 @@
 generator client {
   provider               = "prisma-client"
   output                 = "../src/generated/prisma"
-  moduleFormat            = "cjs"
+  moduleFormat           = "cjs"
   generatedFileExtension = "ts"
 }
 
@@ -36,9 +36,24 @@ model Tenant {
   createdAt DateTime     @default(now()) @db.Timestamptz(6)
   updatedAt DateTime     @updatedAt @db.Timestamptz(6)
 
-  companies     Company[]
-  branches      Branch[]
-  userCompanies UserCompany[]
+  companies          Company[]
+  branches           Branch[]
+  userCompanies      UserCompany[]
+  roles              Role[]
+  auditLogs          AuditLog[]
+  customers          Customer[]
+  customerCategories CustomerCategory[]
+  products           Product[]
+  productCategories  ProductCategory[]
+  brands             Brand[]
+  unitsOfMeasure     UnitOfMeasure[]
+  warehouses         Warehouse[]
+  stockMovements     StockMovement[]
+  stockReservations  StockReservation[]
+  stockAdjustments   StockAdjustment[]
+  priceLists         PriceList[]
+  priceListItems     PriceListItem[]
+  priceHistory       PriceHistory[]
 
   @@map("tenants")
 }
@@ -61,9 +76,29 @@ model Company {
   createdAt   DateTime      @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime      @updatedAt @db.Timestamptz(6)
 
-  tenant        Tenant        @relation(fields: [tenantId], references: [id])
-  branches      Branch[]
-  userCompanies UserCompany[]
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
+  branches                Branch[]
+  userCompanies           UserCompany[]
+  roles                   Role[]
+  userRoles               UserRole[]
+  auditLogs               AuditLog[]
+  customers               Customer[]
+  customerCategories      CustomerCategory[]
+  customerCodeSequence    CustomerCodeSequence?
+  products                Product[]
+  productCategories       ProductCategory[]
+  brands                  Brand[]
+  unitsOfMeasure          UnitOfMeasure[]
+  productCodeSequence     ProductCodeSequence?
+  warehouses              Warehouse[]
+  stockMovements          StockMovement[]
+  stockReservations       StockReservation[]
+  inventoryBalances       InventoryBalance[]
+  stockAdjustments        StockAdjustment[]
+  stockAdjustmentSequence StockAdjustmentSequence?
+  priceLists              PriceList[]
+  priceListItems          PriceListItem[]
+  priceHistory            PriceHistory[]
 
   // A given tax id should not be registered twice within the same tenant.
   @@unique([tenantId, taxId])
@@ -88,6 +123,11 @@ model Branch {
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   company Company @relation(fields: [companyId], references: [id])
+
+  auditLogs        AuditLog[]
+  warehouses       Warehouse[]
+  stockMovements   StockMovement[]
+  stockAdjustments StockAdjustment[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -115,9 +155,53 @@ model User {
   createdAt    DateTime   @default(now()) @db.Timestamptz(6)
   updatedAt    DateTime   @updatedAt @db.Timestamptz(6)
 
-  userCompanies UserCompany[]
+  userCompanies       UserCompany[]
+  sessions            UserSession[]
+  passwordResetTokens PasswordResetToken[]
+  userRoles           UserRole[]
+  auditLogs           AuditLog[]
 
   @@map("users")
+}
+
+// ---------- Authentication ----------
+
+/// A rotating refresh session. The raw refresh token is never stored —
+/// only a SHA-256 hash of it, so a database leak alone cannot be used to
+/// impersonate a session. Refresh rotates the credential (see AuthService):
+/// each successful refresh revokes this row and creates a new one.
+model UserSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  tokenHash  String    @unique
+  createdAt  DateTime  @default(now()) @db.Timestamptz(6)
+  expiresAt  DateTime  @db.Timestamptz(6)
+  lastUsedAt DateTime  @default(now()) @db.Timestamptz(6)
+  revokedAt  DateTime? @db.Timestamptz(6)
+  ipAddress  String?
+  userAgent  String?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+/// Single-use password reset tokens. Like UserSession, only a hash of the
+/// raw token is stored. Expired/used tokens are left in place (not
+/// deleted) so failed attempts remain auditable.
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime  @db.Timestamptz(6)
+  usedAt    DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 model UserCompany {
@@ -137,4 +221,1130 @@ model UserCompany {
   @@index([tenantId])
   @@index([companyId])
   @@map("user_companies")
+}
+
+// ---------- Authorization (RBAC) ----------
+//
+// See docs/authorization.md. Three concerns stay separate everywhere in
+// this codebase: authentication (who), company context / UserCompany
+// (which company, may they access it at all), and authorization / RBAC
+// below (what may they do there). A role assignment never substitutes for
+// UserCompany membership — see CLAUDE.md.
+
+/// Platform-defined capability, identified by a stable "module.resource.action"
+/// code (e.g. "administration.roles.read"). Not user-inventable — the
+/// catalog is seeded centrally (see packages/shared/src/permissions.ts).
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  module      String
+  resource    String
+  action      String
+  description String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+/// A named bundle of permissions, scoped to one company (never shared
+/// across companies, even within the same tenant). System roles
+/// (isSystem: true) are seeded per company and cannot be deleted.
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  companyId   String   @db.Uuid
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@unique([companyId, name])
+  @@index([tenantId])
+  @@index([companyId])
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+/// A role assignment is scoped to one company, never global — the same
+/// user can hold different roles (and therefore different effective
+/// permissions) in different companies. Requires the user to already have
+/// active UserCompany membership for that company (enforced in
+/// RolesService, not at the database level, since Prisma can't express a
+/// cross-table conditional constraint).
+model UserRole {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  roleId    String   @db.Uuid
+  companyId String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  user    User    @relation(fields: [userId], references: [id])
+  role    Role    @relation(fields: [roleId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([userId, roleId, companyId])
+  @@index([userId])
+  @@index([companyId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+// ---------- Audit trail ----------
+//
+// See docs/audit-architecture.md. Distinct from application logs
+// (nestjs-pino, request/error/performance concerns) — this is part of the
+// ERP's data integrity model: who did what, in which company, to which
+// entity, from what value to what value. Effectively immutable: no
+// update/delete path is exposed anywhere in the application (see CLAUDE.md).
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  ACTIVATE
+  DEACTIVATE
+  ASSIGN
+  UNASSIGN
+  APPROVE
+  REJECT
+  CANCEL
+  VOID
+  CONFIRM
+  LOGIN
+  LOGOUT
+  PASSWORD_CHANGE
+  PASSWORD_RESET
+  SESSION_REVOKE
+  PERMISSIONS_CHANGE
+  EXPORT
+}
+
+/// tenantId/companyId are nullable because some events happen before a
+/// company — or even a definite tenant — is known (e.g. LOGIN, which
+/// happens before company selection; a user's UserCompany memberships can
+/// in principle span more than one tenant). Most business events carry
+/// both. Never force a fake companyId/tenantId onto a platform-level event.
+model AuditLog {
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String? @db.Uuid
+  companyId String? @db.Uuid
+  branchId  String? @db.Uuid
+
+  userId     String? @db.Uuid
+  /// Informational snapshot of the actor's name/email at the time of the
+  /// action, resolved once by AuditService.record and never re-derived —
+  /// so history stays readable even if the user later changes their name.
+  /// userId (indexed, FK) remains the durable identity for querying "all
+  /// actions by this user"; these two fields are display-only.
+  actorName  String?
+  actorEmail String?
+  sessionId  String? @db.Uuid
+
+  action     AuditAction
+  entityType String
+  entityId   String?
+
+  beforeData Json?
+  afterData  Json?
+  metadata   Json?
+
+  requestId String?
+  ipAddress String?
+  userAgent String?
+
+  occurredAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant  Tenant?  @relation(fields: [tenantId], references: [id])
+  company Company? @relation(fields: [companyId], references: [id])
+  branch  Branch?  @relation(fields: [branchId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
+
+  @@index([companyId, occurredAt])
+  @@index([companyId, entityType, entityId])
+  @@index([companyId, userId, occurredAt])
+  @@index([companyId, action, occurredAt])
+  @@map("audit_logs")
+}
+
+// ---------- Customers (master data) ----------
+//
+// See docs/customers.md. This is a master-data module only — no sales
+// documents, no accounts receivable, no stored balance (see CLAUDE.md:
+// customer balance must always derive from a future ledger, never a
+// column here). Customer ownership is always company-scoped, same as
+// every other business record in this codebase.
+
+enum CustomerType {
+  COMPANY
+  INDIVIDUAL
+  FINAL_CONSUMER
+  FOREIGN
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Argentina-oriented but deliberately not exhaustive — "OTHER" covers
+/// anything else without forcing a schema change (see docs/customers.md).
+enum CustomerDocumentType {
+  CUIT
+  CUIL
+  DNI
+  PASSPORT
+  OTHER
+}
+
+enum CustomerTaxCondition {
+  RESPONSABLE_INSCRIPTO
+  MONOTRIBUTO
+  EXENTO
+  CONSUMIDOR_FINAL
+  NO_RESPONSABLE
+  EXTERIOR
+  OTHER
+}
+
+enum CustomerAddressType {
+  FISCAL
+  BILLING
+  SHIPPING
+  OTHER
+}
+
+/// One row per company, atomically incremented (`UPDATE ... RETURNING`
+/// via Prisma upsert, a single atomic SQL statement — no explicit locking
+/// needed) to generate sequential customer codes without a MAX(code)+1
+/// race. Deliberately narrow to customer codes — see CLAUDE.md: no
+/// generalized numbering framework was justified for this task.
+model CustomerCodeSequence {
+  companyId String @id @db.Uuid
+  lastValue Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("customer_code_sequences")
+}
+
+/// taxId is stored as normalized digits only (no dashes/spaces) — see
+/// docs/customers.md. It is NOT a database-level unique constraint: a
+/// generic/final-consumer record may have no meaningful tax id, and an
+/// inactive customer must not block a legitimate new one from reusing a
+/// tax id. Uniqueness among ACTIVE customers within a company is enforced
+/// in CustomersService (see CUSTOMER_TAX_ID_ALREADY_EXISTS).
+model Customer {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @db.Uuid
+  companyId String @db.Uuid
+
+  code String
+
+  customerType CustomerType @default(COMPANY)
+
+  legalName String
+  tradeName String?
+
+  documentType CustomerDocumentType?
+  taxId        String?
+  taxCondition CustomerTaxCondition?
+
+  email   String?
+  phone   String?
+  mobile  String?
+  website String?
+
+  /// NUMERIC, never float — see schema header. A default commercial value
+  /// only; sales/credit-control behavior does not exist yet (see CLAUDE.md).
+  creditLimit        Decimal? @db.Decimal(19, 4)
+  /// Percentage, 0–100, validated at the service layer.
+  discountPercentage Decimal? @db.Decimal(5, 2)
+
+  notes String?
+
+  status CustomerStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+  /// Reserved for a future controlled archival/purge process (same
+  /// pattern as AuditLog's deferred retention policy) — never set by any
+  /// endpoint in this task. Deactivation uses `status`, not this field.
+  deletedAt DateTime? @db.Timestamptz(6)
+
+  /// Plain actor id snapshots, not FK relations — who created/last-updated
+  /// a customer is also fully recoverable from AuditLog; these are a cheap
+  /// redundant pointer for list/detail display without an extra join.
+  createdBy String? @db.Uuid
+  updatedBy String? @db.Uuid
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  addresses           CustomerAddress[]
+  contacts            CustomerContact[]
+  categoryAssignments CustomerCategoryAssignment[]
+
+  @@unique([companyId, code])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([companyId, taxId])
+  @@index([companyId, legalName])
+  @@map("customers")
+}
+
+model CustomerAddress {
+  id         String @id @default(uuid()) @db.Uuid
+  customerId String @db.Uuid
+
+  type  CustomerAddressType
+  label String?
+
+  street String
+  number String?
+  floor  String?
+  unit   String?
+
+  city        String
+  province    String
+  postalCode  String
+  countryCode String @default("AR")
+
+  additionalInfo String?
+
+  /// At most one default address per (customerId, type) — enforced
+  /// transactionally in CustomersService, e.g. one default SHIPPING
+  /// address and one default FISCAL address can coexist.
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@map("customer_addresses")
+}
+
+model CustomerContact {
+  id         String @id @default(uuid()) @db.Uuid
+  customerId String @db.Uuid
+
+  name   String
+  role   String?
+  email  String?
+  phone  String?
+  mobile String?
+  notes  String?
+
+  /// At most one primary contact per customer — enforced transactionally.
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@map("customer_contacts")
+}
+
+model CustomerCategory {
+  id          String  @id @default(uuid()) @db.Uuid
+  tenantId    String  @db.Uuid
+  companyId   String  @db.Uuid
+  name        String
+  description String?
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  assignments CustomerCategoryAssignment[]
+
+  @@unique([companyId, name])
+  @@index([tenantId])
+  @@index([companyId])
+  @@map("customer_categories")
+}
+
+model CustomerCategoryAssignment {
+  customerId String @db.Uuid
+  categoryId String @db.Uuid
+
+  customer Customer         @relation(fields: [customerId], references: [id])
+  category CustomerCategory @relation(fields: [categoryId], references: [id])
+
+  @@id([customerId, categoryId])
+  @@index([customerId])
+  @@index([categoryId])
+  @@map("customer_category_assignments")
+}
+
+// ---------- Products (catalog master data) ----------
+//
+// See docs/products.md. A Product describes WHAT the company sells, buys,
+// or manages — never HOW MANY (stock), HOW MUCH it sells for (price), or
+// WHAT it costs. Those belong to future Inventory/Price List/Purchases
+// modules and are deliberately absent here (see CLAUDE.md). One shared
+// catalog, company-scoped like every other master entity — Gestión
+// administers it, Facturación/POS only ever read it via the lookup path.
+
+enum ProductType {
+  PRODUCT
+  SERVICE
+  KIT
+  MANUFACTURED
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Alternate-code classification for ProductCode — BARCODE is the only
+/// type with an enforced active-uniqueness rule (see docs/products.md).
+enum ProductCodeType {
+  BARCODE
+  SUPPLIER
+  INTERNAL
+  MARKETPLACE
+  OTHER
+}
+
+/// Same safe atomic-upsert pattern as CustomerCodeSequence — a separate
+/// table because product and customer code spaces are independent, not
+/// because a new numbering mechanism was invented (see docs/products.md).
+model ProductCodeSequence {
+  companyId String @id @db.Uuid
+  lastValue Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("product_code_sequences")
+}
+
+/// Every Product always has at least one ProductVariant (see
+/// docs/products.md — "default variant" pattern): a simple product like
+/// "Agua mineral 500 ml" gets one auto-created variant with `name: null`
+/// so SKU/barcode still have somewhere to live, without exposing variant
+/// complexity in the UI. A product with real variants (color/talle, etc.)
+/// has one named ProductVariant per combination instead.
+model Product {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @db.Uuid
+  companyId String @db.Uuid
+
+  code String
+
+  name        String
+  description String?
+
+  productType ProductType @default(PRODUCT)
+
+  categoryId String? @db.Uuid
+  brandId    String? @db.Uuid
+  baseUnitId String  @db.Uuid
+
+  /// Configuration only — never a stock balance (see CLAUDE.md). SERVICE
+  /// products default this false and reject an explicit true (validated in
+  /// the shared Zod schema / ProductsService — see docs/products.md).
+  trackInventory Boolean @default(true)
+  /// Implies trackInventory = true when set (validated, not enforced by a
+  /// DB constraint). No Lot inventory instances exist yet — see CLAUDE.md.
+  trackLots      Boolean @default(false)
+  /// Implies trackInventory = true when set. No Serial inventory instances
+  /// exist yet.
+  trackSerials   Boolean @default(false)
+
+  allowNegativeStock Boolean @default(false)
+
+  /// Policies, not balances — safe to store because they don't claim to
+  /// know how much stock actually exists (see CLAUDE.md).
+  minimumStock Decimal? @db.Decimal(19, 4)
+  maximumStock Decimal? @db.Decimal(19, 4)
+  reorderPoint Decimal? @db.Decimal(19, 4)
+
+  notes String?
+
+  status ProductStatus @default(ACTIVE)
+
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+  /// Reserved for a future controlled archival process — never set by any
+  /// endpoint in this task, same as Customer.deletedAt.
+  deletedAt DateTime? @db.Timestamptz(6)
+
+  createdBy String? @db.Uuid
+  updatedBy String? @db.Uuid
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id])
+  company  Company          @relation(fields: [companyId], references: [id])
+  category ProductCategory? @relation(fields: [categoryId], references: [id])
+  brand    Brand?           @relation(fields: [brandId], references: [id])
+  baseUnit UnitOfMeasure    @relation(fields: [baseUnitId], references: [id])
+
+  variants ProductVariant[]
+
+  @@unique([companyId, code])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([companyId, name])
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([baseUnitId])
+  @@map("products")
+}
+
+/// SKU uniqueness is company-scoped but Product (not ProductVariant)
+/// carries companyId — enforced in ProductsService via a relational query
+/// through `product.companyId`, not a DB constraint (see docs/products.md,
+/// section 16 of the task spec: "implement the constraint/service safely").
+model ProductVariant {
+  id        String @id @default(uuid()) @db.Uuid
+  productId String @db.Uuid
+
+  /// null for the auto-created default variant of a simple product —
+  /// non-null for every explicit variant ("Negro / M"). This is also how
+  /// the API/UI tell "simple" and "has variants" apart (see
+  /// docs/products.md's `hasVariants` rule) without a separate flag.
+  name String?
+
+  sku String?
+
+  /// Plain flat string->string map (e.g. {"color":"Negro","talle":"M"}) —
+  /// deliberately not a formal attribute-definition engine yet (see
+  /// docs/products.md).
+  attributes Json?
+
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  product Product       @relation(fields: [productId], references: [id])
+  codes   ProductCode[]
+
+  stockMovements    StockMovement[]
+  stockReservations StockReservation[]
+  inventoryBalances InventoryBalance[]
+  adjustmentLines   StockAdjustmentLine[]
+  priceListItems    PriceListItem[]
+  priceHistory      PriceHistory[]
+
+  @@index([productId, sku])
+  @@index([sku])
+  @@map("product_variants")
+}
+
+/// Alternate/lookup codes for a variant — barcodes, supplier codes,
+/// internal codes, marketplace codes. `code` is always a plain trimmed
+/// string, never converted to a numeric type (leading zeros matter — see
+/// docs/products.md). Active-barcode uniqueness is enforced in
+/// ProductsService, not a DB constraint (mirrors Customer.taxId).
+model ProductCode {
+  id               String @id @default(uuid()) @db.Uuid
+  companyId        String @db.Uuid
+  productVariantId String @db.Uuid
+
+  type        ProductCodeType
+  code        String
+  description String?
+  active      Boolean         @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  variant ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@index([companyId, code])
+  @@index([productVariantId])
+  @@map("product_codes")
+}
+
+/// Self-relational hierarchy (see docs/products.md). Cycle prevention
+/// (direct and indirect) is enforced in ProductCategoriesService, never at
+/// the DB level — Postgres can't express "no cycles" as a constraint.
+/// Duplicate names are allowed (no uniqueness requested for categories,
+/// unlike Brand) since real catalogs commonly reuse a name under
+/// different parents (e.g. "Accesorios").
+model ProductCategory {
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @db.Uuid
+  companyId String  @db.Uuid
+  parentId  String? @db.Uuid
+
+  code        String?
+  name        String
+  description String?
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  parent   ProductCategory?  @relation("ProductCategoryHierarchy", fields: [parentId], references: [id])
+  children ProductCategory[] @relation("ProductCategoryHierarchy")
+
+  products Product[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([companyId, parentId])
+  @@map("product_categories")
+}
+
+/// `normalizedName` (lowercase, trimmed) backs the "companyId + normalized
+/// name" uniqueness rule from the task spec — `name` keeps the
+/// user-entered casing for display.
+model Brand {
+  id             String  @id @default(uuid()) @db.Uuid
+  tenantId       String  @db.Uuid
+  companyId      String  @db.Uuid
+  name           String
+  normalizedName String
+  description    String?
+  active         Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  products Product[]
+
+  @@unique([companyId, normalizedName])
+  @@index([tenantId])
+  @@index([companyId])
+  @@map("brands")
+}
+
+/// Deliberately always company-scoped (no nullable companyId for "system"
+/// units) — see docs/products.md for why: every other master entity in
+/// this codebase is company-scoped, and a null-company row would need a
+/// new, one-off isolation rule for no strong benefit at this stage. The
+/// dev seed creates the same standard set (UN, KG, G, L, ML, M, M2, M3)
+/// for every company instead.
+model UnitOfMeasure {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @db.Uuid
+  companyId String @db.Uuid
+
+  code          String
+  name          String
+  symbol        String
+  /// How many decimal places quantities in this unit are expected to
+  /// carry (e.g. 0 for Unidad, 3 for Kilogramo) — informational config for
+  /// a future Inventory module; not enforced by any calculation here.
+  decimalPlaces Int     @default(0)
+  active        Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  products Product[]
+
+  @@unique([companyId, code])
+  @@index([tenantId])
+  @@index([companyId])
+  @@map("units_of_measure")
+}
+
+// ---------- Inventory (ledger-based) ----------
+//
+// See docs/inventory.md. StockMovement is the ONLY authoritative source
+// of physical inventory (see CLAUDE.md) — Product/ProductVariant never
+// carry a stock column. InventoryBalance is a rebuildable projection for
+// fast reads, never a second source of truth. Reservations reduce
+// AVAILABLE, never ON_HAND.
+
+enum WarehouseStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Signed-quantity convention per type — see docs/inventory.md:
+/// *_IN / INITIAL_BALANCE / PURCHASE / SALE_RETURN / PRODUCTION_IN are
+/// positive; *_OUT / SALE / PURCHASE_RETURN / DELIVERY / PRODUCTION_OUT
+/// are negative. Only INITIAL_BALANCE/ADJUSTMENT_IN/ADJUSTMENT_OUT are
+/// actually generated by this task — the rest exist for forward
+/// compatibility with future Sales/Purchases/Transfers/Manufacturing.
+enum MovementType {
+  INITIAL_BALANCE
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  TRANSFER_IN
+  TRANSFER_OUT
+  PURCHASE
+  PURCHASE_RETURN
+  SALE
+  SALE_RETURN
+  DELIVERY
+  PRODUCTION_IN
+  PRODUCTION_OUT
+}
+
+/// See docs/inventory.md for the exact state machine. `quantity` on
+/// StockReservation is the CURRENT outstanding amount (shrinks as it's
+/// consumed/released); `consumedQuantity` only ever grows.
+enum ReservationStatus {
+  ACTIVE
+  PARTIALLY_CONSUMED
+  CONSUMED
+  RELEASED
+  EXPIRED
+}
+
+enum StockAdjustmentStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+/// A Warehouse belongs to exactly one company and optionally one branch
+/// — see CLAUDE.md's company-scoping rule and docs/inventory.md. Never
+/// physically deleted; deactivate/reactivate flip `status` instead, and
+/// deactivation is blocked while the warehouse still holds physical
+/// stock or active reservations (see WarehousesService).
+model Warehouse {
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @db.Uuid
+  companyId String  @db.Uuid
+  branchId  String? @db.Uuid
+
+  code        String
+  name        String
+  description String?
+
+  allowsSales        Boolean @default(true)
+  allowsPurchases    Boolean @default(true)
+  /// Combined with Product.allowNegativeStock — negative stock is only
+  /// permitted when BOTH allow it (see docs/inventory.md).
+  allowNegativeStock Boolean @default(false)
+
+  status WarehouseStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  createdBy String? @db.Uuid
+  updatedBy String? @db.Uuid
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+  branch  Branch? @relation(fields: [branchId], references: [id])
+
+  stockMovements    StockMovement[]
+  stockReservations StockReservation[]
+  inventoryBalances InventoryBalance[]
+  stockAdjustments  StockAdjustment[]
+
+  @@unique([companyId, code])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([branchId])
+  @@map("warehouses")
+}
+
+/// The inventory ledger — the ONLY authoritative source of physical
+/// stock (see CLAUDE.md). Immutable: no endpoint updates or deletes a
+/// confirmed row; corrections are new, reversing movements. `quantity`
+/// is signed (positive = stock in, negative = stock out).
+model StockMovement {
+  id          String  @id @default(uuid()) @db.Uuid
+  tenantId    String  @db.Uuid
+  companyId   String  @db.Uuid
+  branchId    String? @db.Uuid
+  warehouseId String  @db.Uuid
+
+  productVariantId String @db.Uuid
+
+  movementType MovementType
+
+  /// Signed — see docs/inventory.md. NUMERIC(19,6) supports fractional
+  /// units (kg, m, ...) without floating-point business arithmetic.
+  quantity Decimal @db.Decimal(19, 6)
+
+  unitCost     Decimal? @db.Decimal(19, 6)
+  currencyId   String?  @db.Uuid
+  exchangeRate Decimal? @db.Decimal(19, 6)
+
+  /// Points at the business document that generated this movement (e.g.
+  /// "StockAdjustment" + adjustmentId) — never a free-text-only
+  /// relationship, see docs/inventory.md.
+  referenceType String?
+  referenceId   String?
+
+  reason String?
+  notes  String?
+
+  occurredAt DateTime @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+  createdBy  String?  @db.Uuid
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id])
+  company   Company        @relation(fields: [companyId], references: [id])
+  branch    Branch?        @relation(fields: [branchId], references: [id])
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id])
+  variant   ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@index([companyId, warehouseId, productVariantId, occurredAt])
+  @@index([companyId, referenceType, referenceId])
+  @@index([tenantId])
+  @@map("stock_movements")
+}
+
+/// Commits AVAILABLE stock to a future business operation WITHOUT
+/// touching ON_HAND — see docs/inventory.md. `quantity` is the CURRENT
+/// outstanding (unconsumed, unreleased) amount; `consumedQuantity` only
+/// ever grows. No public CRUD API in this task — created/consumed/
+/// released only by domain services.
+model StockReservation {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @db.Uuid
+  companyId String @db.Uuid
+
+  warehouseId      String @db.Uuid
+  productVariantId String @db.Uuid
+
+  /// The business document that requested this reservation (e.g. a
+  /// future "SalesOrder") — see docs/inventory.md.
+  sourceType String
+  sourceId   String
+
+  quantity         Decimal @db.Decimal(19, 6)
+  consumedQuantity Decimal @default(0) @db.Decimal(19, 6)
+
+  status ReservationStatus @default(ACTIVE)
+
+  expiresAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  createdBy String?  @db.Uuid
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id])
+  company   Company        @relation(fields: [companyId], references: [id])
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id])
+  variant   ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@index([companyId, warehouseId, productVariantId, status])
+  @@index([companyId, sourceType, sourceId])
+  @@index([tenantId])
+  @@map("stock_reservations")
+}
+
+/// A rebuildable performance projection — NEVER the source of truth (see
+/// CLAUDE.md). Always reconstructable from StockMovement (onHand) and
+/// StockReservation (reserved) — see InventoryService.rebuildInventoryBalances.
+/// `incoming` is reserved for a future Purchases/Transfers integration
+/// and stays 0 until that source exists.
+model InventoryBalance {
+  companyId        String @db.Uuid
+  warehouseId      String @db.Uuid
+  productVariantId String @db.Uuid
+
+  onHand   Decimal @default(0) @db.Decimal(19, 6)
+  reserved Decimal @default(0) @db.Decimal(19, 6)
+  incoming Decimal @default(0) @db.Decimal(19, 6)
+
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  company   Company        @relation(fields: [companyId], references: [id])
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id])
+  variant   ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@id([companyId, warehouseId, productVariantId])
+  @@index([warehouseId])
+  @@index([productVariantId])
+  @@map("inventory_balances")
+}
+
+/// Same safe atomic-upsert pattern as CustomerCodeSequence/
+/// ProductCodeSequence — see docs/inventory.md.
+model StockAdjustmentSequence {
+  companyId String @id @db.Uuid
+  lastValue Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("stock_adjustment_sequences")
+}
+
+/// A business document that generates ledger movements only on
+/// confirmation — see docs/inventory.md. Never edited after CONFIRMED;
+/// corrections require a new adjustment (see CLAUDE.md's immutability
+/// rule — reversing a confirmed adjustment is a documented non-goal of
+/// this task).
+model StockAdjustment {
+  id          String  @id @default(uuid()) @db.Uuid
+  tenantId    String  @db.Uuid
+  companyId   String  @db.Uuid
+  branchId    String? @db.Uuid
+  warehouseId String  @db.Uuid
+
+  number String
+
+  reason String
+  notes  String?
+
+  status StockAdjustmentStatus @default(DRAFT)
+
+  occurredAt DateTime @db.Timestamptz(6)
+
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(6)
+  createdBy   String?   @db.Uuid
+  confirmedAt DateTime? @db.Timestamptz(6)
+  confirmedBy String?   @db.Uuid
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  company   Company   @relation(fields: [companyId], references: [id])
+  branch    Branch?   @relation(fields: [branchId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+
+  lines StockAdjustmentLine[]
+
+  @@unique([companyId, number])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([warehouseId])
+  @@map("stock_adjustments")
+}
+
+model StockAdjustmentLine {
+  id                String @id @default(uuid()) @db.Uuid
+  stockAdjustmentId String @db.Uuid
+  productVariantId  String @db.Uuid
+
+  /// Signed — positive increases stock, negative decreases it. Becomes
+  /// the StockMovement quantity verbatim on confirmation; movementType
+  /// (ADJUSTMENT_IN/OUT) is derived from sign — see docs/inventory.md.
+  quantityDelta Decimal @db.Decimal(19, 6)
+
+  reason String?
+
+  stockAdjustment StockAdjustment @relation(fields: [stockAdjustmentId], references: [id])
+  variant         ProductVariant  @relation(fields: [productVariantId], references: [id])
+
+  @@index([stockAdjustmentId])
+  @@index([productVariantId])
+  @@map("stock_adjustment_lines")
+}
+
+// ---------- Pricing (see docs/pricing.md) ----------
+//
+// Products do not own an authoritative sale price — see CLAUDE.md.
+// PriceList/PriceListItem are the only place a sale price is stored;
+// PriceHistory is the commercial (not administrative) record of how a
+// price changed over time, distinct from AuditLog.
+
+/// Global reference data — currencies (ARS/USD/EUR) are universal, not a
+/// per-company business decision, unlike UnitOfMeasure (see
+/// docs/products.md's documented company-scoping choice for that model).
+/// Every company shares the same currency catalog.
+model Currency {
+  id            String  @id @default(uuid()) @db.Uuid
+  code          String  @unique
+  name          String
+  symbol        String
+  /// Display/rounding precision for this currency (e.g. 2 for ARS/USD) —
+  /// same role as UnitOfMeasure.decimalPlaces. See docs/pricing.md's
+  /// rounding policy.
+  decimalPlaces Int     @default(2)
+  active        Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  priceLists PriceList[]
+
+  @@map("currencies")
+}
+
+enum PricingMode {
+  FIXED
+  DERIVED
+}
+
+enum AdjustmentType {
+  PERCENTAGE_INCREASE
+  PERCENTAGE_DECREASE
+  FIXED_AMOUNT_INCREASE
+  FIXED_AMOUNT_DECREASE
+}
+
+/// Discriminates a PriceHistory row's origin — see docs/pricing.md.
+enum PriceChangeType {
+  INITIAL
+  MANUAL
+  BULK_ADJUSTMENT
+}
+
+/// A company's commercial price list — see docs/pricing.md. FIXED lists
+/// hold explicit PriceListItem rows; DERIVED lists compute prices at read
+/// time from basePriceListId + adjustmentType/adjustmentValue and are
+/// NEVER materialized/duplicated into PriceListItem rows (see
+/// PricingService.resolveDerivedPrice). Never physically deleted —
+/// deactivate/reactivate flip `active` instead, same pattern as Warehouse.
+model PriceList {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @db.Uuid
+  companyId String @db.Uuid
+
+  code        String
+  name        String
+  description String?
+
+  currencyId String @db.Uuid
+
+  /// Metadata only — whether the stored prices conceptually include tax.
+  /// Never used to calculate VAT in this task; no Tax engine exists yet
+  /// (see docs/pricing.md).
+  includesTax Boolean @default(false)
+
+  pricingMode PricingMode @default(FIXED)
+
+  /// Only meaningful when pricingMode = DERIVED — see docs/pricing.md.
+  /// Must belong to the same company and currency as this list
+  /// (PRICE_LIST_CURRENCY_MISMATCH otherwise); cycles are rejected in
+  /// PriceListsService (PRICE_LIST_CYCLE).
+  basePriceListId String? @db.Uuid
+  adjustmentType  AdjustmentType?
+  /// Percentage points (0-100 scale, e.g. 10 = 10%) for PERCENTAGE_*, or a
+  /// money amount for FIXED_AMOUNT_* — see docs/pricing.md.
+  adjustmentValue Decimal? @db.Decimal(9, 6)
+
+  /// At most one default active list per company — enforced
+  /// transactionally in PriceListsService, same pattern as
+  /// CustomerAddress.isDefault (never a DB partial-unique constraint).
+  isDefault Boolean @default(false)
+  active    Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  createdBy String?  @db.Uuid
+  updatedBy String?  @db.Uuid
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  company  Company  @relation(fields: [companyId], references: [id])
+  currency Currency @relation(fields: [currencyId], references: [id])
+
+  basePriceList PriceList?  @relation("PriceListDerivation", fields: [basePriceListId], references: [id])
+  derivedLists  PriceList[] @relation("PriceListDerivation")
+
+  items   PriceListItem[]
+  history PriceHistory[]
+
+  @@unique([companyId, code])
+  @@unique([companyId, name])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([basePriceListId])
+  @@map("price_lists")
+}
+
+/// Explicit FIXED-list prices — see docs/pricing.md. Only ever created for
+/// a PriceList with pricingMode = FIXED (no per-item overrides on DERIVED
+/// lists in this task). Mutated only through PricingService, never a raw
+/// client write (see CLAUDE.md) — that's what enforces Decimal handling,
+/// validity-range rules, PriceHistory, and audit together.
+model PriceListItem {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @db.Uuid
+  companyId String @db.Uuid
+
+  priceListId      String @db.Uuid
+  productVariantId String @db.Uuid
+
+  /// NUMERIC(19,4) — money precision, never float/double (see CLAUDE.md).
+  price Decimal @db.Decimal(19, 4)
+
+  /// DATE semantics, not a timestamp — a price is effective for a whole
+  /// business day, never a specific instant (see docs/pricing.md).
+  /// `effectiveUntil = null` means "valid until replaced" — setting a new
+  /// current price automatically closes the prior open-ended row in the
+  /// same transaction (see PricingService.setPrice).
+  effectiveFrom  DateTime  @db.Date
+  effectiveUntil DateTime? @db.Date
+
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  createdBy String?  @db.Uuid
+  updatedBy String?  @db.Uuid
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id])
+  company   Company        @relation(fields: [companyId], references: [id])
+  priceList PriceList      @relation(fields: [priceListId], references: [id])
+  variant   ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@index([tenantId])
+  @@index([companyId, priceListId, productVariantId, effectiveFrom])
+  @@index([productVariantId])
+  @@map("price_list_items")
+}
+
+/// Commercial price history — answers "how did the price of this item
+/// evolve," distinct from AuditLog which answers "who performed the
+/// administrative action" (see CLAUDE.md and docs/pricing.md). Never
+/// edited or deleted through normal application behavior.
+model PriceHistory {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @db.Uuid
+  companyId String @db.Uuid
+
+  priceListId      String @db.Uuid
+  productVariantId String @db.Uuid
+
+  oldPrice Decimal? @db.Decimal(19, 4)
+  newPrice Decimal  @db.Decimal(19, 4)
+
+  effectiveFrom DateTime @db.Date
+
+  changeType PriceChangeType
+  reason     String?
+
+  changedBy String?  @db.Uuid
+  changedAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id])
+  company   Company        @relation(fields: [companyId], references: [id])
+  priceList PriceList      @relation(fields: [priceListId], references: [id])
+  variant   ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@index([tenantId])
+  @@index([companyId, priceListId, productVariantId, effectiveFrom])
+  @@map("price_history")
 }

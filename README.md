@@ -1,31 +1,32 @@
 # ERP Platform
 
-Foundation for a multi-company ERP platform. This repository currently
-contains **only the technical foundation** — multi-tenancy skeleton
-(Tenant/Company/Branch/User/UserCompany), infrastructure wiring, and an
-empty application shell. No business domain (sales, inventory, purchasing,
-invoicing, accounting, fiscal integrations) is implemented yet; see
-`CLAUDE.md` for the rules that will govern that work when it starts.
+Foundation for a multi-company ERP platform, plus production-quality
+authentication and the two-frontend product split. No business domain
+(sales, inventory, purchasing, invoicing, accounting, fiscal integrations)
+is implemented yet; see `CLAUDE.md` for the rules that govern frontend
+product boundaries, and `docs/product-ui-principles.md` for the full UX
+direction.
 
 ## Architecture
 
-Modular monolith (not microservices). See `CLAUDE.md` for the full list of
-expected domain modules and the conventions (ledger-based inventory/
-treasury/balances, explicit state machines, money as `NUMERIC(19,4)` never
-float, tenant scoping on every query, etc.) that apply once domain work
-begins.
+Modular monolith (not microservices) on the backend, split into **two
+separate frontend products** that share the same API/auth/DB/domain layer —
+see `CLAUDE.md` and `docs/product-ui-principles.md` for why, and what must
+never be duplicated between them.
 
 ```
 apps/
   api/            NestJS backend
-  web/             Next.js frontend
+  gestion/         Next.js — ERP backoffice ("Gestión")
+  facturacion/     Next.js — fast operational sales app ("Facturación")
 packages/
   config/          Shared, validated environment schema (Zod)
-  shared/          Framework-agnostic types shared by api + web
+  shared/          Framework-agnostic types + Zod schemas shared by all apps
+  auth-client/     Shared TanStack Query auth client (login/me/refresh/logout/…)
   eslint-config/    Shared ESLint flat config
   typescript-config/ Shared tsconfig bases
 infrastructure/    Reserved for deployment infra (empty for now)
-docs/              Reserved for design docs/ADRs (empty for now)
+docs/              product-ui-principles.md + reserved for future design docs/ADRs
 ```
 
 ### Backend (`apps/api`)
@@ -38,17 +39,31 @@ NestJS + TypeScript + Prisma + PostgreSQL + Redis.
 - `src/redis` — `RedisService` (global), a plain connection only — no queues
   yet (see `src/queue/README.md`).
 - `src/health` — `GET /api/v1/health`.
+- `src/auth` — authentication: Argon2id passwords, short-lived JWT access
+  tokens + rotating refresh sessions (`UserSession`), password reset
+  (`PasswordResetToken`), rate limiting, structured security-event logging.
+  See "Authentication" below.
 - `src/common/filters` — global exception filter producing the standard
   error envelope.
 - `src/modules/*` — one empty, documented folder per future domain module
   (from `CLAUDE.md`'s "Expected modules" list). No logic lives there yet.
 
-### Frontend (`apps/web`)
+### Frontend: Gestión (`apps/gestion`) and Facturación (`apps/facturacion`)
 
-Next.js (App Router) + TypeScript + Tailwind + shadcn/ui + TanStack Query +
-React Hook Form + Zod. Currently just an application shell (sidebar/header/
-main layout) and a single page that renders live API health status. No
-business screens.
+Both: Next.js (App Router) + TypeScript + Tailwind + shadcn/ui + TanStack
+Query + React Hook Form + Zod, consuming `@erp/auth-client` and
+`@erp/shared` for auth and validation.
+
+- **Gestión** — sidebar + top bar shell, session-gated `(app)` route group,
+  login/forgot-password/reset-password pages. No business modules yet — the
+  authenticated home is a placeholder.
+- **Facturación** — single top-bar shell (deliberately no sidebar — see
+  `docs/product-ui-principles.md`), same auth pages, non-functional
+  "Facturación / POS" mode placeholders in the top bar. No sales flows or
+  POS yet.
+
+Neither app duplicates auth or validation logic — both call the same
+`@erp/auth-client` hooks against the same API.
 
 ## Requirements
 
@@ -60,8 +75,9 @@ business screens.
 
 ```bash
 npm install
-cp .env.example apps/api/.env      # then edit apps/api/.env if needed
-cp .env.example apps/web/.env.local # only NEXT_PUBLIC_API_URL is used here
+cp .env.example apps/api/.env             # then edit apps/api/.env if needed
+cp .env.example apps/gestion/.env.local    # only NEXT_PUBLIC_API_URL is used here
+cp .env.example apps/facturacion/.env.local # same
 ```
 
 ### Infrastructure: Docker (preferred)
@@ -83,43 +99,238 @@ installed on the build machine) — functionally equivalent, just not via
 `docker compose up -d`. See "Decisions" in the PR/commit description for
 details.
 
+## Ports
+
+| App                | Port   | URL                            |
+| ------------------ | ------ | ------------------------------ |
+| `apps/api`         | `3001` | `http://localhost:3001/api/v1` |
+| `apps/gestion`     | `3000` | `http://localhost:3000`        |
+| `apps/facturacion` | `3002` | `http://localhost:3002`        |
+
+Different `localhost` ports count as the same "site" for browser
+same-site-cookie purposes, so the auth session cookies (host-only, no
+explicit `Domain`) are shared across all three in local dev without extra
+configuration — see `AUTH_COOKIE_DOMAIN` below and `packages/auth-client`.
+
 ## Environment variables
 
 Defined and validated in `packages/config/src/env.ts`; the app will not
 start if these are missing or malformed.
 
-| Variable | Required | Default | Notes |
-|---|---|---|---|
-| `NODE_ENV` | no | `development` | `development` \| `test` \| `production` |
-| `API_PORT` | no | `3001` | |
-| `DATABASE_URL` | **yes** | — | Postgres connection string |
-| `REDIS_URL` | **yes** | — | Redis connection string |
-| `CORS_ORIGIN` | no | `http://localhost:3000` | |
-| `LOG_LEVEL` | no | `info` | pino level |
+| Variable                                              | Required      | Default                                       | Notes                                                                                                |
+| ----------------------------------------------------- | ------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                            | no            | `development`                                 | `development` \| `test` \| `production`                                                              |
+| `API_PORT`                                            | no            | `3001`                                        |                                                                                                      |
+| `DATABASE_URL`                                        | **yes**       | —                                             | Postgres connection string                                                                           |
+| `REDIS_URL`                                           | **yes**       | —                                             | Redis connection string                                                                              |
+| `CORS_ORIGIN`                                         | no            | `http://localhost:3000,http://localhost:3002` | comma-separated allowed origins (Gestión, Facturación)                                               |
+| `LOG_LEVEL`                                           | no            | `info`                                        | pino level                                                                                           |
+| `AUTH_ACCESS_TOKEN_SECRET`                            | prod: **yes** | dev-only default                              | signs access-token JWTs; app refuses the dev default in production                                   |
+| `AUTH_ACCESS_TOKEN_TTL`                               | no            | `15m`                                         |                                                                                                      |
+| `AUTH_REFRESH_TOKEN_TTL`                              | no            | `30d`                                         |                                                                                                      |
+| `AUTH_COOKIE_DOMAIN`                                  | no            | unset                                         | leave unset in dev (host-only cookie shared across localhost ports); set a real domain in production |
+| `AUTH_COOKIE_SECURE`                                  | no            | `false`                                       | set `true` in any HTTPS deployment                                                                   |
+| `AUTH_RATE_LIMIT_TTL_SECONDS` / `AUTH_RATE_LIMIT_MAX` | no            | `60` / `10`                                   | rate limiting on login/forgot-password/reset-password/refresh                                        |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`            | prod: **yes** | dev-only default                              | only read by `npm run db:seed`, never by the running API                                             |
 
-`apps/web` only reads `NEXT_PUBLIC_API_URL` (defaults to
-`http://localhost:3001/api/v1`).
+`apps/gestion` and `apps/facturacion` only read `NEXT_PUBLIC_API_URL`
+(defaults to `http://localhost:3001/api/v1`).
 
 ## Database
 
 ```bash
 npm run db:migrate   # apply migrations (creates the DB schema from empty)
-npm run db:seed      # demo Tenant/Company/Branch + placeholder user
+npm run db:seed      # demo Tenant/Company/Branch + real admin user (see Credentials below)
 npm run db:studio    # Prisma Studio
 ```
 
-Models: `Tenant`, `Company`, `Branch`, `User`, `UserCompany` — see
-`apps/api/prisma/schema.prisma`. The seed creates "Demo Organization" →
-"Demo Company" → "Main Branch", plus a `admin@example.local` user row with
-a random, unusable password hash (there is no login flow yet — see
-Deferred, below).
+Models: `Tenant`, `Company`, `Branch`, `User`, `UserCompany`, `UserSession`,
+`PasswordResetToken`, `Permission`, `Role`, `RolePermission`, `UserRole`,
+`AuditLog`, `Customer`, `CustomerAddress`, `CustomerContact`,
+`CustomerCategory`, `CustomerCategoryAssignment`, `CustomerCodeSequence`,
+`Product`, `ProductVariant`, `ProductCode`, `ProductCategory`, `Brand`,
+`UnitOfMeasure`, `ProductCodeSequence` — see `apps/api/prisma/schema.prisma`.
+The seed creates:
+
+- **Demo Organization** (tenant) → **Demo Company**, branches _Casa
+  Central_ and _Sucursal 2_, plus **Second Demo Company** — the admin user
+  has access to both companies, so multi-company selection is actually
+  testable locally.
+- **Other Organization** (a separate tenant) → **Other Org Company** —
+  deliberately _not_ granted to the seeded admin, for manually exercising
+  tenant isolation (see
+  [docs/multi-company-architecture.md](docs/multi-company-architecture.md)).
+- The full permission catalog (including `administration.audit.read`/`export`
+  — see [docs/audit-architecture.md](docs/audit-architecture.md)), and 8
+  system roles (Administrador, Gerente, Ventas, Depósito, Compras,
+  Tesorería, Contabilidad, Solo lectura) per company — see
+  [docs/authorization.md](docs/authorization.md). The admin user holds
+  **Administrador** in both demo companies; only Administrador is granted
+  audit access by default.
+- 3 illustrative customers in Demo Company (Consumidor Final, Cliente Demo
+  S.A., Comercial del Sur S.R.L.) with different types/tax conditions/
+  addresses/contacts/categories — see [docs/customers.md](docs/customers.md).
+- 8 standard units of measure per company, and 4 illustrative products in
+  Demo Company (a barcoded simple product, a plain simple product, a
+  2-variant product, and a service) — see [docs/products.md](docs/products.md).
+
+The admin user's email/password come from `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`. Idempotent — safe to re-run, and re-running rotates the password if `SEED_ADMIN_PASSWORD` changed.
+
+## Authentication
+
+Implemented in `apps/api/src/auth`. Argon2id password hashing; short-lived
+JWT access tokens (cookie, httpOnly) + rotating refresh sessions stored
+server-side as `UserSession` (hashed token, not raw); password reset via
+`PasswordResetToken` (hashed, single-use, expiring).
+
+| Endpoint                     | Notes                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------- |
+| `POST /auth/login`           | rate-limited; generic error on bad credentials/unknown email              |
+| `POST /auth/refresh`         | rotates the refresh session                                               |
+| `POST /auth/logout`          | revokes the current session                                               |
+| `POST /auth/logout-all`      | revokes all sessions for the user                                         |
+| `GET /auth/me`               | requires a valid session; identity only — see Multi-company context below |
+| `POST /auth/change-password` | requires current password                                                 |
+| `POST /auth/forgot-password` | rate-limited; always returns success (anti-enumeration)                   |
+| `POST /auth/reset-password`  | consumes the reset token, revokes all sessions                            |
+
+Password reset delivery is abstracted (`PasswordResetDelivery`) — dev logs
+the link to the console, no real email provider is wired up yet.
+
+## Multi-company context
+
+Full architecture: [docs/multi-company-architecture.md](docs/multi-company-architecture.md).
+Summary: authentication answers "who," this answers "which company," and
+authorization (below) answers "what they may do there" — kept as separate
+mechanisms.
+
+| Endpoint                                     | Guard              | Notes                                                          |
+| -------------------------------------------- | ------------------ | -------------------------------------------------------------- |
+| `GET /context/companies`                     | `@Authenticated()` | Companies the current user can access                          |
+| `GET /context/companies/:companyId`          | `@Authenticated()` | 403 if inaccessible                                            |
+| `GET /context/companies/:companyId/branches` | `@Authenticated()` | Active branches of an accessible company                       |
+| `GET /context/current`                       | `@CompanyScoped()` | Verifies the header-based guard chain — not a business feature |
+
+Company-scoped requests carry an `X-Company-Id` header (a validated UUID
+of a company the authenticated user has active access to); an optional
+`X-Branch-Id` further scopes to a branch of that same company. Both apps'
+shared client (`packages/auth-client`) attaches these automatically once
+a company/branch is selected — for manual API testing:
+
+```bash
+curl http://localhost:3001/api/v1/context/current \
+  -H "X-Company-Id: <uuid from GET /context/companies>" \
+  -b cookies.txt
+```
+
+### Testing Gestión / Facturación manually
+
+1. `npm run dev` (or `dev:api` + `dev:gestion` + `dev:facturacion` in separate terminals).
+2. Log in to either app with the seeded admin — it has access to **two**
+   companies, so a company selector appears instead of auto-selecting.
+3. In Facturación, after picking a company, a branch selector appears too
+   (Demo Company has two branches; Second Demo Company has one — auto-selected).
+4. Switch companies in one app and confirm the other app's selection is
+   unaffected (they're namespaced separately in `localStorage`).
+
+## Authorization (RBAC)
+
+Full architecture: [docs/authorization.md](docs/authorization.md). Roles
+are permission bundles scoped to one company; effective permissions are
+the union of every active role a user holds in the active company.
+
+| Endpoint                                             | Guard                         | Notes                                                       |
+| ---------------------------------------------------- | ----------------------------- | ----------------------------------------------------------- |
+| `GET /context/permissions`                           | `@CompanyScoped()` only       | Your own effective permission codes for the active company  |
+| `GET /administration/roles`                          | `administration.roles.read`   |                                                             |
+| `GET /administration/roles/:id`                      | `administration.roles.read`   |                                                             |
+| `POST /administration/roles`                         | `administration.roles.create` |                                                             |
+| `PATCH /administration/roles/:id`                    | `administration.roles.update` |                                                             |
+| `DELETE /administration/roles/:id`                   | `administration.roles.delete` | Soft-disable, not a hard delete                             |
+| `PUT /administration/roles/:id/permissions`          | `administration.roles.update` | Atomic replace                                              |
+| `GET /administration/permissions`                    | `administration.roles.read`   | The full catalog                                            |
+| `GET /administration/users`                          | `administration.users.read`   | Only users with active membership to the active company     |
+| `GET /administration/users/:userId/roles`            | `administration.roles.assign` |                                                             |
+| `POST /administration/users/:userId/roles`           | `administration.roles.assign` |                                                             |
+| `DELETE /administration/users/:userId/roles/:roleId` | `administration.roles.assign` | Refuses to remove the company's last security administrator |
+
+In Gestión, log in as the seeded admin and go to **Administración → Roles**
+or **Administración → Usuarios** (both require Administrador's permissions,
+which the seed already grants). Creating a role with only
+`apps.facturacion.access` and assigning it to a second user is the fastest
+way to see the Gestión/Facturación access split in practice.
+
+## Audit trail
+
+Full architecture: [docs/audit-architecture.md](docs/audit-architecture.md).
+Business/administrative audit log — distinct from application logs — that
+records who did what, when, in which company, and what changed. Critical
+mutations (role create/update/deactivate, permission changes, role
+assign/unassign) and account-security events (login, logout, password
+change/reset, session revocation) write an `AuditLog` row; reads and
+routine traffic are never audited.
+
+| Endpoint                                                | Guard                         | Notes                                              |
+| -------------------------------------------------------- | ------------------------------ | --------------------------------------------------- |
+| `GET /administration/audit`                             | `administration.audit.read`   | Company-scoped, paginated, filterable, newest first |
+| `GET /administration/audit/:id`                          | `administration.audit.read`   | 404 if the record belongs to a different company    |
+| `GET /administration/audit/entity/:entityType/:entityId` | `administration.audit.read`   | Backs a future per-entity "Historial" tab           |
+
+In Gestión, log in as the seeded admin and go to **Administración →
+Auditoría**. No CRUD is exposed for `AuditLog` anywhere — it's read-only
+by construction.
+
+## Customers
+
+Full architecture: [docs/customers.md](docs/customers.md). The first real
+business/master-data module — company-scoped customer records with
+CUIT/document validation, addresses, contacts, and categories. No
+balances, sales documents, or AR yet (see CLAUDE.md — those derive from a
+future ledger, never a stored column).
+
+| Endpoint | Permission | Notes |
+| --- | --- | --- |
+| `GET /customers` | `customers.read` | Paginated, searchable, filterable |
+| `GET /customers/lookup` | `customers.read` | Lightweight — future Facturación selector |
+| `GET/PATCH /customers/:id` | `customers.read`/`update` | |
+| `GET /customers/:id/history` | `customers.read` | Customer-scoped audit history |
+| `POST /customers` | `customers.create` | Nested addresses/contacts/categories, atomic |
+| `POST /customers/:id/(de)activate` | `customers.deactivate` | Soft status only, never deleted |
+| `.../addresses`, `.../contacts` | `customers.update` | Dedicated sub-resource CRUD |
+| `/customer-categories` | `customers.read`/`create`/`update` | |
+
+In Gestión, go to **Clientes**. No customer administration UI exists in
+Facturación by design — see docs/customers.md.
+
+## Products
+
+Full architecture: [docs/products.md](docs/products.md). The second
+business/master-data module — a shared, company-scoped product catalog
+(Product/ProductVariant/ProductCode/ProductCategory/Brand/UnitOfMeasure).
+No stock quantities or authoritative prices yet (see CLAUDE.md — those
+derive from future Inventory/Price List modules, never stored columns).
+
+| Endpoint | Permission | Notes |
+| --- | --- | --- |
+| `GET /products` | `products.read` | Paginated, searchable, filterable |
+| `GET /products/lookup` | `products.read` | Sellable-variant granularity — future Facturación/POS selector |
+| `GET/PATCH /products/:id` | `products.read`/`update` | |
+| `GET /products/:id/history` | `products.read` | Product-scoped audit history |
+| `POST /products` | `products.create` | Nested variants/codes, atomic |
+| `POST /products/:id/(de)activate` | `products.deactivate` | Soft status only, never deleted |
+| `.../variants`, `.../codes` | `products.update` | Dedicated sub-resource CRUD |
+| `/product-categories`, `/brands`, `/units` | `products.read`/`create`/`update` | |
+
+In Gestión, go to **Productos**. No product administration UI exists in
+Facturación by design — see docs/products.md.
 
 ## Development
 
 ```bash
-npm run dev        # builds packages/*, then runs api (:3001) + web (:3000)
-npm run dev:api     # api only
-npm run dev:web     # web only
+npm run dev             # builds packages/*, then runs api (:3001) + gestion (:3000) + facturacion (:3002)
+npm run dev:api          # api only
+npm run dev:gestion      # gestion only
+npm run dev:facturacion  # facturacion only
 ```
 
 ## Tests
@@ -140,7 +351,10 @@ npm run lint
 npm run typecheck
 npm run format        # write
 npm run format:check  # check only, no writes
-npm run build
+npm run build             # api + gestion + facturacion
+npm run build:api
+npm run build:gestion
+npm run build:facturacion
 ```
 
 ## Project structure
@@ -153,7 +367,15 @@ apps/api/src/
   database/        PrismaService + DatabaseModule
   redis/           RedisService + RedisModule
   health/          GET /api/v1/health
+  auth/            Login/refresh/logout/me/password reset — see Authentication above
+  company-context/ X-Company-Id/X-Branch-Id guard + /context/* — see Multi-company context above
+  authorization/   PermissionGuard, @RequirePermissions(), AuthorizationService — see Authorization above
+  administration/  /administration/roles + /administration/users + /administration/audit
+  audit/           AuditService, AuditSanitizer — see Audit trail above
+  customers/       /customers + /customer-categories — see Customers above
+  products/        /products + /product-categories + /brands + /units — see Products above
   common/filters/   Global exception filter (error envelope)
+  common/pipes/     ZodValidationPipe
   queue/           README only — BullMQ boundary, not wired up yet
   modules/         One README-only folder per future domain module
 apps/api/prisma/
@@ -161,10 +383,14 @@ apps/api/prisma/
   seed.ts
   migrations/
 
-apps/web/src/
-  app/             layout.tsx, page.tsx
-  components/layout/   Sidebar, Header, AppShell
+apps/gestion/src/  and  apps/facturacion/src/
+  app/login, forgot-password, reset-password/   auth pages (shared pattern, not shared components)
+  app/(app)/       session-gated + company-gated + app-access-gated route group
+  app/(app)/administracion/  Gestión-only: roles list/editor, user list + role assignment, audit list/detail
+  app/(app)/clientes/        Gestión-only: customer list/create/detail/edit — see Customers above
+  app/(app)/productos/       Gestión-only: product list/create/detail/edit + categorías/marcas/unidades — see Products above
+  components/layout/  app shell (sidebar+header for Gestión, single top bar for Facturación), company/branch selectors, access-denied states
   components/providers/ QueryProvider (TanStack Query)
   components/ui/    shadcn/ui primitives
-  lib/             api.ts (fetch helper), utils.ts (shadcn cn())
+  lib/auth-client.ts  thin wrapper around @erp/auth-client for this app
 ```

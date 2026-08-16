@@ -1,0 +1,18 @@
+{
+  "extends": "@erp/typescript-config/base.json",
+  "compilerOptions": {
+    // ESM output (not CommonJS): tsc prepends "use strict" to CJS output,
+    // which pushes the "use client" directive off line 1 and breaks Next's
+    // RSC client-boundary detection. ESM is implicitly strict, so no such
+    // prefix is added and "use client" stays the literal first statement.
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": true
+  },
+  "include": ["src"]
+}

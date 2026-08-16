@@ -75,11 +75,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const payload = exception.getResponse();
-      const code =
-        STATUS_CODES[status] ??
-        exception.constructor.name.replace(/Exception$/, '').toUpperCase();
 
       if (typeof payload === 'string') {
+        const code =
+          STATUS_CODES[status] ??
+          exception.constructor.name.replace(/Exception$/, '').toUpperCase();
         return { status, code, message: payload };
       }
 
@@ -87,8 +87,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
         message,
         error: _error,
         statusCode: _statusCode,
+        code: explicitCode,
         ...rest
       } = payload as Record<string, unknown>;
+      // Custom exceptions (e.g. company-context errors) pass an explicit
+      // `code` in their body so several distinct error cases can share one
+      // HTTP status — that code wins over the generic per-status mapping.
+      const code =
+        (typeof explicitCode === 'string' ? explicitCode : undefined) ??
+        STATUS_CODES[status] ??
+        exception.constructor.name.replace(/Exception$/, '').toUpperCase();
       const resolvedMessage = Array.isArray(message)
         ? message.join(', ')
         : ((message as string) ?? exception.message);

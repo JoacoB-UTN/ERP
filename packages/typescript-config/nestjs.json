@@ -9,6 +9,12 @@
     "emitDecoratorMetadata": true,
     "declaration": true,
     "removeComments": true,
-    "incremental": true
+    // Deliberately false: Nest CLI's `deleteOutDir` (nest-cli.json) wipes
+    // `dist/` on every build/start, but incremental tsc trusts its
+    // `.tsbuildinfo` cache and, seeing no source changes, silently emits
+    // nothing into the now-empty directory — a zero-emit "successful"
+    // build with no dist/main.js. Full recompiles are slower but never
+    // silently wrong.
+    "incremental": false
   }
 }
