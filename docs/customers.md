@@ -291,13 +291,13 @@ by default; a valid customer can be saved from that section alone.
 
 No customer administration UI exists in Facturación, by design (see
 CLAUDE.md — Gestión owns the complete customer master). `GET /customers/
-lookup` exists specifically to back a future fast operational customer
-selector there — concise fields only (`id`, `code`, `displayName`,
-`legalName`, `taxId`, `taxCondition`, `status`), ACTIVE customers only, no
-new permission (`customers.read` is sufficient — see CLAUDE.md, no
-security difference to justify a separate one). The hook
-(`useCustomerLookup` in `packages/auth-client`) already exists; no
-Facturación screen calls it yet.
+lookup` backs Facturación's fast operational customer selector
+(`CustomerPicker`, used by both `/ventas/nueva` and POS — see
+[facturacion.md](facturacion.md) and [pos.md](pos.md)) — concise fields
+only (`id`, `code`, `displayName`, `legalName`, `taxId`, `taxCondition`,
+`status`), ACTIVE customers only, no new permission (`customers.read` is
+sufficient — see CLAUDE.md, no security difference to justify a separate
+one).
 
 ## Deferred
 

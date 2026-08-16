@@ -56,12 +56,18 @@ confirm it, watch inventory actually change, see it back in Gestión.
 **POS mode is now implemented as well** (Prompt #12, see
 [pos.md](pos.md)) — fast counter-sale entry with a payment method
 (cash/card/transfer/other), all inside Facturación, calling the same
-Sales domain. The full demo milestone described above is complete; the
-next milestone is end-to-end hardening (Prompt #13).
+Sales domain. The full demo milestone described above is complete and
+has been hardened end to end (Prompt #13, see
+[implementation-status.md](implementation-status.md)) — integration
+tests and manual verification confirm Gestión, Facturación, and POS all
+share one Sales domain, one pricing engine, and one inventory ledger, and
+one real frontend defect (a swallowed confirm-failure error message) was
+found and fixed in the process. The next milestones are demo dashboard/
+UX polish and demo data/presentation flow (Prompts #14/#15).
 
 ### Suggested upcoming milestones
 
-Planning suggestions only, except #10-#12 which are now implemented —
+Planning suggestions only, except #10-#13 which are now implemented —
 not committed to this exact scope or order for the rest. See
 `prompts/planned/`/`prompts/completed/` for the actual task record of
 each.
@@ -82,11 +88,12 @@ each.
                                  operational payment snapshot, never Treasury)
                                  and one optional field on the existing
                                  confirm endpoint — still the same SalesService.
-13  End-to-end integration    — hardening across Gestión/Facturación/POS sale
+13  End-to-end integration    — DONE (see prompts/completed/, docs/implementation-status.md).
+                                 Hardening across Gestión/Facturación/POS sale
                                  confirmation, pricing resolution, and inventory
-                                 effect (mostly integration tests + edge cases,
-                                 not new features — the core paths from #10
-                                 already work)
+                                 effect — new integration/concurrency tests, one
+                                 real frontend defect found and fixed (a
+                                 swallowed confirm-failure error message).
 14  Demo Dashboard / UX polish
 15  Demo data + presentation flow
 ```

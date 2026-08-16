@@ -1,8 +1,8 @@
 # Implementation Status
 
-Last verified: 2026-08-16, after Prompt #12 (POS MVP) — against
-the code, migrations, and test suite in this repository, not against
-prior chat history or documentation intent.
+Last verified: 2026-08-16, after Prompt #13 (end-to-end Sale/Inventory/
+Pricing hardening) — against the code, migrations, and test suite in
+this repository, not against prior chat history or documentation intent.
 
 This file is authoritative for "what exists right now." If it disagrees
 with a domain doc, the domain doc is stale — fix it. If it disagrees with
@@ -207,6 +207,49 @@ sales commissions, accounting entries, offline mode — see pos.md's
 NOT a Treasury/AR ledger** — it's an operational payment snapshot only;
 no cash/bank/customer-account balance is ever updated by it.
 
+### End-to-end Sale / Inventory / Pricing hardening
+**Status: DONE — hardening only, no new surface area.** Confirmed, via
+new integration tests and manual verification, that Gestión, Facturación,
+and POS remain three UIs over exactly one Sales domain, one pricing
+engine, and one inventory ledger. No real defect was found in the backend
+domain services under this scrutiny — every gap identified (draft
+repricing, cross-company reference rejection at write time, concurrent
+same-draft double confirm, two sales racing for the same stock,
+concurrent sale numbering, ledger/projection consistency after a
+confirmed sale) was **already correctly handled** by the existing
+`SalesService`/`InventoryService`/`PricingService` and simply lacked
+dedicated test coverage — see the new
+`apps/api/test/sale-integration.e2e-spec.ts` (13 tests). One real
+frontend defect was found and fixed: Facturación's `/ventas/nueva` →
+confirm-fails-with-insufficient-stock path computed the correct Spanish
+error message but then immediately discarded it — the reconciling
+`router.replace('/ventas/:id')` (see facturacion.md) unmounts the
+`/ventas/nueva` page before React ever paints local `error` state set
+just before it. Fixed by stashing the message in `sessionStorage` right
+before the navigate and consuming it once on the destination page's
+mount (`apps/facturacion/src/components/ventas/sale-workspace.tsx`) —
+verified to reproduce and to be fixed via a real browser flow, backend
+`INSUFFICIENT_STOCK` response included, DB-inspected (sale stays DRAFT,
+zero `StockMovement`, zero `SalesTender`). Manually verified end-to-end:
+a Facturación sale, a POS CASH sale (exact change, tender persisted), a
+POS CARD sale (no cash fields, `amountReceived`/`change` both `null`, no
+card data stored), and the insufficient-stock failure above — all four
+cross-checked directly against `SalesDocument`/`SalesDocumentLine`/
+`SalesTender`/`StockMovement` rows in the database, and all three
+confirmed sales verified visible in Gestión with matching number/
+customer/total/status and the correct `StockMovement` reference.
+Documentation reconciled: `docs/architecture.md` (added the missing
+Sales module entry, fixed a stale "POS not implemented yet" diagram
+label and an equally stale Facturación paragraph), `docs/customers.md`
+and `docs/inventory.md`/`docs/pricing.md` (fixed stale "no Facturación/
+POS behavior exists yet" language in their own "Facturación" sections —
+all three had fallen behind Prompts #11/#12 landing). No schema change,
+no new backend endpoint, no new UI surface. See
+[sales.md](sales.md), [inventory.md](inventory.md),
+[pricing.md](pricing.md), [facturacion.md](facturacion.md), and
+[pos.md](pos.md) — none of their documented invariants changed, all were
+re-verified.
+
 ## Foundation-only (deliberately incomplete)
 
 ### Gestión (as a product)
@@ -278,8 +321,12 @@ The demonstrable vertical slice (create customer/product/stock/price →
 select customer/product → confirm a sale, with a payment method at
 counter speed → inventory changes → visible back in Gestión) is now
 implemented from Gestión, Facturación, **and** POS — see Sales,
-Facturación MVP, and POS MVP above, [sales.md](sales.md),
-[facturacion.md](facturacion.md), and [pos.md](pos.md). The next
-milestone is end-to-end hardening (Prompt #13) before any advanced ERP
-module (accounting, fiscal, treasury). See [roadmap.md](roadmap.md) for the full
-milestone breakdown.
+Facturación MVP, and POS MVP above — and has been hardened end to end
+(Prompt #13, see "End-to-end Sale / Inventory / Pricing hardening"
+above), with integration/concurrency test coverage proving all three
+entry points share one Sales domain, one pricing engine, and one
+inventory ledger. See [sales.md](sales.md), [facturacion.md](facturacion.md),
+and [pos.md](pos.md). The next milestones are demo dashboard/UX polish
+and demo data/presentation flow (Prompts #14/#15) before any advanced ERP
+module (accounting, fiscal, treasury). See [roadmap.md](roadmap.md) for
+the full milestone breakdown.

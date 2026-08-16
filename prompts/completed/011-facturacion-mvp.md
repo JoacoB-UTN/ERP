@@ -1,11 +1,11 @@
 # Task 011 — Facturación MVP
 
-Status: IN PROGRESS — implementation and manual verification complete, not yet merged
+Status: COMPLETED — merged to main
 Depends on: 010 (Demo Sales Core)
 Agent: Claude
 Base branch: main
 Branch: agent/claude-facturacion-mvp
-PR: (not yet opened — see final report for exact push/PR status)
+PR: #3, merged as commit 449bd70
 
 ## Objective
 
