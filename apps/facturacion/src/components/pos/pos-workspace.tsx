@@ -55,6 +55,13 @@ export function PosWorkspace() {
   const [savedSaleId, setSavedSaleId] = useState<string | null>(null);
   const [error, setError] = useState<string | undefined>();
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  // The backend-canonical decimal-string total for the payment panel —
+  // NEVER the local `computeCartTotals` preview number. See docs/pos.md
+  // and AGENTS.md's "never floating point for money" rule: a JS-number
+  // preview total (e.g. from `0.10 * 3`) can carry binary floating-point
+  // error that a plain `String()` wrap does not remove.
+  const [checkoutTotal, setCheckoutTotal] = useState<string | null>(null);
+  const [openingCheckout, setOpeningCheckout] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | undefined>();
   const [confirming, setConfirming] = useState(false);
   const [successSale, setSuccessSale] = useState<SalesDocumentDetailDto | null>(null);
@@ -80,6 +87,8 @@ export function PosWorkspace() {
       setSavedSaleId(null);
       setError(undefined);
       setSuccessSale(null);
+      setCheckoutTotal(null);
+      setCheckoutOpen(false);
     }
   }, [companyId]);
 
@@ -103,7 +112,7 @@ export function PosWorkspace() {
 
   useEffect(() => {
     function canOpenCheckout() {
-      return canConfirm && !successSale && customer !== null && lines.length > 0 && !checkoutOpen;
+      return canConfirm && !successSale && customer !== null && lines.length > 0 && !checkoutOpen && !openingCheckout;
     }
     function handler(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
@@ -121,11 +130,7 @@ export function PosWorkspace() {
       }
       if (e.key === 'F10') {
         e.preventDefault();
-        if (canOpenCheckout()) {
-          setError(undefined);
-          setCheckoutError(undefined);
-          setCheckoutOpen(true);
-        }
+        if (canOpenCheckout()) void handleOpenCheckout();
         return;
       }
       if (inField) return; // never hijack normal typing in the search/customer inputs
@@ -142,7 +147,8 @@ export function PosWorkspace() {
     }
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [customer, activeKey, lines.length, canConfirm, successSale, checkoutOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customer, activeKey, lines.length, canConfirm, successSale, checkoutOpen, openingCheckout]);
 
   function addLine(selection: ProductSearchSelection) {
     setLines((prev) => {
@@ -197,11 +203,18 @@ export function PosWorkspace() {
     return undefined;
   }
 
-  /** Never called per scanned line — only at checkout (F10/Cobrar), see docs/pos.md. */
-  async function persistDraft(): Promise<string | null> {
+  /**
+   * Never called per scanned line — only at checkout (F10/Cobrar), see
+   * docs/pos.md. Returns the backend-canonical `salesDocument.total`
+   * (a Prisma.Decimal-computed decimal string) alongside the sale id —
+   * this, not `computeCartTotals`'s JS-number preview, is the only value
+   * ever allowed to reach the payment panel / tender flow. See AGENTS.md's
+   * "never floating point for money" rule.
+   */
+  async function persistDraft(): Promise<{ id: string; total: string } | null> {
     try {
       if (savedSaleId) {
-        await updateSale.mutateAsync({
+        const result = await updateSale.mutateAsync({
           id: savedSaleId,
           input: {
             customerId: customer!.customerId,
@@ -210,7 +223,7 @@ export function PosWorkspace() {
             lines: toSaleLineInputs(lines),
           },
         });
-        return savedSaleId;
+        return { id: savedSaleId, total: result.salesDocument.total };
       }
       const result = await createSale.mutateAsync({
         customerId: customer!.customerId,
@@ -219,14 +232,20 @@ export function PosWorkspace() {
         lines: toSaleLineInputs(lines),
       });
       setSavedSaleId(result.salesDocument.id);
-      return result.salesDocument.id;
+      return { id: result.salesDocument.id, total: result.salesDocument.total };
     } catch (err) {
       setError(saleErrorMessage(err));
       return null;
     }
   }
 
-  function handleOpenCheckout() {
+  /**
+   * Persists/updates the draft to obtain the backend-canonical total, then
+   * opens the payment panel — never the other way around. If persisting
+   * fails (missing price, invalid quantity, ...) the panel must NOT open;
+   * `persistDraft` has already surfaced the operational error via `setError`.
+   */
+  async function handleOpenCheckout() {
     const validationError = validate();
     if (validationError) {
       setError(validationError);
@@ -234,21 +253,30 @@ export function PosWorkspace() {
     }
     setError(undefined);
     setCheckoutError(undefined);
-    setCheckoutOpen(true);
+    setOpeningCheckout(true);
+    try {
+      const result = await persistDraft();
+      if (!result) return;
+      setCheckoutTotal(result.total);
+      setCheckoutOpen(true);
+    } finally {
+      setOpeningCheckout(false);
+    }
   }
 
   async function handleCheckoutConfirm(tender: ConfirmSaleTenderInput) {
     setConfirming(true);
     setCheckoutError(undefined);
     try {
-      const id = await persistDraft();
-      if (!id) {
+      const result = await persistDraft();
+      if (!result) {
         setCheckoutOpen(false);
         return;
       }
-      const result = await confirmSale.mutateAsync({ id, tender });
+      setCheckoutTotal(result.total);
+      const confirmed = await confirmSale.mutateAsync({ id: result.id, tender });
       setCheckoutOpen(false);
-      setSuccessSale(result.salesDocument);
+      setSuccessSale(confirmed.salesDocument);
     } catch (err) {
       // Keep the panel open (insufficient stock, a price/customer race,
       // ...) — the draft is already saved, so the operator can adjust the
@@ -268,6 +296,8 @@ export function PosWorkspace() {
     setSavedSaleId(null);
     setSuccessSale(null);
     setError(undefined);
+    setCheckoutTotal(null);
+    setOpeningCheckout(false);
     setTimeout(() => searchRef.current?.focus(), 0);
   }
 
@@ -372,8 +402,13 @@ export function PosWorkspace() {
             </p>
           </div>
           {canConfirm ? (
-            <Button type="button" size="lg" onClick={handleOpenCheckout} disabled={lines.length === 0}>
-              Cobrar (F10)
+            <Button
+              type="button"
+              size="lg"
+              onClick={() => void handleOpenCheckout()}
+              disabled={lines.length === 0 || openingCheckout}
+            >
+              {openingCheckout ? 'Abriendo…' : 'Cobrar (F10)'}
             </Button>
           ) : (
             <p className="max-w-40 text-xs text-muted-foreground">No tenés permiso para cobrar.</p>
@@ -384,7 +419,7 @@ export function PosWorkspace() {
       <PaymentPanel
         open={checkoutOpen}
         onOpenChange={setCheckoutOpen}
-        total={String(totals.total)}
+        total={checkoutTotal ?? '0'}
         currencyCode={currencyCode}
         onConfirm={handleCheckoutConfirm}
         pending={confirming}

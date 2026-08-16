@@ -1414,6 +1414,108 @@ describe('Sales (e2e)', () => {
   });
 
   // ---------------------------------------------------------------------
+  // Cart -> checkout boundary: the exact value POS threads into the
+  // payment panel / tender flow. Facturación/POS never compute this total
+  // themselves (see apps/facturacion/src/components/pos/pos-workspace.tsx's
+  // `persistDraft` / `handleOpenCheckout`) — they persist/update the draft
+  // through these same create/update endpoints and use the returned
+  // `salesDocument.total` verbatim as the payment panel's canonical
+  // decimal-string total. These tests assert directly on that response
+  // field with values chosen because plain JS `number` arithmetic
+  // (`0.10 * 3`, etc.) would corrupt them with binary floating-point
+  // error — see AGENTS.md's "never floating point for money" rule and
+  // docs/pos.md.
+  // ---------------------------------------------------------------------
+  describe('cart -> checkout boundary (draft canonical total)', () => {
+    it('create: price 0.10 x quantity 3 -> total exactly "0.3", never "0.30000000000000004"', async () => {
+      const agent = await loginAs(userAdminId);
+      const variant = await freshVariant(productId, 'checkout-total-a');
+      await setPrice(agent, priceListId, variant, '0.10');
+      const { status, body } = await draftSale(agent, {
+        lines: [
+          { productVariantId: variant, quantity: '3', discountPercentage: '0' },
+        ],
+      });
+      expect(status).toBe(201);
+      expect((body as { salesDocument: SaleBody }).salesDocument.total).toBe(
+        '0.3',
+      );
+    });
+
+    it('create: price 10.10 x quantity 2 -> total exactly "20.2"', async () => {
+      const agent = await loginAs(userAdminId);
+      const variant = await freshVariant(productId, 'checkout-total-b');
+      await setPrice(agent, priceListId, variant, '10.10');
+      const { status, body } = await draftSale(agent, {
+        lines: [
+          { productVariantId: variant, quantity: '2', discountPercentage: '0' },
+        ],
+      });
+      expect(status).toBe(201);
+      expect((body as { salesDocument: SaleBody }).salesDocument.total).toBe(
+        '20.2',
+      );
+    });
+
+    it('create: price 0.10 x quantity 3 with a fractional 12.5% discount -> total exactly "0.2625"', async () => {
+      const agent = await loginAs(userAdminId);
+      const variant = await freshVariant(productId, 'checkout-total-c');
+      await setPrice(agent, priceListId, variant, '0.10');
+      const { status, body } = await draftSale(agent, {
+        lines: [
+          {
+            productVariantId: variant,
+            quantity: '3',
+            discountPercentage: '12.5',
+          },
+        ],
+      });
+      expect(status).toBe(201);
+      // gross = 0.10 * 3 = 0.30; discount = 0.30 * 0.125 = 0.0375; net = 0.2625
+      expect((body as { salesDocument: SaleBody }).salesDocument.total).toBe(
+        '0.2625',
+      );
+    });
+
+    it('update: persisting a changed cart returns a freshly recomputed canonical total, not the stale one', async () => {
+      const agent = await loginAs(userAdminId);
+      const variant = await freshVariant(productId, 'checkout-total-update');
+      await setPrice(agent, priceListId, variant, '0.10');
+      const created = await draftSale(agent, {
+        lines: [
+          { productVariantId: variant, quantity: '3', discountPercentage: '0' },
+        ],
+      });
+      expect(created.status).toBe(201);
+      const saleId = (created.body as { salesDocument: SaleBody }).salesDocument
+        .id;
+      expect(
+        (created.body as { salesDocument: SaleBody }).salesDocument.total,
+      ).toBe('0.3');
+
+      // Operator bumps the quantity in the POS cart before opening checkout
+      // again — persistDraft() must PATCH the existing draft and the panel
+      // must use the newly returned total, never the one from the first save.
+      const updated = await agent
+        .patch(`/api/v1/sales/${saleId}`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({
+          lines: [
+            {
+              productVariantId: variant,
+              quantity: '7',
+              discountPercentage: '0',
+            },
+          ],
+        });
+      expect(updated.status).toBe(200);
+      expect(
+        (updated.body as { salesDocument: SaleBody }).salesDocument.total,
+      ).toBe('0.7');
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // Company isolation
   // ---------------------------------------------------------------------
   describe('company isolation', () => {
