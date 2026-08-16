@@ -33,7 +33,8 @@ shared rules, then come back here for detail.
 - [customers.md](customers.md) — customer master (Customer/CustomerAddress/
   CustomerContact/CustomerCategory), CUIT normalization/validation, code
   sequencing, duplicate detection, search, permissions, audit, Gestión's
-  `/clientes`, and the future Facturación lookup contract.
+  `/clientes`, and the lookup contract Facturación's `CustomerPicker`
+  consumes.
 - [products.md](products.md) — product catalog (Product/ProductVariant/
   ProductCode/ProductCategory/Brand/UnitOfMeasure), the "default variant"
   pattern, SKU/barcode uniqueness, inventory *configuration* vs. stock,
@@ -54,6 +55,12 @@ shared rules, then come back here for detail.
   PricingService, atomic + idempotent confirmation and inventory
   decrement via InventoryService, permissions, audit, Gestión's
   `/ventas`, and what's deferred (fiscal invoicing, AR, POS, ...).
+- [facturacion.md](facturacion.md) — the Facturación MVP: a fast
+  operational sales UI over the exact same Sales domain sales.md
+  describes (zero new endpoints/tables), customer/product/barcode
+  lookup, pricing/inventory integration, draft/confirm lifecycle,
+  keyboard shortcuts, permissions, company isolation, and current
+  limitations (POS, payments, fiscal invoicing, ... still deferred).
 
 ## Product direction
 

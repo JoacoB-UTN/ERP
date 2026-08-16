@@ -1,11 +1,11 @@
 # Task 010 — Demo Sales Core
 
-Status: IN PROGRESS — implementation and verification complete, not yet merged
+Status: COMPLETED — merged to main
 Depends on: 009 (Pricing)
 Agent: Claude
 Base branch: main
 Branch: agent/claude-demo-sales-core
-PR: (not yet opened — see final report for exact push/PR status)
+PR: #2, merged as commit 8754dac
 
 ## Objective
 

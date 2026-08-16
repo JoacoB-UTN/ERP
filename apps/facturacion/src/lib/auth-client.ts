@@ -15,6 +15,7 @@ export const authClient = createAuthClient({
 });
 
 export const {
+  apiFetch,
   useMe,
   useLogin,
   useLogout,
@@ -24,9 +25,22 @@ export const {
   useResetPassword,
   useCompanies,
   useActiveCompany,
+  useActiveCompanyId,
   useBranches,
   useActiveBranch,
+  useActiveBranchId,
   usePermissions,
   useActiveWarehouse,
   useActivePriceList,
+  useCustomerLookup,
+  useProductLookup,
+  useInventoryLookup,
+  usePriceLookup,
+  useLookupPricesBatch,
+  useSales,
+  useSale,
+  useCreateSale,
+  useUpdateSale,
+  useConfirmSale,
+  useCancelSale,
 } = authClient;

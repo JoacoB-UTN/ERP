@@ -1,9 +1,11 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
 import { LogOut } from 'lucide-react';
 import { useLogout, useActiveCompany, useActiveBranch } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { CompanySelector } from './company-selector';
 import { BranchSelector } from './branch-selector';
 import { WarehouseSelector } from './warehouse-selector';
@@ -19,6 +21,7 @@ import { PriceListSelector } from './price-list-selector';
  */
 export function Topbar({ userLabel, userEmail }: { userLabel: string; userEmail: string }) {
   const router = useRouter();
+  const pathname = usePathname();
   const logout = useLogout();
   const { activeCompanyId } = useActiveCompany();
   const { activeBranchId } = useActiveBranch(activeCompanyId);
@@ -31,9 +34,19 @@ export function Topbar({ userLabel, userEmail }: { userLabel: string; userEmail:
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4 md:px-6">
       <div className="flex items-center gap-4">
-        <span className="text-sm font-semibold tracking-tight">Facturación</span>
+        <Link href="/" className="text-sm font-semibold tracking-tight">
+          Facturación
+        </Link>
         <nav className="flex items-center gap-1 text-sm text-muted-foreground">
-          <span className="rounded-md bg-muted px-2.5 py-1 font-medium text-foreground">Facturación</span>
+          <Link
+            href="/ventas"
+            className={cn(
+              'rounded-md px-2.5 py-1 font-medium',
+              pathname.startsWith('/ventas') ? 'bg-muted text-foreground' : 'hover:text-foreground',
+            )}
+          >
+            Ventas
+          </Link>
           <span className="cursor-not-allowed rounded-md px-2.5 py-1 opacity-50">POS</span>
         </nav>
         <span className="h-5 w-px bg-border" />
