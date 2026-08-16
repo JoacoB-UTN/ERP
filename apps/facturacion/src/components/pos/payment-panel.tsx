@@ -19,6 +19,12 @@ const METHODS: SalesTenderMethod[] = ['CASH', 'CARD', 'TRANSFER', 'OTHER'];
  * `amountApplied` implicitly (the server derives it from the sale's own
  * total, never a client-supplied amount) — this panel only ever sends
  * `method`/`amountReceived`.
+ *
+ * `total` is a decimal string, not a `number` — every cash calculation
+ * (change, insufficient-amount check) runs through `resolveCashTender`'s
+ * BigInt-backed decimal-string arithmetic (`@erp/shared`), never
+ * `Number()`/`parseFloat()`. See AGENTS.md's "never floating point for
+ * money" rule.
  */
 export function PaymentPanel({
   open,
@@ -31,7 +37,7 @@ export function PaymentPanel({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  total: number;
+  total: string;
   currencyCode: string | null;
   onConfirm: (tender: ConfirmSaleTenderInput) => void;
   pending: boolean;
@@ -51,16 +57,16 @@ export function PaymentPanel({
     return () => clearTimeout(id);
   }, [open]);
 
-  const { receivedNum, change, insufficient } = resolveCashTender(total, received);
+  const { received: normalizedReceived, change, insufficient } = resolveCashTender(total, received);
   const cashInsufficient = method === 'CASH' && insufficient;
   const canConfirm = !pending && (method !== 'CASH' || !cashInsufficient);
 
   function submit() {
     if (!canConfirm) return;
-    onConfirm(buildTenderInput(method, receivedNum));
+    onConfirm(buildTenderInput(method, normalizedReceived));
   }
 
-  const fmt = (n: number) => (currencyCode ? formatMoney(String(n), currencyCode) : String(n));
+  const fmt = (value: string) => (currencyCode ? formatMoney(value, currencyCode) : value);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -113,7 +119,7 @@ export function PaymentPanel({
                 inputMode="decimal"
                 value={received}
                 onChange={(e) => setReceived(e.target.value)}
-                placeholder={String(total)}
+                placeholder={total}
                 className="w-32 text-right"
                 aria-label="Importe recibido"
                 aria-invalid={cashInsufficient}
@@ -122,7 +128,7 @@ export function PaymentPanel({
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Vuelto</span>
               <span className={cn('font-medium tabular-nums', cashInsufficient && 'text-destructive')}>
-                {cashInsufficient ? 'Importe insuficiente' : fmt(Math.max(change, 0))}
+                {cashInsufficient ? 'Importe insuficiente' : fmt(change)}
               </span>
             </div>
           </div>

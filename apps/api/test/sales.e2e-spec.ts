@@ -1002,6 +1002,91 @@ describe('Sales (e2e)', () => {
       expect(tender!.change).toBe('20');
     });
 
+    // Decimal-cent regression coverage — see AGENTS.md's "never floating
+    // point for money" rule. `Number('0.30') - Number('0.10')` in plain JS
+    // yields 0.19999999999999998, not 0.2 — the backend must never do
+    // this (see the Prisma.Decimal-based check in SalesService.confirm
+    // and toTenderDto's change computation).
+    it('CASH decimal-cent precision: total 0.10, received 0.30 -> change exactly 0.2 (no float drift)', async () => {
+      const agent = await loginAs(userAdminId);
+      const variant = await freshVariant(productId, 'tender-cents-a');
+      await setPrice(agent, priceListId, variant, '0.10');
+      await inventoryService.createInitialBalance(
+        { userId: userAdminId, companyId: companyAId, tenantId },
+        { warehouseId, lines: [{ productVariantId: variant, quantity: '10' }] },
+      );
+      const { body } = await draftSale(agent, {
+        lines: [
+          { productVariantId: variant, quantity: '1', discountPercentage: '0' },
+        ],
+      });
+      const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+
+      const res = await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ tender: { method: 'CASH', amountReceived: '0.30' } });
+      expect(res.status).toBe(200);
+      const tender = (res.body as { salesDocument: SaleBody }).salesDocument
+        .tender;
+      expect(tender!.amountApplied).toBe('0.1');
+      expect(tender!.amountReceived).toBe('0.3');
+      expect(tender!.change).toBe('0.2');
+    });
+
+    it('CASH decimal-cent precision: total 18500.25, received 20000.50 -> change exactly 1500.25', async () => {
+      const agent = await loginAs(userAdminId);
+      const variant = await freshVariant(productId, 'tender-cents-b');
+      await setPrice(agent, priceListId, variant, '18500.25');
+      await inventoryService.createInitialBalance(
+        { userId: userAdminId, companyId: companyAId, tenantId },
+        { warehouseId, lines: [{ productVariantId: variant, quantity: '10' }] },
+      );
+      const { body } = await draftSale(agent, {
+        lines: [
+          { productVariantId: variant, quantity: '1', discountPercentage: '0' },
+        ],
+      });
+      const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+
+      const res = await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ tender: { method: 'CASH', amountReceived: '20000.50' } });
+      expect(res.status).toBe(200);
+      const tender = (res.body as { salesDocument: SaleBody }).salesDocument
+        .tender;
+      expect(tender!.amountApplied).toBe('18500.25');
+      expect(tender!.change).toBe('1500.25');
+    });
+
+    it('CASH decimal-cent precision: rejects an insufficient amount that differs from the total by only one cent', async () => {
+      const agent = await loginAs(userAdminId);
+      const variant = await freshVariant(productId, 'tender-cents-c');
+      await setPrice(agent, priceListId, variant, '10.10');
+      await inventoryService.createInitialBalance(
+        { userId: userAdminId, companyId: companyAId, tenantId },
+        { warehouseId, lines: [{ productVariantId: variant, quantity: '10' }] },
+      );
+      const { body } = await draftSale(agent, {
+        lines: [
+          { productVariantId: variant, quantity: '1', discountPercentage: '0' },
+        ],
+      });
+      const saleId = (body as { salesDocument: SaleBody }).salesDocument.id;
+
+      // total is 10.10 — 10.09 must be rejected, not accepted by a
+      // float-imprecise comparison.
+      const res = await agent
+        .post(`/api/v1/sales/${saleId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ tender: { method: 'CASH', amountReceived: '10.09' } });
+      expect(res.status).toBe(400);
+      expect((res.body as ErrorEnvelope).error.code).toBe(
+        'SALE_TENDER_CASH_INSUFFICIENT',
+      );
+    });
+
     it('CASH with no amountReceived defaults received=total and change=0 (exact payment)', async () => {
       const agent = await loginAs(userAdminId);
       const { body } = await confirmableDraft(agent);

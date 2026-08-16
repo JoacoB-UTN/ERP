@@ -10,6 +10,11 @@ import { z } from 'zod';
 
 const numericStringPattern = /^-?\d+(\.\d+)?$/;
 
+/** True when `value` is a well-formed decimal string (optional leading `-`, digits, optional fractional part) — the same shape every schema below requires. */
+export function isDecimalString(value: string): boolean {
+  return numericStringPattern.test(value);
+}
+
 /** Accepts string or number input (forms/JSON both happen), always emits a trimmed numeric string or null. */
 export const optionalDecimalSchema = z
   .union([z.string(), z.number()])
@@ -96,4 +101,49 @@ export function countDecimalPlaces(value: string): number {
 /** True when `value` has more fractional digits than `decimalPlaces` allows — see docs/inventory.md (UnitOfMeasure.decimalPlaces). */
 export function exceedsDecimalPrecision(value: string, decimalPlaces: number): boolean {
   return countDecimalPlaces(value) > decimalPlaces;
+}
+
+/**
+ * Exact decimal-string arithmetic via BigInt fixed-point scaling — no
+ * floating point, no `Prisma.Decimal` dependency (this package has no
+ * Prisma dependency and stays that way). Used where authoritative money
+ * arithmetic is needed client-side and a live server round-trip isn't —
+ * e.g. POS's cash-received/change math, see docs/pos.md. Prefer
+ * `Prisma.Decimal` directly wherever the code already runs against
+ * `@prisma/client` (backend services) — these two helpers exist
+ * specifically for the frontend, which cannot import it.
+ */
+function toScaledBigInt(value: string, scale: number): bigint {
+  const negative = value.startsWith('-');
+  const unsigned = negative ? value.slice(1) : value;
+  const [intPart, fracPart = ''] = unsigned.split('.');
+  const digits = (intPart || '0') + fracPart.padEnd(scale, '0');
+  const magnitude = BigInt(digits === '' ? '0' : digits);
+  return negative ? -magnitude : magnitude;
+}
+
+function fromScaledBigInt(value: bigint, scale: number): string {
+  const negative = value < 0n;
+  const digits = (negative ? -value : value).toString().padStart(scale + 1, '0');
+  const intPart = digits.slice(0, digits.length - scale) || '0';
+  const fracPart = scale > 0 ? digits.slice(digits.length - scale) : '';
+  const sign = negative ? '-' : '';
+  return scale > 0 ? `${sign}${intPart}.${fracPart}` : `${sign}${intPart}`;
+}
+
+/** Compares two decimal strings exactly: -1 if a<b, 0 if equal, 1 if a>b. Never `Number()`. */
+export function compareDecimalStrings(a: string, b: string): number {
+  const scale = Math.max(countDecimalPlaces(a), countDecimalPlaces(b));
+  const scaledA = toScaledBigInt(a, scale);
+  const scaledB = toScaledBigInt(b, scale);
+  if (scaledA < scaledB) return -1;
+  if (scaledA > scaledB) return 1;
+  return 0;
+}
+
+/** Exact `a - b` as a decimal string, at the finer of the two inputs' precision. Never `Number()`. */
+export function subtractDecimalStrings(a: string, b: string): string {
+  const scale = Math.max(countDecimalPlaces(a), countDecimalPlaces(b));
+  const result = toScaledBigInt(a, scale) - toScaledBigInt(b, scale);
+  return fromScaledBigInt(result, scale);
 }

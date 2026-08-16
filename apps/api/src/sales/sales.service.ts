@@ -551,7 +551,8 @@ export class SalesService {
 
     const total = existing.total.toString();
     if (tender?.method === 'CASH' && tender.amountReceived !== undefined) {
-      if (Number(tender.amountReceived) < Number(total)) {
+      // Decimal-safe — never Number() on money, see AGENTS.md and docs/pos.md.
+      if (new Prisma.Decimal(tender.amountReceived).lessThan(total)) {
         throw new SaleTenderCashInsufficientException();
       }
     }

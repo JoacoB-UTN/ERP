@@ -384,7 +384,7 @@ export function PosWorkspace() {
       <PaymentPanel
         open={checkoutOpen}
         onOpenChange={setCheckoutOpen}
-        total={totals.total}
+        total={String(totals.total)}
         currencyCode={currencyCode}
         onConfirm={handleCheckoutConfirm}
         pending={confirming}
