@@ -1,7 +1,7 @@
 import * as argon2 from 'argon2';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { passwordSchema, PERMISSION_CATALOG } from '@erp/shared';
-import { PrismaClient } from '../src/generated/prisma/client';
+import { PrismaClient, Prisma } from '../src/generated/prisma/client';
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
@@ -232,11 +232,15 @@ async function seedSystemRoles(
 }
 
 /**
- * A handful of illustrative customers for Demo Company — different types,
- * tax conditions, addresses, contacts and categories, not a bulk dataset
- * (see docs/customers.md and CLAUDE.md's anti-over-seeding guidance).
- * Idempotent: customers upsert by companyId+code; addresses/contacts have
- * no natural unique key, so they're created only if not already present.
+ * A realistic customer roster for the demo company (Distribuidora
+ * Horizonte S.R.L.) — see docs/customers.md and docs/demo-guide.md. ~16
+ * customers: Consumidor Final (required by POS/Facturación, kept at code
+ * 000001), a mix of companies/individuals/small businesses, varied tax
+ * conditions and categories, and one INACTIVE record for data-quality
+ * variety (never used in the rehearsed demo flow). All names/CUITs/DNIs
+ * are fictional. Idempotent: customers upsert by companyId+code;
+ * addresses/contacts have no natural unique key, so they're created only
+ * if not already present.
  */
 async function seedDemoCustomers(tenantId: string, companyId: string) {
   const categoryByName = new Map<string, string>();
@@ -251,19 +255,31 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
 
   async function upsertCustomer(params: {
     code: string;
-    customerType: 'COMPANY' | 'FINAL_CONSUMER';
+    customerType: 'COMPANY' | 'INDIVIDUAL' | 'FINAL_CONSUMER';
     legalName: string;
     tradeName?: string;
-    documentType?: 'CUIT';
+    documentType?: 'CUIT' | 'DNI';
     taxId?: string;
-    taxCondition: 'CONSUMIDOR_FINAL' | 'RESPONSABLE_INSCRIPTO' | 'MONOTRIBUTO';
+    taxCondition:
+      | 'CONSUMIDOR_FINAL'
+      | 'RESPONSABLE_INSCRIPTO'
+      | 'MONOTRIBUTO'
+      | 'EXENTO';
     email?: string;
     phone?: string;
     categoryNames?: string[];
+    status?: 'ACTIVE' | 'INACTIVE';
   }) {
     const customer = await prisma.customer.upsert({
       where: { companyId_code: { companyId, code: params.code } },
-      update: {},
+      update: {
+        legalName: params.legalName,
+        tradeName: params.tradeName,
+        documentType: params.documentType,
+        taxId: params.taxId,
+        taxCondition: params.taxCondition,
+        status: params.status ?? 'ACTIVE',
+      },
       create: {
         tenantId,
         companyId,
@@ -276,6 +292,7 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
         taxCondition: params.taxCondition,
         email: params.email,
         phone: params.phone,
+        status: params.status ?? 'ACTIVE',
       },
     });
     for (const name of params.categoryNames ?? []) {
@@ -336,6 +353,8 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     });
   }
 
+  // 000001 — required by POS/Facturación's default "no customer picked
+  // yet" fast path and by docs/pos.md's own examples. Never renumbered.
   await upsertCustomer({
     code: '000001',
     customerType: 'FINAL_CONSUMER',
@@ -343,19 +362,21 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     taxCondition: 'CONSUMIDOR_FINAL',
   });
 
-  const demo = await upsertCustomer({
+  // The flagship, easy-to-search demo customer (see docs/demo-guide.md's
+  // rehearsed script) — a believable local hardware store.
+  const ferreteria = await upsertCustomer({
     code: '000002',
     customerType: 'COMPANY',
-    legalName: 'Cliente Demo S.A.',
-    tradeName: 'Demo Comercial',
+    legalName: 'Ferretería El Puente S.R.L.',
+    tradeName: 'Ferretería El Puente',
     documentType: 'CUIT',
     taxId: '30712345671',
     taxCondition: 'RESPONSABLE_INSCRIPTO',
-    email: 'contacto@democomercial.example',
+    email: 'ventas@ferreteriaelpuente.example',
     phone: '011-4555-0100',
-    categoryNames: ['Mayorista'],
+    categoryNames: ['Minorista'],
   });
-  await ensureAddress(demo.id, 'FISCAL', {
+  await ensureAddress(ferreteria.id, 'FISCAL', {
     street: 'Av. Corrientes',
     number: '1234',
     city: 'Ciudad Autónoma de Buenos Aires',
@@ -363,25 +384,87 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     postalCode: 'C1043AAZ',
     isDefault: true,
   });
-  await ensureContact(demo.id, 'María López', {
-    role: 'Administración',
-    email: 'maria.lopez@democomercial.example',
+  await ensureContact(ferreteria.id, 'María López', {
+    role: 'Compras',
+    email: 'maria.lopez@ferreteriaelpuente.example',
     phone: '011-4555-0101',
     isPrimary: true,
   });
 
-  const sur = await upsertCustomer({
+  const kiosco = await upsertCustomer({
     code: '000003',
-    customerType: 'COMPANY',
-    legalName: 'Comercial del Sur S.R.L.',
-    tradeName: 'Comercial del Sur',
-    documentType: 'CUIT',
-    taxId: '30334455668',
+    customerType: 'INDIVIDUAL',
+    legalName: 'Alberto Ezequiel Suárez',
+    tradeName: 'Kiosco Don Alberto',
+    documentType: 'DNI',
+    taxId: '25987654',
     taxCondition: 'MONOTRIBUTO',
-    phone: '0291-456-7890',
+    phone: '011-4555-0210',
     categoryNames: ['Minorista'],
   });
-  await ensureAddress(sur.id, 'FISCAL', {
+  await ensureAddress(kiosco.id, 'FISCAL', {
+    street: 'Av. Rivadavia',
+    number: '4820',
+    city: 'Ciudad Autónoma de Buenos Aires',
+    province: 'Ciudad Autónoma de Buenos Aires',
+    postalCode: 'C1424',
+    isDefault: true,
+  });
+
+  const cafeteria = await upsertCustomer({
+    code: '000004',
+    customerType: 'COMPANY',
+    legalName: 'Aroma Cafetería S.H.',
+    tradeName: 'Cafetería Aroma',
+    documentType: 'CUIT',
+    taxId: '30712398767',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    phone: '011-4555-0330',
+    categoryNames: ['Minorista'],
+  });
+  await ensureAddress(cafeteria.id, 'FISCAL', {
+    street: 'Gorriti',
+    number: '3312',
+    city: 'Ciudad Autónoma de Buenos Aires',
+    province: 'Ciudad Autónoma de Buenos Aires',
+    postalCode: 'C1414',
+    isDefault: true,
+  });
+
+  const estudio = await upsertCustomer({
+    code: '000005',
+    customerType: 'COMPANY',
+    legalName: 'Fernández & Asociados Estudio Contable S.R.L.',
+    tradeName: 'Estudio Fernández & Asociados',
+    documentType: 'CUIT',
+    taxId: '30711122334',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    email: 'administracion@fernandezasociados.example',
+    phone: '011-4555-0440',
+    categoryNames: ['VIP'],
+  });
+  await ensureAddress(estudio.id, 'FISCAL', {
+    street: 'Av. Callao',
+    number: '987',
+    city: 'Ciudad Autónoma de Buenos Aires',
+    province: 'Ciudad Autónoma de Buenos Aires',
+    postalCode: 'C1023',
+    isDefault: true,
+  });
+
+  const distribuidora = await upsertCustomer({
+    code: '000006',
+    customerType: 'COMPANY',
+    legalName: 'Distribuidora Sur Insumos S.A.',
+    tradeName: 'Distribuidora Sur Insumos',
+    documentType: 'CUIT',
+    taxId: '30713344555',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    email: 'compras@surinsumos.example',
+    phone: '0291-456-7890',
+    categoryNames: ['Mayorista'],
+  });
+  await ensureAddress(distribuidora.id, 'FISCAL', {
     street: 'San Martín',
     number: '567',
     city: 'Bahía Blanca',
@@ -389,29 +472,174 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     postalCode: 'B8000',
     isDefault: true,
   });
-  await ensureContact(sur.id, 'Carlos Díaz', {
+  await ensureContact(distribuidora.id, 'Carlos Díaz', {
     role: 'Compras',
     phone: '0291-456-7891',
     isPrimary: true,
   });
 
-  // The customers above use manual codes (000001-000003), bypassing
+  await upsertCustomer({
+    code: '000007',
+    customerType: 'INDIVIDUAL',
+    legalName: 'Rosa Beatriz Giménez',
+    tradeName: 'Almacén La Esquina',
+    documentType: 'DNI',
+    taxId: '22456789',
+    taxCondition: 'MONOTRIBUTO',
+    phone: '011-4555-0550',
+    categoryNames: ['Minorista'],
+  });
+
+  await upsertCustomer({
+    code: '000008',
+    customerType: 'COMPANY',
+    legalName: 'Panadería San Roque S.H.',
+    tradeName: 'Panadería San Roque',
+    documentType: 'CUIT',
+    taxId: '30712233458',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    phone: '011-4555-0660',
+    categoryNames: ['Minorista'],
+  });
+
+  const libreria = await upsertCustomer({
+    code: '000009',
+    customerType: 'COMPANY',
+    legalName: 'Librería Central S.A.',
+    tradeName: 'Librería Central',
+    documentType: 'CUIT',
+    taxId: '30714455660',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    email: 'pedidos@libreriacentral.example',
+    phone: '011-4555-0770',
+    categoryNames: ['Mayorista'],
+  });
+  await ensureAddress(libreria.id, 'FISCAL', {
+    street: 'Florida',
+    number: '250',
+    city: 'Ciudad Autónoma de Buenos Aires',
+    province: 'Ciudad Autónoma de Buenos Aires',
+    postalCode: 'C1005',
+    isDefault: true,
+  });
+
+  await upsertCustomer({
+    code: '000010',
+    customerType: 'INDIVIDUAL',
+    legalName: 'Juan Carlos Pereyra',
+    documentType: 'DNI',
+    taxId: '30456789',
+    taxCondition: 'CONSUMIDOR_FINAL',
+    phone: '011-4555-0880',
+  });
+
+  await upsertCustomer({
+    code: '000011',
+    customerType: 'INDIVIDUAL',
+    legalName: 'María Eugenia Torres',
+    documentType: 'DNI',
+    taxId: '28123456',
+    taxCondition: 'CONSUMIDOR_FINAL',
+    email: 'meugenia.torres@example.com',
+  });
+
+  const hotel = await upsertCustomer({
+    code: '000012',
+    customerType: 'COMPANY',
+    legalName: 'Hotel Las Acacias S.A.',
+    tradeName: 'Hotel Las Acacias',
+    documentType: 'CUIT',
+    taxId: '30715566776',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    email: 'compras@hotellasacacias.example',
+    phone: '0291-456-9900',
+    categoryNames: ['VIP'],
+  });
+  await ensureAddress(hotel.id, 'FISCAL', {
+    street: 'Av. Alem',
+    number: '1450',
+    city: 'Bahía Blanca',
+    province: 'Buenos Aires',
+    postalCode: 'B8000',
+    isDefault: true,
+  });
+
+  await upsertCustomer({
+    code: '000013',
+    customerType: 'INDIVIDUAL',
+    legalName: 'Roberto Gómez',
+    tradeName: 'Taller Mecánico Gómez',
+    documentType: 'DNI',
+    taxId: '24678912',
+    taxCondition: 'MONOTRIBUTO',
+    phone: '0291-456-1020',
+    categoryNames: ['Minorista'],
+  });
+
+  const sur = await upsertCustomer({
+    code: '000014',
+    customerType: 'COMPANY',
+    legalName: 'Comercial del Sur S.R.L.',
+    tradeName: 'Comercial del Sur',
+    documentType: 'CUIT',
+    taxId: '30334455668',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    phone: '0291-456-7890',
+    categoryNames: ['Minorista'],
+  });
+  await ensureAddress(sur.id, 'FISCAL', {
+    street: 'Alsina',
+    number: '780',
+    city: 'Bahía Blanca',
+    province: 'Buenos Aires',
+    postalCode: 'B8000',
+    isDefault: true,
+  });
+
+  await upsertCustomer({
+    code: '000015',
+    customerType: 'COMPANY',
+    legalName: 'Zapatería Andina S.R.L.',
+    tradeName: 'Zapatería Andina',
+    documentType: 'CUIT',
+    taxId: '30716677881',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    phone: '011-4555-1130',
+    categoryNames: ['Minorista'],
+  });
+
+  // Deliberately INACTIVE — a closed/discontinued account, for data-
+  // quality variety (docs/demo-guide.md never selects this one; an
+  // inactive customer cannot be picked in a new sale, see docs/sales.md).
+  await upsertCustomer({
+    code: '000016',
+    customerType: 'COMPANY',
+    legalName: 'Comercio Los Andes S.R.L. (cerrado)',
+    tradeName: 'Comercio Los Andes',
+    documentType: 'CUIT',
+    taxId: '30717788997',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    status: 'INACTIVE',
+  });
+
+  // The customers above use manual codes (000001–000016), bypassing
   // CustomerCodeSequence — advance the counter past them so the first
   // customer created through the UI/API doesn't collide with a seeded
   // code (see docs/customers.md). Only raises the counter, never lowers
   // it, so this stays safe to re-run after real customers already exist
   // with a higher sequence value.
+  const SEEDED_CUSTOMER_COUNT = 16;
   const currentSequence = await prisma.customerCodeSequence.findUnique({
     where: { companyId },
   });
   if (!currentSequence) {
     await prisma.customerCodeSequence.create({
-      data: { companyId, lastValue: 3 },
+      data: { companyId, lastValue: SEEDED_CUSTOMER_COUNT },
     });
-  } else if (currentSequence.lastValue < 3) {
+  } else if (currentSequence.lastValue < SEEDED_CUSTOMER_COUNT) {
     await prisma.customerCodeSequence.update({
       where: { companyId },
-      data: { lastValue: 3 },
+      data: { lastValue: SEEDED_CUSTOMER_COUNT },
     });
   }
 }
@@ -505,10 +733,11 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
     categoryId?: string;
     brandId?: string;
     trackInventory: boolean;
+    status?: 'ACTIVE' | 'INACTIVE';
   }) {
     return prisma.product.upsert({
       where: { companyId_code: { companyId, code: params.code } },
-      update: {},
+      update: { status: params.status ?? 'ACTIVE' },
       create: {
         tenantId,
         companyId,
@@ -519,6 +748,7 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
         brandId: params.brandId,
         baseUnitId: unUnitId,
         trackInventory: params.trackInventory,
+        status: params.status ?? 'ACTIVE',
       },
     });
   }
@@ -553,8 +783,12 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
   const bebidasId = await ensureCategory('Bebidas');
   const alimentosId = await ensureCategory('Alimentos');
   const serviciosId = await ensureCategory('Servicios');
+  const libreriaId = await ensureCategory('Librería');
+  const tecnologiaId = await ensureCategory('Tecnología');
+  const indumentariaId = await ensureCategory('Indumentaria');
   const marcaPropiaId = await ensureBrand('Marca Propia');
 
+  // ---------- Bebidas / Alimentos ----------
   const gaseosa = await upsertProduct({
     code: '000001',
     name: 'Gaseosa cola 500 ml',
@@ -563,10 +797,20 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
     trackInventory: true,
   });
   const gaseosaVariant = await ensureVariant(gaseosa.id, null, null);
-  await ensureCode(gaseosaVariant.id, 'BARCODE', '7790001000012');
+  await ensureCode(gaseosaVariant.id, 'BARCODE', '7790001000019');
+
+  const agua = await upsertProduct({
+    code: '000002',
+    name: 'Agua mineral 500 ml',
+    productType: 'PRODUCT',
+    categoryId: bebidasId,
+    trackInventory: true,
+  });
+  const aguaVariant = await ensureVariant(agua.id, null, null);
+  await ensureCode(aguaVariant.id, 'BARCODE', '7790001000026');
 
   const cafe = await upsertProduct({
-    code: '000002',
+    code: '000003',
     name: 'Café 1 kg',
     productType: 'PRODUCT',
     categoryId: alimentosId,
@@ -575,23 +819,136 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
   });
   await ensureVariant(cafe.id, null, 'CAFE-1KG');
 
+  const yerba = await upsertProduct({
+    code: '000004',
+    name: 'Yerba mate 1 kg',
+    productType: 'PRODUCT',
+    categoryId: alimentosId,
+    brandId: marcaPropiaId,
+    trackInventory: true,
+  });
+  await ensureVariant(yerba.id, null, 'YERBA-1KG');
+
+  // ---------- Librería / oficina ----------
+  const resma = await upsertProduct({
+    code: '000005',
+    name: 'Resma A4',
+    productType: 'PRODUCT',
+    categoryId: libreriaId,
+    trackInventory: true,
+  });
+  await ensureVariant(resma.id, null, 'RESMA-A4');
+
+  const cuaderno = await upsertProduct({
+    code: '000006',
+    name: 'Cuaderno',
+    productType: 'PRODUCT',
+    categoryId: libreriaId,
+    trackInventory: true,
+  });
+  await ensureVariant(cuaderno.id, null, 'CUAD-TAPA-BL');
+
+  const boligrafo = await upsertProduct({
+    code: '000007',
+    name: 'Bolígrafo',
+    productType: 'PRODUCT',
+    categoryId: libreriaId,
+    trackInventory: true,
+  });
+  await ensureVariant(boligrafo.id, 'Azul', 'BOLI-AZUL', { color: 'Azul' });
+  await ensureVariant(boligrafo.id, 'Negro', 'BOLI-NEGRO', { color: 'Negro' });
+
+  // Deliberately INACTIVE — a discontinued line, for data-quality variety
+  // (docs/demo-guide.md never uses this one in the rehearsed flow).
+  const cinta = await upsertProduct({
+    code: '000008',
+    name: 'Cinta adhesiva',
+    productType: 'PRODUCT',
+    categoryId: libreriaId,
+    trackInventory: true,
+    status: 'INACTIVE',
+  });
+  await ensureVariant(cinta.id, null, 'CINTA-ADH');
+
+  const marcador = await upsertProduct({
+    code: '000009',
+    name: 'Marcador permanente',
+    productType: 'PRODUCT',
+    categoryId: libreriaId,
+    trackInventory: true,
+  });
+  await ensureVariant(marcador.id, null, 'MARC-PERM');
+
+  // ---------- Indumentaria ----------
   const buzo = await upsertProduct({
-    code: '000003',
+    code: '000010',
     name: 'Buzo con capucha',
     productType: 'PRODUCT',
+    categoryId: indumentariaId,
     trackInventory: true,
+  });
+  await ensureVariant(buzo.id, 'Negro / S', 'BUZO-NEGRO-S', {
+    color: 'Negro',
+    talle: 'S',
+  });
+  await ensureVariant(buzo.id, 'Negro / M', 'BUZO-NEGRO-M', {
+    color: 'Negro',
+    talle: 'M',
+  });
+  await ensureVariant(buzo.id, 'Negro / L', 'BUZO-NEGRO-L', {
+    color: 'Negro',
+    talle: 'L',
   });
   await ensureVariant(buzo.id, 'Gris / M', 'BUZO-GRIS-M', {
     color: 'Gris',
     talle: 'M',
   });
-  await ensureVariant(buzo.id, 'Gris / L', 'BUZO-GRIS-L', {
-    color: 'Gris',
-    talle: 'L',
-  });
 
+  // ---------- Tecnología / accesorios ----------
+  const cable = await upsertProduct({
+    code: '000011',
+    name: 'Cable USB-C',
+    productType: 'PRODUCT',
+    categoryId: tecnologiaId,
+    trackInventory: true,
+  });
+  await ensureVariant(cable.id, null, 'CABLE-USBC');
+
+  const mouse = await upsertProduct({
+    code: '000012',
+    name: 'Mouse inalámbrico',
+    productType: 'PRODUCT',
+    categoryId: tecnologiaId,
+    trackInventory: true,
+  });
+  await ensureVariant(mouse.id, null, 'MOUSE-INAL');
+
+  const teclado = await upsertProduct({
+    code: '000013',
+    name: 'Teclado',
+    productType: 'PRODUCT',
+    categoryId: tecnologiaId,
+    trackInventory: true,
+  });
+  await ensureVariant(teclado.id, null, 'TECLADO-STD');
+
+  // Deliberately never given an initial balance (see seedWarehousesAndStock
+  // below) — a real, honest zero-stock example: priced and cataloged, but
+  // with zero StockMovement history anywhere, exactly what a newly-added
+  // catalog item looks like before its first receipt. Never used in the
+  // rehearsed demo flow (docs/demo-guide.md).
+  const cargador = await upsertProduct({
+    code: '000014',
+    name: 'Cargador USB-C',
+    productType: 'PRODUCT',
+    categoryId: tecnologiaId,
+    trackInventory: true,
+  });
+  await ensureVariant(cargador.id, null, 'CARGADOR-USBC');
+
+  // ---------- Servicios (no inventory effect — see docs/sales.md) ----------
   const flete = await upsertProduct({
-    code: '000004',
+    code: '000015',
     name: 'Servicio de flete',
     productType: 'SERVICE',
     categoryId: serviciosId,
@@ -599,22 +956,41 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
   });
   await ensureVariant(flete.id, null, null);
 
+  const instalacion = await upsertProduct({
+    code: '000016',
+    name: 'Servicio de instalación',
+    productType: 'SERVICE',
+    categoryId: serviciosId,
+    trackInventory: false,
+  });
+  await ensureVariant(instalacion.id, null, null);
+
+  const envio = await upsertProduct({
+    code: '000017',
+    name: 'Envío local',
+    productType: 'SERVICE',
+    categoryId: serviciosId,
+    trackInventory: false,
+  });
+  await ensureVariant(envio.id, null, null);
+
   // Same collision-prevention fix as CustomerCodeSequence (see
   // seedDemoCustomers above and docs/products.md) — these products use
   // manual codes, bypassing ProductCodeSequence, so the counter must be
   // advanced past them before the first UI/API-created product. Only
   // raises the counter, never lowers it.
+  const SEEDED_PRODUCT_COUNT = 17;
   const currentSequence = await prisma.productCodeSequence.findUnique({
     where: { companyId },
   });
   if (!currentSequence) {
     await prisma.productCodeSequence.create({
-      data: { companyId, lastValue: 4 },
+      data: { companyId, lastValue: SEEDED_PRODUCT_COUNT },
     });
-  } else if (currentSequence.lastValue < 4) {
+  } else if (currentSequence.lastValue < SEEDED_PRODUCT_COUNT) {
     await prisma.productCodeSequence.update({
       where: { companyId },
-      data: { lastValue: 4 },
+      data: { lastValue: SEEDED_PRODUCT_COUNT },
     });
   }
 }
@@ -679,11 +1055,16 @@ async function ensureInitialBalance(
 }
 
 /**
- * Two demo warehouses (see docs/inventory.md) plus illustrative initial
- * stock for Demo Company's seeded products, exercised through real
+ * Three demo warehouses (see docs/inventory.md) plus illustrative initial
+ * stock for the demo company's seeded products, exercised through real
  * StockMovement rows (see ensureInitialBalance) rather than a direct
- * InventoryBalance insert — per the task spec's explicit requirement
- * that seed stock come from real ledger behavior.
+ * InventoryBalance insert — per docs/inventory.md's requirement that
+ * seed stock come from real ledger behavior. "Salón de Ventas" is a
+ * sales-floor warehouse (allowsSales, not allowsPurchases) sharing Casa
+ * Central's branch, giving the Facturación/POS warehouse picker something
+ * real to choose between (docs/demo-guide.md). One product ("Cargador
+ * USB-C", code 000014) is deliberately never given a balance anywhere —
+ * a genuine zero-stock example, not a fabricated one.
  */
 async function seedWarehousesAndStock(
   tenantId: string,
@@ -693,7 +1074,7 @@ async function seedWarehousesAndStock(
 ) {
   const central = await prisma.warehouse.upsert({
     where: { companyId_code: { companyId, code: 'CENTRAL' } },
-    update: {},
+    update: { name: 'Depósito Central' },
     create: {
       tenantId,
       companyId,
@@ -704,15 +1085,28 @@ async function seedWarehousesAndStock(
       allowsPurchases: true,
     },
   });
-  await prisma.warehouse.upsert({
+  const salon = await prisma.warehouse.upsert({
+    where: { companyId_code: { companyId, code: 'SALON' } },
+    update: { name: 'Salón de Ventas' },
+    create: {
+      tenantId,
+      companyId,
+      branchId: branchMainId,
+      code: 'SALON',
+      name: 'Salón de Ventas',
+      allowsSales: true,
+      allowsPurchases: false,
+    },
+  });
+  const sucursalNorte = await prisma.warehouse.upsert({
     where: { companyId_code: { companyId, code: 'SUC2' } },
-    update: {},
+    update: { name: 'Depósito Sucursal Norte' },
     create: {
       tenantId,
       companyId,
       branchId: branchSecondaryId,
       code: 'SUC2',
-      name: 'Depósito Sucursal 2',
+      name: 'Depósito Sucursal Norte',
       allowsSales: true,
       allowsPurchases: true,
     },
@@ -743,36 +1137,89 @@ async function seedWarehousesAndStock(
   }
 
   const gaseosaId = await firstVariantId('000001'); // Gaseosa cola 500 ml
-  const cafeId = await firstVariantId('000002'); // Café 1 kg
-  const buzoGrisM = await namedVariantId('000003', 'Gris / M'); // Buzo con capucha
-  const buzoGrisL = await namedVariantId('000003', 'Gris / L');
+  const aguaId = await firstVariantId('000002'); // Agua mineral 500 ml
+  const cafeId = await firstVariantId('000003'); // Café 1 kg
+  const yerbaId = await firstVariantId('000004'); // Yerba mate 1 kg
+  const resmaId = await firstVariantId('000005'); // Resma A4
+  const cuadernoId = await firstVariantId('000006'); // Cuaderno
+  const boliAzulId = await namedVariantId('000007', 'Azul'); // Bolígrafo
+  const boliNegroId = await namedVariantId('000007', 'Negro');
+  const cintaId = await firstVariantId('000008'); // Cinta adhesiva (INACTIVE product)
+  const marcadorId = await firstVariantId('000009'); // Marcador permanente
+  const buzoNegroS = await namedVariantId('000010', 'Negro / S'); // Buzo con capucha
+  const buzoNegroM = await namedVariantId('000010', 'Negro / M');
+  const buzoNegroL = await namedVariantId('000010', 'Negro / L');
+  const buzoGrisM = await namedVariantId('000010', 'Gris / M');
+  const cableId = await firstVariantId('000011'); // Cable USB-C
+  const mouseId = await firstVariantId('000012'); // Mouse inalámbrico
+  const tecladoId = await firstVariantId('000013'); // Teclado
+  // 000014 Cargador USB-C intentionally has no initial balance anywhere.
 
-  if (gaseosaId)
-    await ensureInitialBalance(
-      tenantId,
-      companyId,
-      central.id,
-      gaseosaId,
-      '100',
-    );
-  if (cafeId)
-    await ensureInitialBalance(tenantId, companyId, central.id, cafeId, '40');
-  if (buzoGrisM)
-    await ensureInitialBalance(
-      tenantId,
-      companyId,
-      central.id,
-      buzoGrisM,
-      '15',
-    );
-  if (buzoGrisL)
-    await ensureInitialBalance(
-      tenantId,
-      companyId,
-      central.id,
-      buzoGrisL,
-      '12',
-    );
+  // ---------- Depósito Central — the full catalog ----------
+  const centralStock: [string | null, string][] = [
+    [gaseosaId, '120'],
+    [aguaId, '150'],
+    [cafeId, '90'],
+    [yerbaId, '60'],
+    [resmaId, '70'],
+    [cuadernoId, '55'],
+    [boliAzulId, '90'],
+    [boliNegroId, '90'],
+    [cintaId, '40'],
+    [marcadorId, '48'],
+    [buzoNegroS, '10'],
+    [buzoNegroM, '22'],
+    [buzoNegroL, '18'],
+    [buzoGrisM, '14'],
+    [cableId, '35'],
+    [mouseId, '20'],
+    [tecladoId, '16'],
+  ];
+  for (const [variantId, quantity] of centralStock) {
+    if (variantId)
+      await ensureInitialBalance(
+        tenantId,
+        companyId,
+        central.id,
+        variantId,
+        quantity,
+      );
+  }
+
+  // ---------- Salón de Ventas — a small front-counter subset ----------
+  const salonStock: [string | null, string][] = [
+    [gaseosaId, '30'],
+    [cafeId, '15'],
+  ];
+  for (const [variantId, quantity] of salonStock) {
+    if (variantId)
+      await ensureInitialBalance(
+        tenantId,
+        companyId,
+        salon.id,
+        variantId,
+        quantity,
+      );
+  }
+
+  // ---------- Depósito Sucursal Norte — its own independent stock ----------
+  const sucursalNorteStock: [string | null, string][] = [
+    [gaseosaId, '45'],
+    [cafeId, '20'],
+    [yerbaId, '25'],
+  ];
+  for (const [variantId, quantity] of sucursalNorteStock) {
+    if (variantId)
+      await ensureInitialBalance(
+        tenantId,
+        companyId,
+        sucursalNorte.id,
+        variantId,
+        quantity,
+      );
+  }
+
+  return { central, salon, sucursalNorte };
 }
 
 /**
@@ -935,51 +1382,683 @@ async function seedDemoPricing(tenantId: string, companyId: string) {
   }
 
   const gaseosaId = await firstVariantId('000001'); // Gaseosa cola 500 ml
-  const cafeId = await firstVariantId('000002'); // Café 1 kg
-  const buzoGrisM = await namedVariantId('000003', 'Gris / M'); // Buzo con capucha
-  const buzoGrisL = await namedVariantId('000003', 'Gris / L');
-  const fleteId = await firstVariantId('000004'); // Servicio de flete
+  const aguaId = await firstVariantId('000002'); // Agua mineral 500 ml
+  const cafeId = await firstVariantId('000003'); // Café 1 kg
+  const yerbaId = await firstVariantId('000004'); // Yerba mate 1 kg
+  const resmaId = await firstVariantId('000005'); // Resma A4
+  const cuadernoId = await firstVariantId('000006'); // Cuaderno
+  const boliAzulId = await namedVariantId('000007', 'Azul'); // Bolígrafo
+  const boliNegroId = await namedVariantId('000007', 'Negro');
+  const cintaId = await firstVariantId('000008'); // Cinta adhesiva (INACTIVE)
+  const marcadorId = await firstVariantId('000009'); // Marcador permanente
+  const buzoNegroS = await namedVariantId('000010', 'Negro / S'); // Buzo con capucha
+  const buzoNegroM = await namedVariantId('000010', 'Negro / M');
+  const buzoNegroL = await namedVariantId('000010', 'Negro / L');
+  const buzoGrisM = await namedVariantId('000010', 'Gris / M');
+  const cableId = await firstVariantId('000011'); // Cable USB-C
+  const mouseId = await firstVariantId('000012'); // Mouse inalámbrico
+  const tecladoId = await firstVariantId('000013'); // Teclado
+  const cargadorId = await firstVariantId('000014'); // Cargador USB-C (zero-stock demo item)
+  const fleteId = await firstVariantId('000015'); // Servicio de flete
+  const instalacionId = await firstVariantId('000016'); // Servicio de instalación
+  const envioId = await firstVariantId('000017'); // Envío local
 
-  if (gaseosaId)
-    await ensureInitialPrice(
+  // Café 1 kg is deliberately priced at a clean, memorable ARS 22.000 —
+  // see docs/demo-guide.md, whose rehearsed CASH example (received
+  // 25.000, change 3.000) depends on this exact figure.
+  const prices: [string | null, string][] = [
+    [gaseosaId, '1200'],
+    [aguaId, '900'],
+    [cafeId, '22000'],
+    [yerbaId, '8500'],
+    [resmaId, '6500'],
+    [cuadernoId, '2500'],
+    [boliAzulId, '900'],
+    [boliNegroId, '900'],
+    [cintaId, '1500'],
+    [marcadorId, '1100'],
+    [buzoNegroS, '25000'],
+    [buzoNegroM, '25000'],
+    [buzoNegroL, '25000'],
+    [buzoGrisM, '25000'],
+    [cableId, '3500'],
+    [mouseId, '12000'],
+    [tecladoId, '18000'],
+    [cargadorId, '4500'],
+    [fleteId, '15000'],
+    [instalacionId, '20000'],
+    [envioId, '3500'],
+  ];
+  for (const [variantId, price] of prices) {
+    if (variantId)
+      await ensureInitialPrice(tenantId, companyId, minorista.id, variantId, price);
+  }
+}
+
+// ---------------------------------------------------------------------
+// Historical + demo sales
+// ---------------------------------------------------------------------
+//
+// seedDemoSales below replicates SalesService.create()+confirm()'s core
+// transaction logic directly with Prisma — the same "mirror the service,
+// don't call it" approach ensureInitialBalance/ensureInitialPrice already
+// use above, for the same reason: seed.ts is a standalone script outside
+// Nest's DI container, and SalesService depends on InventoryService/
+// PricingService/AuditService via constructor injection. Bootstrapping a
+// full Nest application context (NestFactory.createApplicationContext)
+// just to reach one service would also pull in RedisModule and its own
+// connection/shutdown lifecycle — a new failure mode for a script whose
+// whole job is fast, reliable demo data, and out of proportion to what's
+// needed here (see docs/demo-guide.md's "Determinism" section).
+//
+// This mirror is deliberately simpler than the real two-phase draft-then-
+// confirm API flow: each seeded sale is built directly in its final state
+// (DRAFT, or CONFIRMED with stock already decremented and a tender
+// attached) inside one transaction, rather than simulating a create call
+// followed by a separate confirm call — seed data doesn't need to
+// reproduce that UX round trip, only its *effects*. Every invariant the
+// real service enforces is still respected by construction: Decimal-safe
+// line/document totals (computeLineTotals/computeDocumentTotals, copied
+// verbatim from apps/api/src/sales/sales.service.ts — keep both in sync
+// if that file's rounding rules ever change), the same
+// SalesDocumentSequence atomic-increment numbering, a real negative
+// StockMovement (SALE) + atomic InventoryBalance decrement per
+// inventory-tracked line (never a fabricated balance), and a SalesTender
+// row shaped exactly like SalesService.confirm's.
+//
+// Idempotent via a stable marker in SalesDocument.notes (e.g.
+// "DEMO-SEED-03") checked before creating — re-running the seed against
+// an already-seeded database skips every sale that's already there,
+// so stock is never decremented twice. Dates are computed relative to
+// `new Date()` at seed-run time (never hardcoded), so a sale seeded
+// "today" is always genuinely within the company's current calendar day
+// (see docs/dashboard.md's confirmedAt-based "Ventas confirmadas hoy"
+// metric) — but that also means the "today"/"N days ago" spread only
+// stays accurate for a *fresh* seed run; re-running without first
+// resetting the database leaves already-seeded sales' original dates
+// untouched (idempotent skip), same as every other seed function here.
+// See docs/demo-guide.md's documented reset-before-demo workflow.
+
+/** Copied verbatim from SalesService's private computeLineTotals — see the block comment above for why. */
+function seedComputeLineTotals(
+  quantity: string,
+  unitPrice: string,
+  discountPercentage: string,
+): {
+  discountPercentage: string;
+  discountAmount: string;
+  netAmount: string;
+  taxAmount: string;
+  totalAmount: string;
+} {
+  const qty = new Prisma.Decimal(quantity);
+  const price = new Prisma.Decimal(unitPrice);
+  const discountPct = new Prisma.Decimal(discountPercentage).toDecimalPlaces(
+    2,
+    Prisma.Decimal.ROUND_HALF_UP,
+  );
+  const gross = qty.mul(price);
+  const discountAmount = gross
+    .mul(discountPct)
+    .div(100)
+    .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
+  const netAmount = gross
+    .sub(discountAmount)
+    .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
+  return {
+    discountPercentage: discountPct.toString(),
+    discountAmount: discountAmount.toString(),
+    netAmount: netAmount.toString(),
+    taxAmount: '0',
+    totalAmount: netAmount.toString(),
+  };
+}
+
+/** Copied verbatim from SalesService's private computeDocumentTotals — see the block comment above. */
+function seedComputeDocumentTotals(
+  lines: ReturnType<typeof seedComputeLineTotals>[],
+): {
+  subtotal: string;
+  discountTotal: string;
+  taxTotal: string;
+  total: string;
+} {
+  let subtotal = new Prisma.Decimal(0);
+  let discountTotal = new Prisma.Decimal(0);
+  for (const line of lines) {
+    subtotal = subtotal.add(line.netAmount);
+    discountTotal = discountTotal.add(line.discountAmount);
+  }
+  return {
+    subtotal: subtotal.toString(),
+    discountTotal: discountTotal.toString(),
+    taxTotal: '0',
+    total: subtotal.toString(),
+  };
+}
+
+/**
+ * The same DERIVED-list formula PricingService.resolveRecursive applies
+ * (see docs/pricing.md) — base price minus a percentage, clamped to >= 0,
+ * rounded to the currency's decimalPlaces (2 for ARS) with ROUND_HALF_UP.
+ * Only used for the one seeded sale that prices against Mayorista.
+ */
+function seedResolvePercentageDecrease(
+  basePrice: string,
+  percentage: string,
+  currencyDecimalPlaces: number,
+): string {
+  const base = new Prisma.Decimal(basePrice);
+  const pct = new Prisma.Decimal(percentage);
+  // Same formula as PricingService's applyAdjustment (PERCENTAGE_DECREASE
+  // case) — base * (1 - pct/100) — see apps/api/src/pricing/pricing.service.ts.
+  const adjusted = base.mul(new Prisma.Decimal(1).sub(pct.div(100)));
+  return Prisma.Decimal.max(adjusted, 0)
+    .toDecimalPlaces(currencyDecimalPlaces, Prisma.Decimal.ROUND_HALF_UP)
+    .toString();
+}
+
+/**
+ * Mirrors InventoryService.applySaleLine's core (docs/sales.md,
+ * docs/inventory.md): a no-op for a non-inventory-tracked (SERVICE) line;
+ * otherwise a real negative StockMovement (movementType SALE,
+ * referenceType 'SalesDocument') plus an atomic upsert-increment of
+ * InventoryBalance.onHand, inside the caller's transaction. Throws if the
+ * result would go negative — defensive only, since every seeded sale's
+ * quantities are chosen to stay well within the initial balances seeded
+ * above.
+ */
+async function seedApplySaleStockOut(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  companyId: string,
+  branchId: string | null,
+  warehouseId: string,
+  productVariantId: string,
+  trackInventory: boolean,
+  quantity: string,
+  salesDocumentId: string,
+  occurredAt: Date,
+) {
+  if (!trackInventory) return;
+  const negativeQuantity = new Prisma.Decimal(quantity).neg().toString();
+  await tx.stockMovement.create({
+    data: {
       tenantId,
       companyId,
-      minorista.id,
-      gaseosaId,
-      '1200',
-    );
-  if (cafeId)
-    await ensureInitialPrice(
-      tenantId,
+      branchId,
+      warehouseId,
+      productVariantId,
+      movementType: 'SALE',
+      quantity: negativeQuantity,
+      referenceType: 'SalesDocument',
+      referenceId: salesDocumentId,
+      occurredAt,
+    },
+  });
+  const balance = await tx.inventoryBalance.upsert({
+    where: {
+      companyId_warehouseId_productVariantId: {
+        companyId,
+        warehouseId,
+        productVariantId,
+      },
+    },
+    create: {
       companyId,
-      minorista.id,
-      cafeId,
-      '18500',
+      warehouseId,
+      productVariantId,
+      onHand: negativeQuantity,
+      reserved: 0,
+      incoming: 0,
+    },
+    update: { onHand: { increment: negativeQuantity } },
+  });
+  if (new Prisma.Decimal(balance.onHand).isNegative()) {
+    throw new Error(
+      `Seed would drive onHand negative for variant ${productVariantId} in warehouse ${warehouseId} — adjust seedDemoSales quantities or initial balances.`,
     );
-  if (buzoGrisM)
-    await ensureInitialPrice(
-      tenantId,
-      companyId,
-      minorista.id,
-      buzoGrisM,
-      '25000',
-    );
-  if (buzoGrisL)
-    await ensureInitialPrice(
-      tenantId,
-      companyId,
-      minorista.id,
-      buzoGrisL,
-      '25000',
-    );
-  if (fleteId)
-    await ensureInitialPrice(
-      tenantId,
-      companyId,
-      minorista.id,
-      fleteId,
-      '30000',
-    );
+  }
+}
+
+/** Mirrors SalesService's private nextNumber — see the block comment above. */
+async function seedNextSalesNumber(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+): Promise<string> {
+  const seq = await tx.salesDocumentSequence.upsert({
+    where: { companyId },
+    create: { companyId, lastValue: 1 },
+    update: { lastValue: { increment: 1 } },
+  });
+  return `VTA-${String(seq.lastValue).padStart(6, '0')}`;
+}
+
+interface SeedSaleLineInput {
+  productCode: string;
+  variantName?: string | null;
+  quantity: string;
+}
+
+interface SeedSaleTenderInput {
+  method: 'CASH' | 'CARD' | 'TRANSFER' | 'OTHER';
+  amountReceived?: string;
+}
+
+/**
+ * Creates one historical/demo SalesDocument — DRAFT (no `confirm` block)
+ * or CONFIRMED (with real stock-out + optional tender) depending on
+ * whether `confirm` is provided. `marker` is the idempotency key stored
+ * in `notes` — see the block comment above. `daysAgo` is resolved against
+ * `new Date()` at call time, never a fixed date. Returns `null` (and
+ * creates nothing) if the marker sale already exists, or if any line's
+ * product/variant/price can't be resolved — logged, never thrown, so one
+ * missing fixture never aborts the whole seed run.
+ */
+async function seedHistoricalSale(params: {
+  tenantId: string;
+  companyId: string;
+  marker: string;
+  customerCode: string;
+  warehouseId: string;
+  branchId: string | null;
+  priceListId: string;
+  priceListCode: 'MIN' | 'MAY';
+  currencyId: string;
+  currencyDecimalPlaces: number;
+  daysAgo: number;
+  lines: SeedSaleLineInput[];
+  confirm?: SeedSaleTenderInput;
+}): Promise<{ number: string; total: string } | null> {
+  const {
+    tenantId,
+    companyId,
+    marker,
+    customerCode,
+    warehouseId,
+    branchId,
+    priceListId,
+    priceListCode,
+    currencyId,
+    currencyDecimalPlaces,
+    daysAgo,
+    lines,
+    confirm,
+  } = params;
+
+  const existing = await prisma.salesDocument.findFirst({
+    where: { companyId, notes: marker },
+  });
+  if (existing)
+    return { number: existing.number, total: existing.total.toString() };
+
+  const customer = await prisma.customer.findUnique({
+    where: { companyId_code: { companyId, code: customerCode } },
+  });
+  if (!customer) {
+    console.warn(`  [seedDemoSales] skipping ${marker} — customer ${customerCode} not found.`);
+    return null;
+  }
+
+  const builtLines: (ReturnType<typeof seedComputeLineTotals> & {
+    productVariantId: string;
+    description: string;
+    quantity: string;
+    unitPrice: string;
+    trackInventory: boolean;
+  })[] = [];
+
+  for (const line of lines) {
+    const product = await prisma.product.findUnique({
+      where: { companyId_code: { companyId, code: line.productCode } },
+    });
+    if (!product) {
+      console.warn(`  [seedDemoSales] skipping ${marker} — product ${line.productCode} not found.`);
+      return null;
+    }
+    const variant = await prisma.productVariant.findFirst({
+      where: { productId: product.id, name: line.variantName ?? null },
+    });
+    if (!variant) {
+      console.warn(`  [seedDemoSales] skipping ${marker} — variant ${line.variantName ?? '(default)'} of ${line.productCode} not found.`);
+      return null;
+    }
+    const minoristaItem = await prisma.priceListItem.findFirst({
+      where: {
+        companyId,
+        productVariantId: variant.id,
+        priceList: { code: 'MIN' },
+      },
+    });
+    if (!minoristaItem) {
+      console.warn(`  [seedDemoSales] skipping ${marker} — no Minorista price for ${line.productCode}.`);
+      return null;
+    }
+    const unitPrice =
+      priceListCode === 'MIN'
+        ? minoristaItem.price.toString()
+        : seedResolvePercentageDecrease(
+            minoristaItem.price.toString(),
+            '10', // Mayorista's adjustmentValue — see seedDemoPricing.
+            currencyDecimalPlaces,
+          );
+    const totals = seedComputeLineTotals(line.quantity, unitPrice, '0');
+    builtLines.push({
+      productVariantId: variant.id,
+      description: product.name,
+      quantity: line.quantity,
+      unitPrice,
+      trackInventory: product.trackInventory,
+      ...totals,
+    });
+  }
+
+  const documentTotals = seedComputeDocumentTotals(builtLines);
+  const occurredAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const number = await seedNextSalesNumber(tx, companyId);
+    const sale = await tx.salesDocument.create({
+      data: {
+        tenantId,
+        companyId,
+        branchId,
+        number,
+        warehouseId,
+        customerId: customer.id,
+        priceListId,
+        currencyId,
+        occurredAt,
+        notes: marker,
+        subtotal: documentTotals.subtotal,
+        discountTotal: documentTotals.discountTotal,
+        taxTotal: documentTotals.taxTotal,
+        total: documentTotals.total,
+        status: confirm ? 'CONFIRMED' : 'DRAFT',
+        confirmedAt: confirm ? occurredAt : null,
+        lines: {
+          create: builtLines.map((l) => ({
+            productVariantId: l.productVariantId,
+            description: l.description,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            discountPercentage: l.discountPercentage,
+            discountAmount: l.discountAmount,
+            netAmount: l.netAmount,
+            taxAmount: l.taxAmount,
+            totalAmount: l.totalAmount,
+          })),
+        },
+      },
+    });
+
+    if (confirm) {
+      for (const line of builtLines) {
+        await seedApplySaleStockOut(
+          tx,
+          tenantId,
+          companyId,
+          branchId,
+          warehouseId,
+          line.productVariantId,
+          line.trackInventory,
+          line.quantity,
+          sale.id,
+          occurredAt,
+        );
+      }
+      await tx.salesTender.create({
+        data: {
+          salesDocumentId: sale.id,
+          method: confirm.method,
+          amountApplied: documentTotals.total,
+          amountReceived:
+            confirm.method === 'CASH'
+              ? (confirm.amountReceived ?? documentTotals.total)
+              : null,
+        },
+      });
+    }
+
+    return sale;
+  });
+
+  return { number: result.number, total: result.total.toString() };
+}
+
+/**
+ * 10 CONFIRMED sales spread across 8 distinct days within the last 9 days
+ * (today included) plus 1 DRAFT — see the block comment above and
+ * docs/demo-guide.md. Every tender method (CASH/CARD/TRANSFER/OTHER)
+ * appears at least once; one sale prices against Mayorista instead of
+ * Minorista, to exercise DERIVED pricing in real sale history too.
+ * Quantities are chosen to stay well within the initial balances
+ * seedWarehousesAndStock establishes.
+ */
+async function seedDemoSales(
+  tenantId: string,
+  companyId: string,
+  branchMainId: string,
+  branchSecondaryId: string,
+  warehouses: {
+    central: { id: string };
+    salon: { id: string };
+    sucursalNorte: { id: string };
+  },
+): Promise<{
+  confirmedCount: number;
+  draftCount: number;
+  distinctDays: number;
+  tenderCounts: string;
+}> {
+  const minorista = await prisma.priceList.findUniqueOrThrow({
+    where: { companyId_code: { companyId, code: 'MIN' } },
+  });
+  const mayorista = await prisma.priceList.findUniqueOrThrow({
+    where: { companyId_code: { companyId, code: 'MAY' } },
+  });
+  const ars = await prisma.currency.findUniqueOrThrow({
+    where: { code: 'ARS' },
+  });
+
+  type SaleSpec = Parameters<typeof seedHistoricalSale>[0];
+  const common = {
+    tenantId,
+    companyId,
+    currencyId: ars.id,
+    currencyDecimalPlaces: ars.decimalPlaces,
+  };
+  const specs: SaleSpec[] = [
+    {
+      ...common,
+      marker: 'DEMO-SEED-01',
+      customerCode: '000002', // Ferretería El Puente
+      warehouseId: warehouses.central.id,
+      branchId: branchMainId,
+      priceListId: minorista.id,
+      priceListCode: 'MIN',
+      daysAgo: 0,
+      lines: [
+        { productCode: '000004', quantity: '2' }, // Yerba mate 1 kg
+        { productCode: '000005', quantity: '1' }, // Resma A4
+      ],
+      confirm: { method: 'CASH' },
+    },
+    {
+      ...common,
+      marker: 'DEMO-SEED-02',
+      customerCode: '000001', // Consumidor Final
+      warehouseId: warehouses.central.id,
+      branchId: branchMainId,
+      priceListId: minorista.id,
+      priceListCode: 'MIN',
+      daysAgo: 0,
+      lines: [
+        { productCode: '000001', quantity: '3' }, // Gaseosa cola 500 ml
+        { productCode: '000007', variantName: 'Azul', quantity: '2' }, // Bolígrafo
+      ],
+      confirm: { method: 'CARD' },
+    },
+    {
+      ...common,
+      marker: 'DEMO-SEED-03',
+      customerCode: '000003', // Kiosco Don Alberto
+      warehouseId: warehouses.central.id,
+      branchId: branchMainId,
+      priceListId: minorista.id,
+      priceListCode: 'MIN',
+      daysAgo: 1,
+      lines: [
+        { productCode: '000003', quantity: '1' }, // Café 1 kg
+        { productCode: '000002', quantity: '4' }, // Agua mineral 500 ml
+      ],
+      confirm: { method: 'CASH' },
+    },
+    {
+      ...common,
+      marker: 'DEMO-SEED-04',
+      customerCode: '000004', // Cafetería Aroma
+      warehouseId: warehouses.central.id,
+      branchId: branchMainId,
+      priceListId: minorista.id,
+      priceListCode: 'MIN',
+      daysAgo: 1,
+      lines: [{ productCode: '000004', quantity: '3' }], // Yerba mate 1 kg
+      confirm: { method: 'TRANSFER' },
+    },
+    {
+      ...common,
+      marker: 'DEMO-SEED-05',
+      customerCode: '000006', // Distribuidora Sur Insumos
+      warehouseId: warehouses.central.id,
+      branchId: branchMainId,
+      priceListId: mayorista.id,
+      priceListCode: 'MAY',
+      daysAgo: 2,
+      lines: [
+        { productCode: '000010', variantName: 'Negro / M', quantity: '5' }, // Buzo con capucha
+        { productCode: '000010', variantName: 'Negro / L', quantity: '3' },
+      ],
+      confirm: { method: 'TRANSFER' },
+    },
+    {
+      ...common,
+      marker: 'DEMO-SEED-06',
+      customerCode: '000008', // Panadería San Roque
+      warehouseId: warehouses.central.id,
+      branchId: branchMainId,
+      priceListId: minorista.id,
+      priceListCode: 'MIN',
+      daysAgo: 3,
+      lines: [
+        { productCode: '000005', quantity: '2' }, // Resma A4
+        { productCode: '000006', quantity: '3' }, // Cuaderno
+      ],
+      confirm: { method: 'CASH' },
+    },
+    {
+      ...common,
+      marker: 'DEMO-SEED-07',
+      customerCode: '000010', // Juan Carlos Pereyra
+      warehouseId: warehouses.salon.id,
+      branchId: branchMainId,
+      priceListId: minorista.id,
+      priceListCode: 'MIN',
+      daysAgo: 4,
+      lines: [
+        { productCode: '000003', quantity: '1' }, // Café 1 kg
+        { productCode: '000001', quantity: '2' }, // Gaseosa cola 500 ml
+      ],
+      confirm: { method: 'CARD' },
+    },
+    {
+      ...common,
+      marker: 'DEMO-SEED-08',
+      customerCode: '000009', // Librería Central
+      warehouseId: warehouses.central.id,
+      branchId: branchMainId,
+      priceListId: minorista.id,
+      priceListCode: 'MIN',
+      daysAgo: 6,
+      lines: [
+        { productCode: '000006', quantity: '10' }, // Cuaderno
+        { productCode: '000007', variantName: 'Negro', quantity: '10' }, // Bolígrafo
+      ],
+      confirm: { method: 'OTHER' },
+    },
+    {
+      ...common,
+      marker: 'DEMO-SEED-09',
+      customerCode: '000005', // Estudio Fernández & Asociados
+      warehouseId: warehouses.central.id,
+      branchId: branchMainId,
+      priceListId: minorista.id,
+      priceListCode: 'MIN',
+      daysAgo: 8,
+      lines: [
+        { productCode: '000016', quantity: '1' }, // Servicio de instalación
+        { productCode: '000013', quantity: '1' }, // Teclado
+      ],
+      confirm: { method: 'TRANSFER' },
+    },
+    {
+      ...common,
+      marker: 'DEMO-SEED-10',
+      customerCode: '000012', // Hotel Las Acacias
+      warehouseId: warehouses.sucursalNorte.id,
+      branchId: branchSecondaryId,
+      priceListId: minorista.id,
+      priceListCode: 'MIN',
+      daysAgo: 9,
+      lines: [
+        { productCode: '000003', quantity: '4' }, // Café 1 kg
+        { productCode: '000004', quantity: '2' }, // Yerba mate 1 kg
+      ],
+      confirm: { method: 'CASH', amountReceived: undefined },
+    },
+  ];
+
+  const daysUsed = new Set<number>();
+  const tenderTally: Record<string, number> = {
+    CASH: 0,
+    CARD: 0,
+    TRANSFER: 0,
+    OTHER: 0,
+  };
+  let confirmedCount = 0;
+  for (const spec of specs) {
+    const created = await seedHistoricalSale(spec);
+    if (created && spec.confirm) {
+      confirmedCount += 1;
+      daysUsed.add(spec.daysAgo);
+      tenderTally[spec.confirm.method] += 1;
+    }
+  }
+
+  // One DRAFT — left unconfirmed on purpose, see docs/demo-guide.md.
+  let draftCount = 0;
+  const draft = await seedHistoricalSale({
+    ...common,
+    marker: 'DEMO-SEED-DRAFT',
+    customerCode: '000015', // Zapatería Andina
+    warehouseId: warehouses.central.id,
+    branchId: branchMainId,
+    priceListId: minorista.id,
+    priceListCode: 'MIN',
+    daysAgo: 0,
+    lines: [{ productCode: '000005', quantity: '1' }], // Resma A4
+  });
+  if (draft) draftCount = 1;
+
+  return {
+    confirmedCount,
+    draftCount,
+    distinctDays: daysUsed.size,
+    tenderCounts: Object.entries(tenderTally)
+      .filter(([, count]) => count > 0)
+      .map(([method, count]) => `${count} ${method}`)
+      .join(', '),
+  };
 }
 
 /**
@@ -1050,14 +2129,23 @@ async function main() {
     },
   });
 
+  // A believable, clearly fictional Argentine SME — see docs/demo-guide.md.
+  // The CUIT/legalName/tradeName are entirely made up; no real company is
+  // referenced or implied. Renaming requires a fresh `taxId` (part of the
+  // upsert key) — see the reset workflow in docs/demo-guide.md, which
+  // always runs `prisma migrate reset` before reseeding, so this never
+  // creates a duplicate company row in normal use.
   const company = await prisma.company.upsert({
-    where: { tenantId_taxId: { tenantId: tenant.id, taxId: '00-00000000-0' } },
-    update: {},
+    where: { tenantId_taxId: { tenantId: tenant.id, taxId: '30-71876543-5' } },
+    update: {
+      legalName: 'Distribuidora Horizonte S.R.L.',
+      tradeName: 'Distribuidora Horizonte',
+    },
     create: {
       tenantId: tenant.id,
-      legalName: 'Demo Company',
-      tradeName: 'Demo Company',
-      taxId: '00-00000000-0',
+      legalName: 'Distribuidora Horizonte S.R.L.',
+      tradeName: 'Distribuidora Horizonte',
+      taxId: '30-71876543-5',
       countryCode: 'AR',
       timezone: 'America/Argentina/Buenos_Aires',
       status: 'ACTIVE',
@@ -1078,12 +2166,12 @@ async function main() {
 
   const branchSecondary = await prisma.branch.upsert({
     where: { companyId_code: { companyId: company.id, code: 'SUC2' } },
-    update: {},
+    update: { name: 'Sucursal Norte', status: 'ACTIVE' },
     create: {
       tenantId: tenant.id,
       companyId: company.id,
       code: 'SUC2',
-      name: 'Sucursal 2',
+      name: 'Sucursal Norte',
       status: 'ACTIVE',
     },
   });
@@ -1166,7 +2254,7 @@ async function main() {
   await seedDemoProducts(tenant.id, company.id);
 
   // Warehouses + illustrative initial stock for Demo Company only — see docs/inventory.md.
-  await seedWarehousesAndStock(
+  const warehouses = await seedWarehousesAndStock(
     tenant.id,
     company.id,
     branchMain.id,
@@ -1177,6 +2265,19 @@ async function main() {
   // Company only — see docs/pricing.md.
   await seedCurrencies();
   await seedDemoPricing(tenant.id, company.id);
+
+  // Historical + demo sales — see docs/sales.md and docs/demo-guide.md.
+  // Must run after customers/products/warehouses/pricing above (it reads
+  // all of them). See seedDemoSales's own doc comment for why this
+  // replicates SalesService's transaction logic directly rather than
+  // calling the real service.
+  const salesSummary = await seedDemoSales(
+    tenant.id,
+    company.id,
+    branchMain.id,
+    branchSecondary.id,
+    warehouses,
+  );
 
   const passwordHash = await argon2.hash(resolvedPassword, {
     type: argon2.argon2id,
@@ -1272,16 +2373,19 @@ async function main() {
     `  Roles:       ${PERMISSION_CATALOG.length} permissions, ${SYSTEM_ROLES.length} system roles seeded per company; admin holds "Administrador" in both Demo companies`,
   );
   console.log(
-    '  Customers:   3 demo customers (Consumidor Final, Cliente Demo S.A., Comercial del Sur S.R.L.) + 3 categories in Demo Company',
+    '  Customers:   16 demo customers (incl. Consumidor Final, Ferretería El Puente, 1 INACTIVE) + 3 categories in Distribuidora Horizonte',
   );
   console.log(
-    '  Products:    8 units of measure per company; 4 demo products (Gaseosa cola 500 ml, Café 1 kg, Buzo con capucha [2 variants], Servicio de flete) + 3 categories + 1 brand in Demo Company',
+    '  Products:    8 units of measure per company; 17 demo products / 21 sellable variants (incl. Buzo con capucha [4 variants], 3 services, 1 INACTIVE, 1 zero-stock) + 6 categories + 1 brand in Distribuidora Horizonte',
   );
   console.log(
-    '  Inventory:   2 warehouses (Depósito Central, Depósito Sucursal 2) + initial stock via real StockMovement rows in Demo Company',
+    '  Inventory:   3 warehouses (Depósito Central, Salón de Ventas, Depósito Sucursal Norte) + initial stock via real StockMovement rows in Distribuidora Horizonte',
   );
   console.log(
-    '  Pricing:     3 currencies (ARS, USD, EUR) + 3 price lists (Minorista fija/predeterminada, Mayorista -10%, Distribuidor -15%) + initial prices via real PriceListItem rows in Demo Company',
+    '  Pricing:     3 currencies (ARS, USD, EUR) + 3 price lists (Minorista fija/predeterminada, Mayorista -10%, Distribuidor -15%) + initial prices via real PriceListItem rows in Distribuidora Horizonte',
+  );
+  console.log(
+    `  Sales:       ${salesSummary.confirmedCount} confirmed sales across ${salesSummary.distinctDays} days (${salesSummary.tenderCounts}) + ${salesSummary.draftCount} draft in Distribuidora Horizonte`,
   );
 }
 
