@@ -166,3 +166,95 @@
     background: color-mix(in srgb, var(--ring) 28%, transparent);
   }
 }
+
+/* Gestión workspace rules stay local to the authenticated shell. They set a
+   compact enterprise rhythm without affecting the authentication screens. */
+[data-gestion-workspace] > :first-child {
+  width: 100%;
+}
+
+[data-gestion-workspace] :is(h1, h2, h3) {
+  text-wrap: balance;
+}
+
+[data-gestion-workspace] div:has(> table) {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--card);
+  box-shadow: none;
+}
+
+[data-gestion-workspace] table {
+  width: 100%;
+  min-width: 42rem;
+  border-collapse: collapse;
+}
+
+[data-gestion-workspace] table thead {
+  background: color-mix(in srgb, var(--muted) 72%, var(--card));
+}
+
+[data-gestion-workspace] table th {
+  height: 2.375rem;
+  padding: 0 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  line-height: 1rem;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+[data-gestion-workspace] table td {
+  height: 2.625rem;
+  padding: 0.4375rem 0.75rem;
+  vertical-align: middle;
+}
+
+[data-gestion-workspace] table tbody tr {
+  border-top: 1px solid var(--border);
+  transition: background-color 120ms ease;
+}
+
+[data-gestion-workspace] table tbody tr:hover {
+  background: color-mix(in srgb, var(--muted) 48%, transparent);
+}
+
+[data-gestion-workspace] table tbody tr:focus-within {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+[data-gestion-workspace] dl {
+  background: var(--card);
+}
+
+[data-gestion-workspace] form {
+  width: 100%;
+}
+
+[data-gestion-workspace] form > :is(button, [data-slot='button']) {
+  align-self: flex-start;
+}
+
+@media (max-width: 47.99rem) {
+  [data-gestion-workspace] {
+    padding-inline: 1rem;
+  }
+
+  [data-gestion-workspace] table {
+    min-width: 40rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

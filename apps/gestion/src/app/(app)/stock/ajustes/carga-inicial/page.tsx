@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { FieldError } from '@/components/ui/form-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import {
   InitialBalanceLineEditor,
@@ -81,13 +82,10 @@ export default function CargaInicialPage() {
       </Link>
 
       <form onSubmit={handleSubmit} className="flex max-w-3xl flex-col gap-6" noValidate>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Carga inicial de stock</h1>
-          <p className="text-sm text-muted-foreground">
-            Usá esto solo para cargar el stock inicial de un producto que todavía no tiene movimientos en este
-            depósito. Si ya tiene stock y necesitás corregirlo, usá un ajuste común.
-          </p>
-        </div>
+        <PageHeader
+          title="Carga inicial de stock"
+          description="Solo para productos sin movimientos en el depósito; las correcciones posteriores se realizan con ajustes."
+        />
 
         <div className="flex flex-col gap-1.5 sm:max-w-xs">
           <Label htmlFor="warehouse">Depósito</Label>

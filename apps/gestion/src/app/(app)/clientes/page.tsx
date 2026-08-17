@@ -14,7 +14,11 @@ import {
 import { usePermissions, useCustomers } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
 const PAGE_SIZE = 25;
@@ -70,21 +74,19 @@ export default function ClientesPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Clientes</h1>
-          <p className="text-sm text-muted-foreground">Maestro de clientes de esta empresa.</p>
-        </div>
-        {canCreate && (
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Clientes"
+        description="Identidad, datos fiscales y contactos de los clientes de esta empresa."
+        actions={canCreate && (
           <Link href="/clientes/nuevo" className={buttonVariants()}>
             <Plus className="size-4" />
             Nuevo cliente
           </Link>
         )}
-      </div>
+      />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <Toolbar>
         <Input
           placeholder="Buscar por nombre, código, CUIT, email…"
           value={searchInput}
@@ -140,9 +142,9 @@ export default function ClientesPage() {
             </option>
           ))}
         </Select>
-      </div>
+      </Toolbar>
 
-      <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+      <div className="overflow-x-auto rounded-md border border-border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
@@ -155,6 +157,7 @@ export default function ClientesPage() {
             </tr>
           </thead>
           <tbody>
+            {customersQuery.isLoading && <TableRowsSkeleton columns={6} />}
             {items.map((customer) => (
               <tr key={customer.id} className="border-t border-border">
                 <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">{customer.code}</td>
@@ -175,71 +178,63 @@ export default function ClientesPage() {
                 </td>
                 <td className="px-4 py-2 whitespace-nowrap">{customer.phone ?? '—'}</td>
                 <td className="px-4 py-2">
-                  {customer.status === 'ACTIVE' ? (
-                    <span className="text-emerald-600">Activo</span>
-                  ) : (
-                    <span className="text-muted-foreground">Inactivo</span>
-                  )}
+                  <StatusBadge status={customer.status}>{customerStatusLabel(customer.status)}</StatusBadge>
                 </td>
               </tr>
             ))}
-            {!customersQuery.isLoading && items.length === 0 && !hasActiveFilters && (
-              <tr>
-                <td colSpan={6} className="px-4 py-10 text-center">
-                  <p className="text-muted-foreground">Todavía no hay clientes.</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Creá el primer cliente para comenzar.</p>
-                  {canCreate && (
+            {customersQuery.isError && (
+              <TableMessage
+                columns={6}
+                kind="error"
+                title="No pudimos cargar los clientes"
+                description="Revisá la conexión e intentá nuevamente."
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => customersQuery.refetch()}>
+                    Reintentar
+                  </Button>
+                }
+              />
+            )}
+            {!customersQuery.isLoading && !customersQuery.isError && items.length === 0 && !hasActiveFilters && (
+              <TableMessage
+                columns={6}
+                title="Todavía no hay clientes"
+                description="Creá el primer cliente para comenzar."
+                action={canCreate && (
                     <Link href="/clientes/nuevo" className={`${buttonVariants()} mt-4`}>
                       <Plus className="size-4" />
                       Nuevo cliente
                     </Link>
-                  )}
-                </td>
-              </tr>
+                )}
+              />
             )}
-            {!customersQuery.isLoading && items.length === 0 && hasActiveFilters && (
-              <tr>
-                <td colSpan={6} className="px-4 py-10 text-center">
-                  <p className="text-muted-foreground">No encontramos clientes con esos criterios.</p>
-                  <button
+            {!customersQuery.isLoading && !customersQuery.isError && items.length === 0 && hasActiveFilters && (
+              <TableMessage
+                columns={6}
+                kind="filtered"
+                title="No encontramos clientes"
+                description="Probá con otros criterios o limpiá los filtros."
+                action={<button
                     type="button"
                     onClick={clearFilters}
-                    className="mt-2 text-sm underline-offset-4 hover:underline"
+                    className="text-sm font-medium text-primary underline-offset-4 hover:underline"
                   >
                     Limpiar filtros
-                  </button>
-                </td>
-              </tr>
+                  </button>}
+              />
             )}
           </tbody>
         </table>
       </div>
 
       {pagination && pagination.total > 0 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            Página {pagination.page} de {totalPages} — {pagination.total} cliente
-            {pagination.total === 1 ? '' : 's'}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="rounded-lg border border-border px-2.5 py-1 disabled:opacity-50"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Anterior
-            </button>
-            <button
-              type="button"
-              className="rounded-lg border border-border px-2.5 py-1 disabled:opacity-50"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              Siguiente
-            </button>
-          </div>
-        </div>
+        <Pagination
+          page={pagination.page}
+          totalPages={totalPages}
+          total={pagination.total}
+          itemLabel={pagination.total === 1 ? 'cliente' : 'clientes'}
+          onPageChange={setPage}
+        />
       )}
     </div>
   );

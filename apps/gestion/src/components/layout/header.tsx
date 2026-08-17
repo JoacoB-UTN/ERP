@@ -1,12 +1,20 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { LogOut } from 'lucide-react';
+import { LogOut, Menu } from 'lucide-react';
 import { useLogout } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { CompanySelector } from './company-selector';
 
-export function Header({ userLabel, userEmail }: { userLabel: string; userEmail: string }) {
+export function Header({
+  userLabel,
+  userEmail,
+  onOpenNavigation,
+}: {
+  userLabel: string;
+  userEmail: string;
+  onOpenNavigation: () => void;
+}) {
   const router = useRouter();
   const logout = useLogout();
 
@@ -16,15 +24,24 @@ export function Header({ userLabel, userEmail }: { userLabel: string; userEmail:
   }
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4 md:px-6">
-      <div className="flex items-center gap-4">
-        <span className="text-sm text-muted-foreground">Gestión</span>
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-card/95 px-4 backdrop-blur md:px-6">
+      <div className="flex min-w-0 items-center gap-3">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="md:hidden"
+          aria-label="Abrir navegación"
+          onClick={onOpenNavigation}
+        >
+          <Menu className="size-4" />
+        </Button>
         <CompanySelector />
       </div>
-      <div className="flex items-center gap-3">
-        <div className="text-right leading-tight">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+        <div className="hidden min-w-0 text-right leading-tight sm:block">
           <p className="text-sm font-medium">{userLabel}</p>
-          <p className="text-xs text-muted-foreground">{userEmail}</p>
+          <p className="max-w-56 truncate text-xs text-muted-foreground">{userEmail}</p>
         </div>
         <Button
           variant="ghost"

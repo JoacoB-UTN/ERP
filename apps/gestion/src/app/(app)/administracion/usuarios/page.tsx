@@ -11,6 +11,11 @@ import {
   useRemoveRoleAssignment,
 } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { cn } from '@/lib/utils';
 
@@ -39,11 +44,11 @@ function RoleAssignmentPanel({ userId, userName }: { userId: string; userName: s
   }
 
   if (rolesQuery.isLoading || userRolesQuery.isLoading) {
-    return null;
+    return <div className="h-32 animate-pulse rounded-md border border-border bg-muted/60" aria-label="Cargando roles" />;
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border p-4">
+    <aside className="flex flex-col gap-3 rounded-md border border-border bg-card p-4" aria-label={`Roles de ${userName}`}>
       <p className="text-sm font-medium">
         Roles de <span className="font-semibold">{userName}</span>
       </p>
@@ -68,7 +73,7 @@ function RoleAssignmentPanel({ userId, userName }: { userId: string; userName: s
           {error}
         </p>
       )}
-    </div>
+    </aside>
   );
 }
 
@@ -78,7 +83,7 @@ export default function UsersPage() {
   const [search, setSearch] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
-  if (permissionsLoading || usersQuery.isLoading) {
+  if (permissionsLoading) {
     return null;
   }
   if (!can('administration.users.read')) {
@@ -91,24 +96,24 @@ export default function UsersPage() {
   const selectedUser = users.find((u) => u.id === selectedUserId) ?? null;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Usuarios</h1>
-        <p className="text-sm text-muted-foreground">
-          Usuarios con acceso a esta empresa. Elegí uno para ver o cambiar sus roles.
-        </p>
-      </div>
-
-      <Input
-        placeholder="Buscar usuario…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="max-w-xs"
-        aria-label="Buscar usuario"
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Usuarios"
+        description="Personas con acceso a esta empresa y los roles que tienen asignados."
       />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-        <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+      <Toolbar>
+        <Input
+          placeholder="Buscar usuario…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-xs"
+          aria-label="Buscar usuario"
+        />
+      </Toolbar>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="overflow-x-auto rounded-md border border-border bg-card">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
               <tr>
@@ -119,31 +124,53 @@ export default function UsersPage() {
               </tr>
             </thead>
             <tbody>
+              {usersQuery.isLoading && <TableRowsSkeleton columns={4} />}
               {users.map((user) => (
                 <tr
                   key={user.id}
-                  onClick={() => setSelectedUserId(user.id)}
                   className={cn(
-                    'cursor-pointer border-t border-border hover:bg-muted/40',
+                    'border-t border-border',
                     selectedUserId === user.id && 'bg-muted/60',
                   )}
                 >
                   <td className="px-4 py-2 font-medium">
-                    {user.firstName} {user.lastName}
+                    <button
+                      type="button"
+                      className="font-medium text-primary underline-offset-4 hover:underline"
+                      aria-pressed={selectedUserId === user.id}
+                      onClick={() => setSelectedUserId(user.id)}
+                    >
+                      {user.firstName} {user.lastName}
+                    </button>
                   </td>
                   <td className="px-4 py-2 text-muted-foreground">{user.email}</td>
-                  <td className="px-4 py-2">{user.status === 'ACTIVE' ? 'Activo' : user.status}</td>
+                  <td className="px-4 py-2">
+                    <StatusBadge status={user.status}>{user.status === 'ACTIVE' ? 'Activo' : user.status}</StatusBadge>
+                  </td>
                   <td className="px-4 py-2 text-muted-foreground">
                     {user.roles.length > 0 ? user.roles.map((r) => r.name).join(', ') : '—'}
                   </td>
                 </tr>
               ))}
-              {users.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
-                    No se encontraron usuarios.
-                  </td>
-                </tr>
+              {usersQuery.isError && (
+                <TableMessage
+                  columns={4}
+                  kind="error"
+                  title="No pudimos cargar los usuarios"
+                  action={
+                    <Button type="button" variant="outline" size="sm" onClick={() => usersQuery.refetch()}>
+                      Reintentar
+                    </Button>
+                  }
+                />
+              )}
+              {!usersQuery.isLoading && !usersQuery.isError && users.length === 0 && (
+                <TableMessage
+                  columns={4}
+                  kind={search ? 'filtered' : 'empty'}
+                  title={search ? 'No encontramos usuarios' : 'No hay usuarios para mostrar'}
+                  description={search ? 'Probá con otro nombre o email.' : undefined}
+                />
               )}
             </tbody>
           </table>

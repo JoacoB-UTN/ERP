@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { ProductosSubNav } from '@/components/productos/productos-sub-nav';
+import { PageHeader } from '@/components/ui/page-header';
 
 export default function MarcasPage() {
   const { can, isLoading: permissionsLoading } = usePermissions();
@@ -57,18 +58,16 @@ export default function MarcasPage() {
   return (
     <div className="flex flex-col gap-6">
       <ProductosSubNav />
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Marcas</h1>
-          <p className="text-sm text-muted-foreground">Marcas usadas en el catálogo de productos.</p>
-        </div>
-        {canCreate && (
+      <PageHeader
+        title="Marcas"
+        description="Marcas disponibles para clasificar el catálogo de productos."
+        actions={canCreate && (
           <Button type="button" onClick={() => setCreating(true)}>
             <Plus className="size-4" />
             Nueva marca
           </Button>
         )}
-      </div>
+      />
 
       {creating && (
         <div className="flex gap-2 rounded-lg border border-dashed border-border p-2">
@@ -88,7 +87,7 @@ export default function MarcasPage() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+      <div className="overflow-x-auto rounded-md border border-border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>

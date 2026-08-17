@@ -8,8 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { FieldError } from '@/components/ui/form-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
-import { StockSubNav } from '@/components/stock/stock-sub-nav';
 import { stockErrorMessage } from '@/components/stock/stock-errors';
 import { usePermissions, useActiveCompany, useBranches, useCreateWarehouse } from '@/lib/auth-client';
 
@@ -57,12 +57,13 @@ export default function NuevoDepositoPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <StockSubNav />
       <form onSubmit={handleSubmit} className="flex max-w-2xl flex-col gap-6" noValidate>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Nuevo depósito</h1>
-          <p className="text-sm text-muted-foreground">Se usa para llevar el control de existencias por ubicación.</p>
-        </div>
+        <PageHeader
+          title="Nuevo depósito"
+          description="Configurá una ubicación física y sus reglas operativas."
+          backHref="/stock/depositos"
+          backLabel="Depósitos"
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">

@@ -9,7 +9,9 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Unauthorized } from '@/components/layout/unauthorized';
-import { StockSubNav } from '@/components/stock/stock-sub-nav';
+import { PageHeader } from '@/components/ui/page-header';
+import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import { Toolbar } from '@/components/ui/toolbar';
 
 const PAGE_SIZE = 25;
 
@@ -69,18 +71,26 @@ export default function MovimientosPage() {
   const items = movementsQuery.data?.items ?? [];
   const pagination = movementsQuery.data?.pagination;
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / pagination.pageSize)) : 1;
+  const hasActiveFilters = !!(search || dateFrom || dateTo || warehouseId || movementType);
+
+  function clearFilters() {
+    setSearchInput('');
+    setSearch('');
+    setDateFrom('');
+    setDateTo('');
+    setWarehouseId('');
+    setMovementType('');
+    setPage(1);
+  }
 
   return (
-    <div className="flex flex-col gap-6">
-      <StockSubNav />
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Movimientos</h1>
-        <p className="text-sm text-muted-foreground">
-          Historial completo e inmutable del inventario — el libro mayor de existencias.
-        </p>
-      </div>
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Movimientos"
+        description="Historial completo e inmutable del inventario: cada entrada y salida con su origen."
+      />
 
-      <div className="flex flex-col gap-3 rounded-xl border border-border p-4">
+      <Toolbar className="items-end">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="mDateFrom">Desde</Label>
@@ -126,9 +136,9 @@ export default function MovimientosPage() {
             />
           </div>
         </div>
-      </div>
+      </Toolbar>
 
-      <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+      <div className="overflow-x-auto rounded-md border border-border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
@@ -141,6 +151,7 @@ export default function MovimientosPage() {
             </tr>
           </thead>
           <tbody>
+            {movementsQuery.isLoading && <TableRowsSkeleton columns={6} />}
             {items.map((m) => {
               const signed = Number(m.quantity);
               return (
@@ -170,44 +181,48 @@ export default function MovimientosPage() {
                 </tr>
               );
             })}
-            {!movementsQuery.isLoading && items.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
-                  No se encontraron movimientos con esos criterios.
-                </td>
-              </tr>
+            {movementsQuery.isError && (
+              <TableMessage
+                columns={6}
+                kind="error"
+                title="No pudimos cargar los movimientos"
+                description="Revisá la conexión e intentá nuevamente."
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => movementsQuery.refetch()}>
+                    Reintentar
+                  </Button>
+                }
+              />
+            )}
+            {!movementsQuery.isLoading && !movementsQuery.isError && items.length === 0 && (
+              <TableMessage
+                columns={6}
+                kind={hasActiveFilters ? 'filtered' : 'empty'}
+                title={hasActiveFilters ? 'No encontramos movimientos' : 'Todavía no hay movimientos'}
+                description={hasActiveFilters ? 'Probá con otros criterios o limpiá los filtros.' : 'Los movimientos aparecerán al operar sobre el stock.'}
+                action={hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    Limpiar filtros
+                  </button>
+                )}
+              />
             )}
           </tbody>
         </table>
       </div>
 
       {pagination && pagination.total > 0 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            Página {pagination.page} de {totalPages} — {pagination.total} movimiento
-            {pagination.total === 1 ? '' : 's'}
-          </span>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Anterior
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              Siguiente
-            </Button>
-          </div>
-        </div>
+        <Pagination
+          page={pagination.page}
+          totalPages={totalPages}
+          total={pagination.total}
+          itemLabel={pagination.total === 1 ? 'movimiento' : 'movimientos'}
+          onPageChange={setPage}
+        />
       )}
     </div>
   );

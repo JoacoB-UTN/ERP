@@ -26,7 +26,7 @@ export function toSaleLineInputs(
 }
 
 const inputClassName =
-  'h-8 min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
+  'h-(--control-height) min-w-0 rounded-md border border-input bg-card px-3 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30';
 
 /**
  * One sale line: quantity/discount are editable here, but unit price is
@@ -65,7 +65,7 @@ function SaleLineRow({
   const net = gross !== null ? gross - (gross * discountPct) / 100 : null;
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+    <div className="flex flex-col gap-2 rounded-md border border-border bg-card p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-sm font-medium">
@@ -112,7 +112,7 @@ function SaleLineRow({
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Precio</span>
-          <span className="h-8 text-sm leading-8 tabular-nums">
+          <span className="h-(--control-height) text-sm leading-(--control-height) tabular-nums">
             {!priceListId
               ? '—'
               : priceQuery.isLoading
@@ -124,7 +124,7 @@ function SaleLineRow({
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Disponible</span>
-          <span className="h-8 text-sm leading-8 tabular-nums">
+          <span className="h-(--control-height) text-sm leading-(--control-height) tabular-nums">
             {isService
               ? 'No aplica'
               : !warehouseId
@@ -138,7 +138,7 @@ function SaleLineRow({
         </div>
         <div className="ml-auto flex flex-col gap-1 text-right">
           <span className="text-xs text-muted-foreground">Total línea</span>
-          <span className="h-8 text-sm leading-8 font-medium tabular-nums">
+          <span className="h-(--control-height) text-sm leading-(--control-height) font-medium tabular-nums">
             {net !== null && result ? formatMoney(String(net), result.currencyCode) : '—'}
           </span>
         </div>

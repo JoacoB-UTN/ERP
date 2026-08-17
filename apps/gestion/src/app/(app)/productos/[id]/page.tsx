@@ -36,6 +36,8 @@ import { Label } from '@/components/ui/label';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { CodeCard } from '@/components/productos/code-card';
 import { ProductHistoryItem } from '@/components/productos/product-history-item';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 type TabKey = 'resumen' | 'variantes' | 'stock' | 'precios' | 'configuracion' | 'historial';
 
@@ -100,26 +102,13 @@ function ProductoDetailView({
   ];
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">{product.name}</h1>
-            {product.status === 'ACTIVE' ? (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                Activo
-              </span>
-            ) : (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                Inactivo
-              </span>
-            )}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {product.code} — {productTypeLabel(product.productType)}
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-2">
+    <div className="flex max-w-6xl flex-col gap-5">
+      <PageHeader
+        title={<span className="flex flex-wrap items-center gap-2">{product.name}<StatusBadge status={product.status}>{product.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}</StatusBadge></span>}
+        description={`${product.code} · ${productTypeLabel(product.productType)}`}
+        backHref="/productos"
+        backLabel="Productos"
+        actions={<>
           {canUpdate && (
             <Link href={`/productos/${product.id}/editar`} className={buttonVariants({ variant: 'outline' })}>
               <Pencil className="size-4" />
@@ -137,14 +126,16 @@ function ProductoDetailView({
               {product.status === 'ACTIVE' ? 'Desactivar' : 'Reactivar'}
             </Button>
           )}
-        </div>
-      </div>
+        </>}
+      />
 
-      <div className="flex gap-1 border-b border-border">
+      <div role="tablist" aria-label="Secciones del producto" className="flex gap-1 overflow-x-auto border-b border-border">
         {tabs.map((t) => (
           <button
             key={t.key}
             type="button"
+            role="tab"
+            aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
             className={`px-3 py-2 text-sm font-medium ${
               tab === t.key
@@ -178,7 +169,7 @@ function SummaryField({ label, value }: { label: string; value: React.ReactNode 
 
 function ResumenTab({ product, onGoToVariants }: { product: ProductDetail; onGoToVariants: () => void }) {
   return (
-    <dl className="grid gap-4 rounded-xl border border-border p-4 sm:grid-cols-2">
+    <dl className="grid gap-4 rounded-md border border-border p-4 sm:grid-cols-2">
       <SummaryField label="Tipo" value={productTypeLabel(product.productType)} />
       <SummaryField label="Categoría" value={product.categoryName} />
       <SummaryField label="Marca" value={product.brandName} />
@@ -565,7 +556,7 @@ function StockTab({ productId }: { productId: string }) {
           {variant.warehouses.length === 0 ? (
             <p className="text-sm text-muted-foreground">Sin movimientos en ningún depósito.</p>
           ) : (
-            <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
                   <tr>
@@ -629,7 +620,7 @@ function PreciosTab({ productId }: { productId: string }) {
           {variant.prices.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay listas de precios activas.</p>
           ) : (
-            <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
                   <tr>

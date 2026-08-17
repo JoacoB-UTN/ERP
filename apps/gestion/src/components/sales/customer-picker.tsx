@@ -47,10 +47,10 @@ export function CustomerPicker({
         }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         placeholder="Buscar cliente por nombre o código…"
-        className="h-9 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="h-(--control-height) w-full min-w-0 rounded-md border border-input bg-card px-3 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
       />
       {open && term.trim() && (
-        <div className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-border bg-popover shadow-md">
+        <div className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-md border border-border bg-popover shadow-md">
           {items.length === 0 && (
             <p className="px-3 py-2 text-sm text-muted-foreground">
               {customersQuery.isLoading ? 'Buscando…' : 'Sin resultados.'}

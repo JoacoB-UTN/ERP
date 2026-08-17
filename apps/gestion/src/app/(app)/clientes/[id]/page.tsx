@@ -34,6 +34,8 @@ import { Unauthorized } from '@/components/layout/unauthorized';
 import { AddressCard } from '@/components/clientes/address-card';
 import { ContactCard } from '@/components/clientes/contact-card';
 import { CustomerHistoryItem } from '@/components/clientes/customer-history-item';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 type TabKey = 'datos' | 'domicilios' | 'contactos' | 'historial';
 
@@ -88,28 +90,17 @@ function ClienteDetailView({
   ];
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">{customer.displayName}</h1>
-            {customer.status === 'ACTIVE' ? (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                Activo
-              </span>
-            ) : (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                Inactivo
-              </span>
-            )}
-          </div>
-          <p className="text-sm text-muted-foreground">
+    <div className="flex max-w-5xl flex-col gap-5">
+      <PageHeader
+        title={<span className="flex flex-wrap items-center gap-2">{customer.displayName}<StatusBadge status={customer.status}>{customer.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}</StatusBadge></span>}
+        description={<>
             {customer.code}
-            {customer.tradeName && ` — ${customer.legalName}`}
-            {customer.taxIdFormatted && ` — CUIT ${customer.taxIdFormatted}`}
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-2">
+            {customer.tradeName && ` · ${customer.legalName}`}
+            {customer.taxIdFormatted && ` · CUIT ${customer.taxIdFormatted}`}
+          </>}
+        backHref="/clientes"
+        backLabel="Clientes"
+        actions={<>
           {canUpdate && (
             <Link href={`/clientes/${customer.id}/editar`} className={buttonVariants({ variant: 'outline' })}>
               <Pencil className="size-4" />
@@ -126,14 +117,16 @@ function ClienteDetailView({
               {customer.status === 'ACTIVE' ? 'Desactivar' : 'Reactivar'}
             </Button>
           )}
-        </div>
-      </div>
+        </>}
+      />
 
-      <div className="flex gap-1 border-b border-border">
+      <div role="tablist" aria-label="Secciones del cliente" className="flex gap-1 overflow-x-auto border-b border-border">
         {tabs.map((t) => (
           <button
             key={t.key}
             type="button"
+            role="tab"
+            aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
             className={`px-3 py-2 text-sm font-medium ${
               tab === t.key
@@ -165,7 +158,7 @@ function SummaryField({ label, value }: { label: string; value: React.ReactNode 
 
 function DatosTab({ customer }: { customer: CustomerDetail }) {
   return (
-    <dl className="grid gap-4 rounded-xl border border-border p-4 sm:grid-cols-2">
+    <dl className="grid gap-4 rounded-md border border-border p-4 sm:grid-cols-2">
       <SummaryField label="Tipo de cliente" value={customerTypeLabel(customer.customerType)} />
       <SummaryField label="Razón social / Nombre" value={customer.legalName} />
       <SummaryField label="Nombre comercial" value={customer.tradeName} />

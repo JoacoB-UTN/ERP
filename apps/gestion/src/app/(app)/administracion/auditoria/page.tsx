@@ -13,12 +13,13 @@ import { usePermissions, useAuditLog, useCompanyUsers } from '@/lib/auth-client'
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/select';
+import { PageHeader } from '@/components/ui/page-header';
+import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
 const PAGE_SIZE = 25;
-
-const selectClassName =
-  'h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30';
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('es-AR', {
@@ -77,18 +78,26 @@ export default function AuditoriaPage() {
   const items = auditQuery.data?.items ?? [];
   const pagination = auditQuery.data?.pagination;
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / pagination.pageSize)) : 1;
+  const hasActiveFilters = !!(dateFrom || dateTo || action || entityType || userId);
+
+  function clearFilters() {
+    setDateFrom('');
+    setDateTo('');
+    setAction('');
+    setEntityType('');
+    setUserId('');
+    setPage(1);
+  }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Auditoría</h1>
-        <p className="text-sm text-muted-foreground">
-          Historial de cambios administrativos y de seguridad de esta empresa.
-        </p>
-      </div>
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Auditoría"
+        description="Historial trazable de cambios administrativos, operativos y de seguridad."
+      />
 
-      <div className="flex flex-col gap-3 rounded-xl border border-border p-4">
-        <div className="grid gap-3 sm:grid-cols-3">
+      <Toolbar className="flex-col items-stretch">
+        <div className="grid gap-3 sm:grid-cols-3 lg:max-w-3xl">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="dateFrom">Desde</Label>
             <Input
@@ -104,9 +113,8 @@ export default function AuditoriaPage() {
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="action">Acción</Label>
-            <select
+            <Select
               id="action"
-              className={selectClassName}
               value={action}
               onChange={(e) => onAction(e.target.value)}
             >
@@ -116,7 +124,7 @@ export default function AuditoriaPage() {
                   {auditActionLabel(value)}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
 
@@ -133,9 +141,8 @@ export default function AuditoriaPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="userId">Usuario</Label>
-              <select
+              <Select
                 id="userId"
-                className={selectClassName}
                 value={userId}
                 onChange={(e) => onUserId(e.target.value)}
               >
@@ -145,13 +152,12 @@ export default function AuditoriaPage() {
                     {u.firstName} {u.lastName}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="entityType">Tipo de entidad</Label>
-              <select
+              <Select
                 id="entityType"
-                className={selectClassName}
                 value={entityType}
                 onChange={(e) => onEntityType(e.target.value)}
               >
@@ -161,13 +167,13 @@ export default function AuditoriaPage() {
                     {auditEntityLabel(type)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           </div>
         )}
-      </div>
+      </Toolbar>
 
-      <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+      <div className="overflow-x-auto rounded-md border border-border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
@@ -179,6 +185,7 @@ export default function AuditoriaPage() {
             </tr>
           </thead>
           <tbody>
+            {auditQuery.isLoading && <TableRowsSkeleton columns={5} />}
             {items.map((entry) => (
               <tr key={entry.id} className="border-t border-border">
                 <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">
@@ -197,44 +204,48 @@ export default function AuditoriaPage() {
                 </td>
               </tr>
             ))}
-            {!auditQuery.isLoading && items.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
-                  No se encontraron eventos de auditoría.
-                </td>
-              </tr>
+            {auditQuery.isError && (
+              <TableMessage
+                columns={5}
+                kind="error"
+                title="No pudimos cargar la auditoría"
+                description="Revisá la conexión e intentá nuevamente."
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => auditQuery.refetch()}>
+                    Reintentar
+                  </Button>
+                }
+              />
+            )}
+            {!auditQuery.isLoading && !auditQuery.isError && items.length === 0 && (
+              <TableMessage
+                columns={5}
+                kind={hasActiveFilters ? 'filtered' : 'empty'}
+                title={hasActiveFilters ? 'No encontramos eventos' : 'Todavía no hay eventos de auditoría'}
+                description={hasActiveFilters ? 'Probá con otro período o limpiá los filtros.' : 'Los cambios auditables aparecerán acá.'}
+                action={hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    Limpiar filtros
+                  </button>
+                )}
+              />
             )}
           </tbody>
         </table>
       </div>
 
       {pagination && pagination.total > 0 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            Página {pagination.page} de {totalPages} — {pagination.total} evento
-            {pagination.total === 1 ? '' : 's'}
-          </span>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Anterior
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              Siguiente
-            </Button>
-          </div>
-        </div>
+        <Pagination
+          page={pagination.page}
+          totalPages={totalPages}
+          total={pagination.total}
+          itemLabel={pagination.total === 1 ? 'evento' : 'eventos'}
+          onPageChange={setPage}
+        />
       )}
     </div>
   );
