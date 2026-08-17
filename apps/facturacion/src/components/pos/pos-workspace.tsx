@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Printer } from 'lucide-react';
+import { CheckCircle2, Printer } from 'lucide-react';
 import { formatMoney, salesTenderMethodLabel } from '@erp/shared';
 import type { SalesDocumentDetailDto, ConfirmSaleTenderInput } from '@erp/shared';
 import {
@@ -21,6 +21,7 @@ import { computeCartTotals, toSaleLineInputs, type SaleLineDraft } from '@/compo
 import { usePriceMap } from '@/components/ventas/use-price-map';
 import { saleErrorMessage } from '@/components/ventas/ventas-errors';
 import { PrintReceipt } from '@/components/ventas/print-receipt';
+import { cn } from '@/lib/utils';
 import { PosCart } from './pos-cart';
 import { PaymentPanel } from './payment-panel';
 import { resolvePosKeydownAction } from './pos-keyboard';
@@ -53,14 +54,30 @@ export function PosWorkspace() {
   const [customer, setCustomer] = useState<CustomerPickerSelection | null>(null);
   const [lines, setLines] = useState<SaleLineDraft[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  // The editable DRAFT id — kept up to date across `persistDraft()` calls
+  // (create once, update thereafter) while the operator is still building
+  // the cart. Distinct from `checkoutSaleId` below: this one may point at
+  // a sale whose lines no longer match what's on screen (the operator can
+  // keep editing after cancelling checkout).
   const [savedSaleId, setSavedSaleId] = useState<string | null>(null);
   const [error, setError] = useState<string | undefined>();
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  // The backend-canonical decimal-string total for the payment panel —
-  // NEVER the local `computeCartTotals` preview number. See docs/pos.md
-  // and AGENTS.md's "never floating point for money" rule: a JS-number
-  // preview total (e.g. from `0.10 * 3`) can carry binary floating-point
-  // error that a plain `String()` wrap does not remove.
+  // The FROZEN checkout snapshot — the exact persisted `SalesDocument` id
+  // the operator is currently being shown a total for in `PaymentPanel`.
+  // Set once, atomically with `checkoutTotal`, when checkout opens
+  // (`handleOpenCheckout`); never touched again until the panel closes or
+  // confirmation succeeds/fails. `handleCheckoutConfirm` MUST confirm this
+  // exact id and MUST NOT call `persistDraft()` again — doing so could
+  // reprice the sale after the operator already approved a different
+  // total (see docs/pos.md). `checkoutSaleId === null` means "no frozen
+  // snapshot" — the payment panel must not be actionable in that state.
+  const [checkoutSaleId, setCheckoutSaleId] = useState<string | null>(null);
+  // The backend-canonical decimal-string total belonging to
+  // `checkoutSaleId` — NEVER the local `computeCartTotals` preview
+  // number. See docs/pos.md and AGENTS.md's "never floating point for
+  // money" rule: a JS-number preview total (e.g. from `0.10 * 3`) can
+  // carry binary floating-point error that a plain `String()` wrap does
+  // not remove.
   const [checkoutTotal, setCheckoutTotal] = useState<string | null>(null);
   const [openingCheckout, setOpeningCheckout] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | undefined>();
@@ -92,6 +109,7 @@ export function PosWorkspace() {
       setSavedSaleId(null);
       setError(undefined);
       setSuccessSale(null);
+      setCheckoutSaleId(null);
       setCheckoutTotal(null);
       setCheckoutOpen(false);
     }
@@ -229,12 +247,18 @@ export function PosWorkspace() {
   }
 
   /**
-   * Never called per scanned line — only at checkout (F10/Cobrar), see
-   * docs/pos.md. Returns the backend-canonical `salesDocument.total`
-   * (a Prisma.Decimal-computed decimal string) alongside the sale id —
-   * this, not `computeCartTotals`'s JS-number preview, is the only value
-   * ever allowed to reach the payment panel / tender flow. See AGENTS.md's
-   * "never floating point for money" rule.
+   * Never called per scanned line — only once, at checkout (F10/Cobrar,
+   * via `handleOpenCheckout`), see docs/pos.md. Returns the backend-
+   * canonical `salesDocument.total` (a Prisma.Decimal-computed decimal
+   * string) alongside the sale id — this, not `computeCartTotals`'s
+   * JS-number preview, is the only value ever allowed to reach the
+   * payment panel / tender flow. See AGENTS.md's "never floating point
+   * for money" rule.
+   *
+   * MUST NOT be called again once a checkout snapshot (`checkoutSaleId`)
+   * is frozen — `handleCheckoutConfirm` confirms that exact snapshot
+   * without re-persisting, so the total the operator approved in
+   * `PaymentPanel` can never silently drift before confirmation.
    */
   async function persistDraft(): Promise<{ id: string; total: string } | null> {
     try {
@@ -265,10 +289,12 @@ export function PosWorkspace() {
   }
 
   /**
-   * Persists/updates the draft to obtain the backend-canonical total, then
-   * opens the payment panel — never the other way around. If persisting
-   * fails (missing price, invalid quantity, ...) the panel must NOT open;
-   * `persistDraft` has already surfaced the operational error via `setError`.
+   * Persists/updates the draft to obtain the backend-canonical total,
+   * freezes it as the checkout snapshot (`checkoutSaleId`/`checkoutTotal`),
+   * then opens the payment panel — never the other way around. If
+   * persisting fails (missing price, invalid quantity, ...) the panel
+   * must NOT open; `persistDraft` has already surfaced the operational
+   * error via `setError`.
    */
   async function handleOpenCheckout() {
     const validationError = validate();
@@ -282,6 +308,7 @@ export function PosWorkspace() {
     try {
       const result = await persistDraft();
       if (!result) return;
+      setCheckoutSaleId(result.id);
       setCheckoutTotal(result.total);
       setCheckoutOpen(true);
     } finally {
@@ -289,26 +316,64 @@ export function PosWorkspace() {
     }
   }
 
+  /**
+   * Confirms the exact frozen checkout snapshot (`checkoutSaleId`) — see
+   * the `checkoutSaleId` state comment. Deliberately does NOT call
+   * `persistDraft()`: doing so would let a price/context change reprice
+   * the sale between the moment the operator saw `checkoutTotal` in
+   * `PaymentPanel` and the moment they clicked "Confirmar y cobrar",
+   * confirming a total the operator never actually approved. The
+   * backend's own `SalesService.confirm()` still independently derives
+   * `SalesTender.amountApplied` from the persisted `SalesDocument.total`
+   * and runs status flip + stock movement + tender creation in one
+   * transaction — this fix only removes a redundant, unsafe client-side
+   * re-persist, it changes no backend semantics.
+   */
   async function handleCheckoutConfirm(tender: ConfirmSaleTenderInput) {
+    if (!checkoutSaleId) {
+      // No frozen snapshot to confirm — fail safely rather than invent
+      // an id or fall back to persisting a new draft.
+      setCheckoutOpen(false);
+      return;
+    }
     setConfirming(true);
     setCheckoutError(undefined);
     try {
-      const result = await persistDraft();
-      if (!result) {
-        setCheckoutOpen(false);
-        return;
-      }
-      setCheckoutTotal(result.total);
-      const confirmed = await confirmSale.mutateAsync({ id: result.id, tender });
+      const confirmed = await confirmSale.mutateAsync({ id: checkoutSaleId, tender });
       setCheckoutOpen(false);
+      setCheckoutSaleId(null);
+      setCheckoutTotal(null);
+      setSavedSaleId(null);
       setSuccessSale(confirmed.salesDocument);
     } catch (err) {
-      // Keep the panel open (insufficient stock, a price/customer race,
-      // ...) — the draft is already saved, so the operator can adjust the
-      // cart and retry without losing the sale. See docs/pos.md.
+      // Keep the panel — and the frozen snapshot — open (insufficient
+      // stock, a race, ...): the draft is already saved under
+      // `checkoutSaleId`, so the operator can retry (e.g. a different
+      // payment method) without losing it. Closing checkout (Escape/
+      // Cancel) is still the only way to go edit the cart and force a
+      // fresh snapshot. See docs/pos.md.
       setCheckoutError(saleErrorMessage(err));
     } finally {
       setConfirming(false);
+    }
+  }
+
+  /**
+   * `PaymentPanel`'s `onOpenChange` — fires for every operator-driven
+   * close (Cancel button, Escape, backdrop click), never for the
+   * programmatic `setCheckoutOpen(false)` calls this component makes
+   * itself (e.g. on successful confirmation), so there's no cleanup race
+   * between this and `handleCheckoutConfirm`'s own success-path cleanup.
+   * Discards the checkout snapshot but deliberately leaves `savedSaleId`
+   * alone — the persisted DRAFT stays available for the operator to keep
+   * editing and reopen checkout against later.
+   */
+  function handleCheckoutOpenChange(open: boolean) {
+    setCheckoutOpen(open);
+    if (!open) {
+      setCheckoutSaleId(null);
+      setCheckoutTotal(null);
+      setCheckoutError(undefined);
     }
   }
 
@@ -321,6 +386,7 @@ export function PosWorkspace() {
     setSavedSaleId(null);
     setSuccessSale(null);
     setError(undefined);
+    setCheckoutSaleId(null);
     setCheckoutTotal(null);
     setOpeningCheckout(false);
     setTimeout(() => searchRef.current?.focus(), 0);
@@ -345,62 +411,98 @@ export function PosWorkspace() {
   if (successSale) {
     const tender = successSale.tender;
     return (
-      <div className="flex max-w-md flex-col gap-4">
-        <div>
-          <p className="text-sm font-medium text-emerald-600">Venta confirmada</p>
-          <h1 className="text-2xl font-semibold tracking-tight">{successSale.number}</h1>
+      <div className="mx-auto flex h-full max-w-md flex-col justify-center gap-5">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success-muted px-3 py-1 text-xs font-semibold tracking-wide text-success uppercase">
+            <CheckCircle2 className="size-3.5" />
+            Venta confirmada
+          </span>
+          <h1 className="text-3xl font-bold tracking-tight">{successSale.number}</h1>
         </div>
-        <div className="rounded-lg border border-border p-4 text-sm">
-          <p>{successSale.customer.legalName}</p>
-          <p className="mt-1 text-2xl font-semibold">{formatMoney(successSale.total, successSale.currencyCode)}</p>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <p className="text-sm font-medium text-foreground">{successSale.customer.legalName}</p>
+          <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums">
+            {formatMoney(successSale.total, successSale.currencyCode)}
+          </p>
           {tender && (
-            <div className="mt-3 flex flex-col gap-1 border-t border-border pt-3">
+            <div className="mt-4 flex flex-col gap-1.5 border-t border-border pt-4 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Pago</span>
-                <span className="font-medium">{salesTenderMethodLabel(tender.method)}</span>
+                <span className="font-semibold">{salesTenderMethodLabel(tender.method)}</span>
               </div>
               {tender.amountReceived !== null && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Recibido</span>
-                  <span className="tabular-nums">{formatMoney(tender.amountReceived, successSale.currencyCode)}</span>
+                  <span className="font-medium tabular-nums">
+                    {formatMoney(tender.amountReceived, successSale.currencyCode)}
+                  </span>
                 </div>
               )}
               {tender.change !== null && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Vuelto</span>
-                  <span className="font-medium tabular-nums">{formatMoney(tender.change, successSale.currencyCode)}</span>
+                  <span className="font-bold tabular-nums text-success">
+                    {formatMoney(tender.change, successSale.currencyCode)}
+                  </span>
                 </div>
               )}
             </div>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={handleNewSale} autoFocus>
+        <div className="flex flex-col gap-2">
+          <Button type="button" size="lg" onClick={handleNewSale} autoFocus className="h-14 text-base">
             Nueva venta
           </Button>
-          <Link href={`/ventas/${successSale.id}`} className={buttonVariants({ variant: 'outline' })}>
-            Ver venta
-          </Link>
-          <Button type="button" variant="outline" onClick={() => window.print()}>
-            <Printer className="size-4" />
-            Imprimir comprobante interno
-          </Button>
+          <div className="flex gap-2">
+            <Link href={`/ventas/${successSale.id}`} className={cn(buttonVariants({ variant: 'outline' }), 'flex-1')}>
+              Ver venta
+            </Link>
+            <Button type="button" variant="outline" onClick={() => window.print()} className="flex-1">
+              <Printer className="size-4" />
+              Imprimir comprobante
+            </Button>
+          </div>
         </div>
         <PrintReceipt sale={successSale} />
       </div>
     );
   }
 
+  const customerNeedsAttention = error === 'Elegí un cliente.';
+
   return (
     <div className="flex h-full flex-col gap-3">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-[17rem_minmax(0,1fr)]">
         <div>
-          <p className="mb-1 text-xs font-medium text-muted-foreground">Cliente (F2)</p>
-          <CustomerPicker ref={customerRef} value={customer} onSelect={setCustomer} onClear={() => setCustomer(null)} />
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <p className="text-xs font-semibold text-muted-foreground">Cliente</p>
+            <span className="rounded border border-border bg-muted px-1 py-0.5 text-[0.625rem] leading-none font-semibold text-muted-foreground">
+              F2
+            </span>
+          </div>
+          <CustomerPicker
+            ref={customerRef}
+            value={customer}
+            onSelect={setCustomer}
+            onClear={() => setCustomer(null)}
+            invalid={customerNeedsAttention}
+            errorId="pos-customer-error"
+          />
+          {customerNeedsAttention && (
+            <p id="pos-customer-error" className="mt-1.5 text-xs font-medium text-destructive" role="alert">
+              {error}
+            </p>
+          )}
         </div>
         <div>
-          <p className="mb-1 text-xs font-medium text-muted-foreground">Producto</p>
-          <ProductSearch ref={searchRef} warehouseId={activeWarehouseId} priceListId={activePriceListId} onSelect={addLine} />
+          <ProductSearch
+            ref={searchRef}
+            warehouseId={activeWarehouseId}
+            priceListId={activePriceListId}
+            onSelect={addLine}
+            appearance="primary"
+            shortcutHint={null}
+          />
         </div>
       </div>
 
@@ -413,16 +515,29 @@ export function PosWorkspace() {
         onRemove={removeLine}
       />
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
-
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/30 px-4 py-3">
-        <p className="text-xs text-muted-foreground">
-          {activeKey ? '+ / − cantidad de la línea seleccionada · Supr para quitarla' : 'Seleccioná una línea para editar la cantidad'}
+      {error && !customerNeedsAttention && (
+        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive" role="alert">
+          {error}
         </p>
-        <div className="flex items-center gap-4">
+      )}
+
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground">
+          {lines.length === 0
+            ? ''
+            : activeKey
+              ? '+ / − cantidad de la línea seleccionada · Supr para quitarla'
+              : 'Seleccioná una línea para editar la cantidad'}
+        </p>
+        <div className="flex items-center justify-between gap-4 sm:justify-end">
+          {lines.length > 0 && (
+            <p className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+              {lines.length} {lines.length === 1 ? 'línea' : 'líneas'}
+            </p>
+          )}
           <div className="text-right">
-            <p className="text-xs text-muted-foreground">Total</p>
-            <p className="text-2xl font-bold tabular-nums">
+            <p className="text-xs font-medium text-muted-foreground">Total {currencyCode ?? ''}</p>
+            <p className="text-3xl leading-9 font-bold tracking-tight tabular-nums">
               {currencyCode ? formatMoney(String(totals.total), currencyCode) : '—'}
             </p>
           </div>
@@ -432,8 +547,15 @@ export function PosWorkspace() {
               size="lg"
               onClick={() => void handleOpenCheckout()}
               disabled={lines.length === 0 || openingCheckout}
+              className="h-14 shrink-0 px-6 text-base"
             >
-              {openingCheckout ? 'Abriendo…' : 'Cobrar (F10)'}
+              {openingCheckout ? (
+                'Abriendo…'
+              ) : (
+                <>
+                  Cobrar<span className="ml-1.5 font-normal opacity-75">· F10</span>
+                </>
+              )}
             </Button>
           ) : (
             <p className="max-w-40 text-xs text-muted-foreground">No tenés permiso para cobrar.</p>
@@ -443,7 +565,7 @@ export function PosWorkspace() {
 
       <PaymentPanel
         open={checkoutOpen}
-        onOpenChange={setCheckoutOpen}
+        onOpenChange={handleCheckoutOpenChange}
         total={checkoutTotal ?? '0'}
         currencyCode={currencyCode}
         onConfirm={handleCheckoutConfirm}

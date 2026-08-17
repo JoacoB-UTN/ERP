@@ -1,6 +1,6 @@
 'use client';
 
-import { X } from 'lucide-react';
+import { ScanBarcode, X } from 'lucide-react';
 import { formatMoney } from '@erp/shared';
 import type { SaleLineDraft } from '@/components/ventas/cart';
 import { cn } from '@/lib/utils';
@@ -38,7 +38,8 @@ export function PosCart({
 }) {
   if (lines.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+        <ScanBarcode className="size-8 text-muted-foreground/40" aria-hidden="true" />
         Escaneá un producto o buscá por nombre, SKU o código.
       </div>
     );
@@ -47,14 +48,14 @@ export function PosCart({
   return (
     <div className="flex-1 overflow-y-auto rounded-xl ring-1 ring-foreground/10">
       <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-muted/80 text-left text-xs font-medium text-muted-foreground backdrop-blur">
+        <thead className="sticky top-0 bg-muted/80 text-left text-xs font-semibold text-muted-foreground backdrop-blur">
           <tr>
-            <th className="px-3 py-2">Producto</th>
-            <th className="px-3 py-2 text-right">Cant.</th>
-            <th className="px-3 py-2 text-right">Precio</th>
-            <th className="px-3 py-2 text-right">Desc.</th>
-            <th className="px-3 py-2 text-right">Total</th>
-            <th className="px-3 py-2" />
+            <th className="px-3 py-2.5">Producto</th>
+            <th className="px-3 py-2.5 text-right">Cant.</th>
+            <th className="px-3 py-2.5 text-right">Precio</th>
+            <th className="px-3 py-2.5 text-right">Desc.</th>
+            <th className="px-3 py-2.5 text-right">Total</th>
+            <th className="px-3 py-2.5" />
           </tr>
         </thead>
         <tbody>
@@ -68,29 +69,30 @@ export function PosCart({
               <tr
                 key={line.key}
                 onClick={() => onSetActive(line.key)}
+                aria-current={isActive ? 'true' : undefined}
                 className={cn(
-                  'cursor-pointer border-t border-border',
-                  isActive ? 'bg-primary/5 ring-1 ring-inset ring-primary/30' : 'hover:bg-muted/50',
+                  'cursor-pointer border-t border-border transition-colors',
+                  isActive ? 'bg-primary/[0.06]' : 'hover:bg-muted/50',
                 )}
               >
-                <td className="px-3 py-2">
-                  <p className="font-medium">{line.label}</p>
+                <td className={cn('py-3 pr-3 pl-3', isActive && 'border-l-2 border-l-primary pl-[0.6875rem]')}>
+                  <p className={cn('leading-tight', isActive ? 'font-semibold' : 'font-medium')}>{line.label}</p>
                   <p className="text-xs text-muted-foreground">
                     {line.sku ?? '—'}
                     {isService ? ' · Servicio' : ''}
                   </p>
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums">{line.quantity}</td>
-                <td className="px-3 py-2 text-right tabular-nums">
+                <td className="px-3 py-3 text-right font-semibold tabular-nums">{line.quantity}</td>
+                <td className="px-3 py-3 text-right tabular-nums">
                   {price === undefined ? 'Cargando…' : price === null || !currencyCode ? '—' : formatMoney(price, currencyCode)}
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums">
+                <td className="px-3 py-3 text-right tabular-nums">
                   {Number(line.discountPercentage) > 0 ? `${line.discountPercentage}%` : '—'}
                 </td>
-                <td className="px-3 py-2 text-right font-medium tabular-nums">
+                <td className="px-3 py-3 text-right font-semibold tabular-nums">
                   {lineTotal !== null && currencyCode ? formatMoney(String(lineTotal), currencyCode) : '—'}
                 </td>
-                <td className="px-3 py-2 text-right">
+                <td className="px-3 py-3 text-right">
                   <button
                     type="button"
                     aria-label={`Quitar ${line.label}`}
@@ -98,7 +100,7 @@ export function PosCart({
                       e.stopPropagation();
                       onRemove(line.key);
                     }}
-                    className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="rounded-md p-1 text-muted-foreground hover:bg-destructive-muted hover:text-destructive"
                   >
                     <X className="size-4" />
                   </button>
