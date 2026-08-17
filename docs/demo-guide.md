@@ -21,13 +21,18 @@ npm run db:reset
 npm run dev
 ```
 
-`db:reset` runs `prisma migrate reset` for `apps/api` — it drops and
-recreates the local dev database, reapplies all migrations, and runs the
-seed automatically. It only ever touches the local dev database defined
-in `apps/api/.env`; never point it at a shared or production database.
-If you only need to re-seed without dropping the schema (e.g. you didn't
-touch migrations), `npm run db:seed` alone is enough and is idempotent —
-safe to re-run, it will not duplicate demo data.
+`db:reset` runs `prisma migrate reset` for `apps/api`, which connects
+using `DATABASE_URL` — it drops and recreates whatever database that URL
+points to, reapplies all migrations, and runs the seed automatically.
+**Before confirming the reset, check `apps/api/.env`'s `DATABASE_URL`
+yourself and make sure it points at your local dev database** (e.g.
+`localhost:5432/erp_platform_dev`) — there is no code-level guard
+preventing this command from running against whatever database is
+configured, so a misconfigured `.env` pointed at a shared or production
+database would be dropped too. If you only need to re-seed without
+dropping the schema (e.g. you didn't touch migrations), `npm run
+db:seed` alone is enough and is idempotent — safe to re-run, it will not
+duplicate demo data.
 
 `npm run dev` starts all three apps together:
 
@@ -64,12 +69,21 @@ Log into Gestión first, select **Distribuidora Horizonte S.R.L.** →
 
 Land on `/`. Point out **Ventas confirmadas hoy** and **Total operado
 hoy** — these are real, live-computed aggregates
-(`GET /dashboard/summary`), not placeholders. On a same-day run of the
-seed, this reads **5 confirmed sales / ARS 75.400,00** before you create
-any new sale in this demo. The exact figures shift slightly by whatever
-day "today" is when you seeded (see "Determinism" in the seed's own doc
-comments), but there will always be at least 2 confirmed sales dated
-today so the card is never empty.
+(`GET /dashboard/summary`), not placeholders. On a fresh `db:reset` +
+seed, before you create any sale in this demo, this reads **2 confirmed
+sales / ARS 28.900,00** — the seed's two `daysAgo: 0` sales (DEMO-SEED-01:
+Ferretería El Puente, Yerba mate 1 kg ×2 + Resma A4 ×1 = ARS 23.500,00;
+DEMO-SEED-02: Consumidor Final, Gaseosa cola 500 ml ×3 + Bolígrafo ×2 =
+ARS 5.400,00). This baseline is what "today" happens to already contain —
+it doesn't shift with when you seed, only the historical sales' relative
+dates do (see "Determinism" below).
+
+By the end of this script (after the Facturación sale in step 6 and both
+POS sales in step 8), the same card should read **5 confirmed sales /
+ARS 75.400,00** (28.900 + 22.000 + 22.000 + 2.500). Don't claim the
+5/75.400 figure before those three sales actually exist — walk the
+presenter through the baseline now, and circle back to the grown total
+in step 7/8's "prove integration" moments.
 
 ### 2. Clientes
 
@@ -84,10 +98,11 @@ companies, small businesses, and individuals, plus the mandatory
 
 Go to `/productos`. Point out the catalog mix: **Café 1 kg**
 (`CAFE-1KG`, stock-tracked, single-variant), **Bolígrafo**/**Buzo con
-capucha** (multi-variant — Buzo has 4: two sizes × two colors),
-**Gaseosa cola 500 ml** (has a real EAN-13 barcode,
-`7790001000012`), and **Servicio de flete** (type Servicio — no stock,
-no warehouse). 17 products, 21 sellable variants total.
+capucha** (multi-variant — Buzo has 4 variants across size/color
+combinations: Negro/S, Negro/M, Negro/L, Gris/M), **Gaseosa cola 500 ml**
+(has a valid EAN-13 barcode, `7790001000019`), and **Servicio de flete**
+(type Servicio — no stock, no warehouse). 17 products, 21 sellable
+variants total.
 
 ### 4. Inventario
 
@@ -101,10 +116,13 @@ for the negative-/edge-case story.
 
 ### 5. Precios
 
-Go to `/listas-de-precios`. Show **Minorista** (FIXED list, the default)
-and **Mayorista** (DERIVED — a percentage discount off Minorista,
-computed at read time, never materialized). Open **Café 1 kg** in
-Minorista to show its price: **ARS 22.000,00**.
+Go to `/listas-de-precios`. Three price lists exist — **Minorista**
+(FIXED, the default), **Mayorista** (DERIVED, -10% off Minorista), and
+**Distribuidor** (DERIVED, -15% off Minorista) — but the live demo only
+needs to show **Minorista** and **Mayorista**; skip Distribuidor unless
+asked. DERIVED lists are computed at read time from their base, never
+materialized. Open **Café 1 kg** in Minorista to show its price:
+**ARS 22.000,00**.
 
 ### 6. Facturación — Nueva venta
 
@@ -133,8 +151,10 @@ Switch back to the Gestión tab and refresh the dashboard (or revisit
 `/ventas`). The sale you just confirmed appears immediately with the
 same number, customer, and total — same `SalesService`, same database,
 no separate "sync." This is the single most important beat of the demo:
-Gestión, Facturación, and POS are three UIs over one sales/inventory/
-pricing core, not three separate systems bolted together.
+Gestión and Facturación — including POS mode inside Facturación — share
+the same sales/inventory/pricing core and database. There are only two
+user-facing applications; POS is not a third app, it's a fast checkout
+mode inside Facturación.
 
 ### 8. POS
 
@@ -163,7 +183,8 @@ in the same recent-sales feed and today's totals updating again.
 
 ### 9. Closing message
 
-**Working now**, end to end, across Gestión/Facturación/POS: customers,
+**Working now**, end to end, across Gestión and Facturación (including
+its POS mode): customers,
 product catalog (with variants, barcodes, services), multi-warehouse
 inventory on an auditable ledger, multi-list pricing (fixed and
 derived), a real internal sales workflow (draft → confirm, with
@@ -182,17 +203,20 @@ up-to-date boundary; don't improvise beyond what it says.
 
 ## Data notes (for whoever runs this demo)
 
-- **Company:** Distribuidora Horizonte S.R.L. (CUIT `30-71234567-3`),
-  branches Casa Central and Sucursal Norte.
+- **Company:** Distribuidora Horizonte S.R.L. (CUIT `30-71876543-5`),
+  branches Casa Central and Sucursal Norte. All seeded CUITs (company and
+  customers) are fictional but carry a valid Argentine check digit —
+  they're generated, never copied from a real entity.
 - **Determinism:** all seeded data is deterministic except sale dates,
   which are computed relative to seed-run time (`Date.now() - N days`)
   so "today's" sales are always genuinely dated today, however long ago
   the seed was actually run. Re-running the seed without a reset is a
   no-op for existing data (idempotent upserts + a `notes` marker on
   seeded sales) — it will not create duplicates.
-- **Historical sales:** 10 CONFIRMED sales spread across 8 distinct days
-  within the last 9 (today included) — mixed customers, totals, and
-  tender methods (CASH/CARD/TRANSFER/OTHER) — plus 1 DRAFT sale, so the
+- **Historical sales:** 10 CONFIRMED sales spread across 8 distinct
+  calendar-day offsets spanning today through 9 days ago (`daysAgo`:
+  0, 0, 1, 1, 2, 3, 4, 6, 8, 9) — mixed customers, totals, and tender
+  methods (CASH/CARD/TRANSFER/OTHER) — plus 1 DRAFT sale, so the
   "Borradores abiertos" dashboard card isn't always zero. These were
   built by mirroring `SalesService.confirm()`'s exact transaction shape
   directly in the seed script (Decimal-safe totals, atomic sequence

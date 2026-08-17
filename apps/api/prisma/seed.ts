@@ -275,6 +275,9 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
       update: {
         legalName: params.legalName,
         tradeName: params.tradeName,
+        documentType: params.documentType,
+        taxId: params.taxId,
+        taxCondition: params.taxCondition,
         status: params.status ?? 'ACTIVE',
       },
       create: {
@@ -414,8 +417,8 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     legalName: 'Aroma Cafetería S.H.',
     tradeName: 'Cafetería Aroma',
     documentType: 'CUIT',
-    taxId: '30712398765',
-    taxCondition: 'MONOTRIBUTO',
+    taxId: '30712398767',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
     phone: '011-4555-0330',
     categoryNames: ['Minorista'],
   });
@@ -455,7 +458,7 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     legalName: 'Distribuidora Sur Insumos S.A.',
     tradeName: 'Distribuidora Sur Insumos',
     documentType: 'CUIT',
-    taxId: '30713344556',
+    taxId: '30713344555',
     taxCondition: 'RESPONSABLE_INSCRIPTO',
     email: 'compras@surinsumos.example',
     phone: '0291-456-7890',
@@ -493,8 +496,8 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     legalName: 'Panadería San Roque S.H.',
     tradeName: 'Panadería San Roque',
     documentType: 'CUIT',
-    taxId: '30712233445',
-    taxCondition: 'MONOTRIBUTO',
+    taxId: '30712233458',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
     phone: '011-4555-0660',
     categoryNames: ['Minorista'],
   });
@@ -505,7 +508,7 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     legalName: 'Librería Central S.A.',
     tradeName: 'Librería Central',
     documentType: 'CUIT',
-    taxId: '30714455667',
+    taxId: '30714455660',
     taxCondition: 'RESPONSABLE_INSCRIPTO',
     email: 'pedidos@libreriacentral.example',
     phone: '011-4555-0770',
@@ -546,7 +549,7 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     legalName: 'Hotel Las Acacias S.A.',
     tradeName: 'Hotel Las Acacias',
     documentType: 'CUIT',
-    taxId: '30715566778',
+    taxId: '30715566776',
     taxCondition: 'RESPONSABLE_INSCRIPTO',
     email: 'compras@hotellasacacias.example',
     phone: '0291-456-9900',
@@ -580,7 +583,7 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     tradeName: 'Comercial del Sur',
     documentType: 'CUIT',
     taxId: '30334455668',
-    taxCondition: 'MONOTRIBUTO',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
     phone: '0291-456-7890',
     categoryNames: ['Minorista'],
   });
@@ -599,7 +602,7 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     legalName: 'Zapatería Andina S.R.L.',
     tradeName: 'Zapatería Andina',
     documentType: 'CUIT',
-    taxId: '30716677889',
+    taxId: '30716677881',
     taxCondition: 'RESPONSABLE_INSCRIPTO',
     phone: '011-4555-1130',
     categoryNames: ['Minorista'],
@@ -614,8 +617,8 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
     legalName: 'Comercio Los Andes S.R.L. (cerrado)',
     tradeName: 'Comercio Los Andes',
     documentType: 'CUIT',
-    taxId: '30717788990',
-    taxCondition: 'MONOTRIBUTO',
+    taxId: '30717788997',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
     status: 'INACTIVE',
   });
 
@@ -794,7 +797,7 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
     trackInventory: true,
   });
   const gaseosaVariant = await ensureVariant(gaseosa.id, null, null);
-  await ensureCode(gaseosaVariant.id, 'BARCODE', '7790001000012');
+  await ensureCode(gaseosaVariant.id, 'BARCODE', '7790001000019');
 
   const agua = await upsertProduct({
     code: '000002',
@@ -804,7 +807,7 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
     trackInventory: true,
   });
   const aguaVariant = await ensureVariant(agua.id, null, null);
-  await ensureCode(aguaVariant.id, 'BARCODE', '7790001000029');
+  await ensureCode(aguaVariant.id, 'BARCODE', '7790001000026');
 
   const cafe = await upsertProduct({
     code: '000003',
@@ -2133,7 +2136,7 @@ async function main() {
   // always runs `prisma migrate reset` before reseeding, so this never
   // creates a duplicate company row in normal use.
   const company = await prisma.company.upsert({
-    where: { tenantId_taxId: { tenantId: tenant.id, taxId: '30-71234567-3' } },
+    where: { tenantId_taxId: { tenantId: tenant.id, taxId: '30-71876543-5' } },
     update: {
       legalName: 'Distribuidora Horizonte S.R.L.',
       tradeName: 'Distribuidora Horizonte',
@@ -2142,7 +2145,7 @@ async function main() {
       tenantId: tenant.id,
       legalName: 'Distribuidora Horizonte S.R.L.',
       tradeName: 'Distribuidora Horizonte',
-      taxId: '30-71234567-3',
+      taxId: '30-71876543-5',
       countryCode: 'AR',
       timezone: 'America/Argentina/Buenos_Aires',
       status: 'ACTIVE',
