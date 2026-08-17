@@ -25,7 +25,7 @@ export function toAdjustmentLineInputs(
 }
 
 const inputClassName =
-  'h-8 min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
+  'h-(--control-height) min-w-0 rounded-md border border-input bg-card px-3 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30';
 
 /**
  * Entrada/Salida toggle UX that's internally converted to a signed
@@ -70,13 +70,13 @@ export function AdjustmentLineEditor({
           {lines.map((line) => (
             <div
               key={line.key}
-              className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2.5"
+              className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card p-3"
             >
               <div className="min-w-40 flex-1">
                 <p className="text-sm font-medium">{line.label}</p>
                 {line.sku && <p className="text-xs text-muted-foreground">{line.sku}</p>}
               </div>
-              <div className="flex overflow-hidden rounded-lg border border-input text-sm">
+              <div className="flex h-(--control-height) overflow-hidden rounded-md border border-input bg-card text-sm">
                 <button
                   type="button"
                   onClick={() => updateLine(line.key, { direction: 'IN' })}

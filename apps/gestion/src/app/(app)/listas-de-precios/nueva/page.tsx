@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { FieldError } from '@/components/ui/form-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { pricingErrorMessage } from '@/components/pricing/pricing-errors';
 
@@ -75,13 +76,12 @@ export default function NuevaListaDePreciosPage() {
   return (
     <div className="flex flex-col gap-6">
       <form onSubmit={handleSubmit} className="flex max-w-2xl flex-col gap-6" noValidate>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Nueva lista de precios</h1>
-          <p className="text-sm text-muted-foreground">
-            Una lista fija tiene precios cargados manualmente por producto. Una lista derivada calcula sus
-            precios a partir de otra lista con un ajuste porcentual o fijo — nunca duplica precios.
-          </p>
-        </div>
+        <PageHeader
+          title="Nueva lista de precios"
+          description="Elegí una lista fija con precios propios o una derivada que aplica una regla sobre otra lista."
+          backHref="/listas-de-precios"
+          backLabel="Listas de precios"
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">

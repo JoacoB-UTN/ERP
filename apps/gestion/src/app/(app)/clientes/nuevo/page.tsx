@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { FormSection, FieldError } from '@/components/clientes/customer-form-sections';
 import { AddressCard } from '@/components/clientes/address-card';
@@ -118,12 +119,12 @@ export default function NuevoClientePage() {
 
   return (
     <form onSubmit={handleSubmit} className="flex max-w-3xl flex-col gap-6" noValidate>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Nuevo cliente</h1>
-        <p className="text-sm text-muted-foreground">
-          Completá los datos principales. El resto se puede agregar después.
-        </p>
-      </div>
+      <PageHeader
+        title="Nuevo cliente"
+        description="Completá los datos esenciales; domicilios, contactos y condiciones pueden ampliarse después."
+        backHref="/clientes"
+        backLabel="Clientes"
+      />
 
       <FormSection title="Datos principales" defaultOpen>
         <div className="grid gap-4 sm:grid-cols-2">

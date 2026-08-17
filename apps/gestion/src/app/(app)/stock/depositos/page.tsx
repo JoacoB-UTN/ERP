@@ -11,8 +11,10 @@ import {
 } from '@/lib/auth-client';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Unauthorized } from '@/components/layout/unauthorized';
-import { StockSubNav } from '@/components/stock/stock-sub-nav';
 import { stockErrorMessage } from '@/components/stock/stock-errors';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 
 function BoolCell({ value }: { value: boolean }) {
   return <span className={value ? 'text-emerald-600' : 'text-muted-foreground'}>{value ? 'Sí' : 'No'}</span>;
@@ -57,24 +59,21 @@ export default function DepositosPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <StockSubNav />
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Depósitos</h1>
-          <p className="text-sm text-muted-foreground">Ubicaciones físicas donde se controla el stock.</p>
-        </div>
-        {canCreate && (
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Depósitos"
+        description="Ubicaciones físicas y reglas operativas para controlar existencias."
+        actions={canCreate && (
           <Link href="/stock/depositos/nuevo" className={buttonVariants()}>
             <Plus className="size-4" />
             Nuevo depósito
           </Link>
         )}
-      </div>
+      />
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p role="alert" className="rounded-md border border-destructive/25 bg-destructive-muted px-3 py-2 text-sm text-destructive">{error}</p>}
 
-      <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+      <div className="overflow-x-auto rounded-md border border-border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
@@ -89,6 +88,7 @@ export default function DepositosPage() {
             </tr>
           </thead>
           <tbody>
+            {warehousesQuery.isLoading && <TableRowsSkeleton columns={canUpdate || canDeactivate ? 8 : 7} />}
             {warehouses.map((w) => (
               <tr key={w.id} className="border-t border-border">
                 <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">{w.code}</td>
@@ -104,11 +104,7 @@ export default function DepositosPage() {
                   <BoolCell value={w.allowNegativeStock} />
                 </td>
                 <td className="px-4 py-2">
-                  {w.status === 'ACTIVE' ? (
-                    <span className="text-emerald-600">Activo</span>
-                  ) : (
-                    <span className="text-muted-foreground">Inactivo</span>
-                  )}
+                  <StatusBadge status={w.status}>{w.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}</StatusBadge>
                 </td>
                 {(canUpdate || canDeactivate) && (
                   <td className="px-4 py-2 text-right">
@@ -141,12 +137,31 @@ export default function DepositosPage() {
                 )}
               </tr>
             ))}
-            {!warehousesQuery.isLoading && warehouses.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
-                  Todavía no hay depósitos.
-                </td>
-              </tr>
+            {warehousesQuery.isError && (
+              <TableMessage
+                columns={canUpdate || canDeactivate ? 8 : 7}
+                kind="error"
+                title="No pudimos cargar los depósitos"
+                description="Revisá la conexión e intentá nuevamente."
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => warehousesQuery.refetch()}>
+                    Reintentar
+                  </Button>
+                }
+              />
+            )}
+            {!warehousesQuery.isLoading && !warehousesQuery.isError && warehouses.length === 0 && (
+              <TableMessage
+                columns={canUpdate || canDeactivate ? 8 : 7}
+                title="Todavía no hay depósitos"
+                description="Creá una ubicación para empezar a registrar stock."
+                action={canCreate && (
+                  <Link href="/stock/depositos/nuevo" className={buttonVariants()}>
+                    <Plus className="size-4" />
+                    Nuevo depósito
+                  </Link>
+                )}
+              />
             )}
           </tbody>
         </table>

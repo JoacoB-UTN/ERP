@@ -5,18 +5,13 @@ import Link from 'next/link';
 import { ArrowRight, FileText, PackageSearch, Tags, UserPlus, Warehouse } from 'lucide-react';
 import { formatMoney, salesDocumentStatusLabel } from '@erp/shared';
 import { usePermissions, useDashboardSummary } from '@/lib/auth-client';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('es-AR', { dateStyle: 'medium' });
-}
-
-function statusClassName(status: string): string {
-  if (status === 'CONFIRMED') return 'text-emerald-600';
-  if (status === 'CANCELLED') return 'text-muted-foreground';
-  return 'text-amber-600';
 }
 
 interface StatCardProps {
@@ -28,39 +23,29 @@ interface StatCardProps {
 
 function StatCard({ href, label, value, hint }: StatCardProps) {
   const body = (
-    <>
-      <CardHeader>
-        <CardTitle className="text-sm font-normal text-muted-foreground">{label}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold tabular-nums">{value}</div>
-        {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
-      </CardContent>
-    </>
+    <div className="flex min-h-24 flex-col justify-center px-4 py-3">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <div className="mt-1 text-2xl leading-7 font-semibold tabular-nums">{value}</div>
+      {hint && <div className="mt-1 text-[0.6875rem] leading-4 text-muted-foreground">{hint}</div>}
+    </div>
   );
 
   if (href) {
     return (
-      <Card size="sm" className="p-0 transition-colors hover:bg-muted/40">
-        <Link href={href} className="flex flex-col gap-(--card-spacing) py-(--card-spacing)">
-          {body}
-        </Link>
-      </Card>
+      <Link href={href} className="block transition-colors hover:bg-muted/45 focus-visible:bg-muted/45">
+        {body}
+      </Link>
     );
   }
-  return <Card size="sm">{body}</Card>;
+  return body;
 }
 
 function StatCardSkeleton() {
   return (
-    <Card size="sm">
-      <CardHeader>
-        <div className="h-3.5 w-24 animate-pulse rounded bg-muted" />
-      </CardHeader>
-      <CardContent>
-        <div className="h-7 w-14 animate-pulse rounded bg-muted" />
-      </CardContent>
-    </Card>
+    <div className="flex min-h-24 flex-col justify-center gap-2 px-4 py-3" aria-hidden="true">
+      <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+      <div className="h-7 w-14 animate-pulse rounded bg-muted" />
+    </div>
   );
 }
 
@@ -116,11 +101,8 @@ export default function DashboardPage() {
   const hasAnyAccess = canReadSales || canReadCustomers || canReadProducts || canReadStock;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Inicio</h1>
-        <p className="text-sm text-muted-foreground">Resumen de la actividad comercial de hoy.</p>
-      </div>
+    <div className="flex flex-col gap-5">
+      <PageHeader title="Inicio" description="Resumen operativo de la empresa para hoy." />
 
       {!hasAnyAccess && (
         <p className="max-w-prose text-sm text-muted-foreground">
@@ -130,18 +112,19 @@ export default function DashboardPage() {
       )}
 
       {summaryQuery.isError && (
-        <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center justify-between gap-4 py-1">
-            <p className="text-sm text-muted-foreground">No pudimos cargar el resumen del panel.</p>
-            <Button type="button" variant="outline" size="sm" onClick={() => summaryQuery.refetch()}>
-              Reintentar
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="flex items-center justify-between gap-4 rounded-md border border-destructive/25 bg-destructive-muted px-4 py-3">
+          <p className="text-sm text-destructive">No pudimos cargar el resumen del panel.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => summaryQuery.refetch()}>
+            Reintentar
+          </Button>
+        </div>
       )}
 
       {hasAnyAccess && !summaryQuery.isError && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        <section
+          aria-label="Indicadores operativos"
+          className="grid overflow-hidden rounded-md border border-border bg-card sm:grid-cols-2 lg:grid-cols-4 [&>*]:border-border [&>*:not(:last-child)]:border-b sm:[&>*]:border-b-0 sm:[&>*:nth-child(odd)]:border-r lg:[&>*:not(:last-child)]:border-r"
+        >
           {loading && (
             <>
               <StatCardSkeleton />
@@ -203,7 +186,25 @@ export default function DashboardPage() {
                 hint="Por debajo del mínimo definido."
               />
             )}
-        </div>
+        </section>
+      )}
+
+      {quickActions.length > 0 && (
+        <section className="flex flex-col gap-2 border-y border-border bg-card/60 py-3 sm:flex-row sm:items-center">
+          <h2 className="mr-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Acciones rápidas</h2>
+          <div className="flex flex-wrap gap-2">
+            {quickActions.map((action) => (
+              <Link
+                key={action.href}
+                href={action.href}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                <action.icon className="size-3.5" />
+                {action.label}
+              </Link>
+            ))}
+          </div>
+        </section>
       )}
 
       {canReadSales && (
@@ -219,7 +220,7 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+          <div className="overflow-x-auto rounded-md border border-border bg-card">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
                 <tr>
@@ -231,14 +232,7 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading &&
-                  Array.from({ length: 3 }).map((_, i) => (
-                    <tr key={i} className="border-t border-border">
-                      <td className="px-4 py-3" colSpan={5}>
-                        <div className="h-4 w-full max-w-64 animate-pulse rounded bg-muted" />
-                      </td>
-                    </tr>
-                  ))}
+                {loading && <TableRowsSkeleton columns={5} rows={4} />}
                 {!loading &&
                   summary?.recentSales?.map((s) => (
                     <tr key={s.id} className="border-t border-border">
@@ -257,34 +251,20 @@ export default function DashboardPage() {
                       <td className="px-4 py-2 text-right tabular-nums">
                         {formatMoney(s.total, s.currencyCode)}
                       </td>
-                      <td className={cn('px-4 py-2', statusClassName(s.status))}>
-                        {salesDocumentStatusLabel(s.status)}
+                      <td className="px-4 py-2">
+                        <StatusBadge status={s.status}>{salesDocumentStatusLabel(s.status)}</StatusBadge>
                       </td>
                     </tr>
                   ))}
                 {!loading && summary?.recentSales?.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
-                      No hay ventas confirmadas todavía.
-                    </td>
-                  </tr>
+                  <TableMessage
+                    columns={5}
+                    title="No hay ventas confirmadas todavía"
+                    description="Las ventas confirmadas aparecerán acá como referencia rápida."
+                  />
                 )}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {quickActions.length > 0 && (
-        <div className="flex flex-col gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">Acciones rápidas</h2>
-          <div className="flex flex-wrap gap-2">
-            {quickActions.map((action) => (
-              <Link key={action.href} href={action.href} className={buttonVariants({ variant: 'outline' })}>
-                <action.icon className="size-4" />
-                {action.label}
-              </Link>
-            ))}
           </div>
         </div>
       )}

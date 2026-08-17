@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Unauthorized } from '@/components/layout/unauthorized';
+import { PageHeader } from '@/components/ui/page-header';
 
 export default function NewRolePage() {
   const router = useRouter();
@@ -37,10 +38,12 @@ export default function NewRolePage() {
 
   return (
     <div className="flex max-w-md flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Nuevo rol</h1>
-        <p className="text-sm text-muted-foreground">Después de crearlo vas a poder elegir sus permisos.</p>
-      </div>
+      <PageHeader
+        title="Nuevo rol"
+        description="Creá el rol y luego seleccioná las capacidades que agrupa."
+        backHref="/administracion/roles"
+        backLabel="Roles"
+      />
       <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
         <div className="flex flex-col gap-2">
           <Label htmlFor="name">Nombre</Label>

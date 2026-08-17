@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { FieldError } from '@/components/ui/form-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { pricingErrorMessage } from '@/components/pricing/pricing-errors';
 
@@ -118,13 +119,10 @@ export default function ActualizacionMasivaPage() {
         Volver a {priceList.name}
       </Link>
 
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Actualización masiva de precios</h1>
-        <p className="text-sm text-muted-foreground">
-          {priceList.name} ({priceList.currencyCode}). Elegí el alcance y el ajuste, revisá la vista previa y
-          confirmá — no se modifica ningún precio hasta que confirmes.
-        </p>
-      </div>
+      <PageHeader
+        title="Actualización masiva de precios"
+        description={`${priceList.name} (${priceList.currencyCode}). Revisá la vista previa antes de confirmar; ningún precio cambia antes.`}
+      />
 
       <div className="flex flex-col gap-4 rounded-xl border border-border p-4">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -257,7 +255,7 @@ export default function ActualizacionMasivaPage() {
           </div>
 
           {preview.lines.length > 0 && (
-            <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
                   <tr>

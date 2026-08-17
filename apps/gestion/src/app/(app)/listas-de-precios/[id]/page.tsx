@@ -31,6 +31,8 @@ import { Select } from '@/components/ui/select';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { pricingErrorMessage } from '@/components/pricing/pricing-errors';
 import { PriceListHistoryItem } from '@/components/pricing/price-list-history-item';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 type TabKey = 'resumen' | 'precios' | 'historial';
 const PAGE_SIZE = 25;
@@ -95,31 +97,13 @@ function ListaDePreciosDetailView({
   ];
 
   return (
-    <div className="flex max-w-4xl flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">{priceList.name}</h1>
-            {priceList.active ? (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                Activa
-              </span>
-            ) : (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                Inactiva
-              </span>
-            )}
-            {priceList.isDefault && (
-              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-                Predeterminada
-              </span>
-            )}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {priceList.code} — {pricingModeLabel(priceList.pricingMode)} — {priceList.currencyCode}
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-2">
+    <div className="flex max-w-6xl flex-col gap-5">
+      <PageHeader
+        title={<span className="flex flex-wrap items-center gap-2">{priceList.name}<StatusBadge status={priceList.active ? 'ACTIVE' : 'INACTIVE'}>{priceList.active ? 'Activa' : 'Inactiva'}</StatusBadge>{priceList.isDefault && <StatusBadge tone="info">Predeterminada</StatusBadge>}</span>}
+        description={`${priceList.code} · ${pricingModeLabel(priceList.pricingMode)} · ${priceList.currencyCode}`}
+        backHref="/listas-de-precios"
+        backLabel="Listas de precios"
+        actions={<>
           {canUpdate && (
             <Link href={`/listas-de-precios/${priceList.id}/editar`} className={buttonVariants({ variant: 'outline' })}>
               <Pencil className="size-4" />
@@ -137,14 +121,16 @@ function ListaDePreciosDetailView({
               {priceList.active ? 'Desactivar' : 'Reactivar'}
             </Button>
           )}
-        </div>
-      </div>
+        </>}
+      />
 
-      <div className="flex gap-1 border-b border-border">
+      <div role="tablist" aria-label="Secciones de la lista" className="flex gap-1 overflow-x-auto border-b border-border">
         {tabs.map((t) => (
           <button
             key={t.key}
             type="button"
+            role="tab"
+            aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
             className={`px-3 py-2 text-sm font-medium ${
               tab === t.key
@@ -179,7 +165,7 @@ function ResumenTab({ priceList }: { priceList: PriceListDto }) {
   return (
     <div className="flex flex-col gap-4">
       {priceList.pricingMode === 'DERIVED' && (
-        <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm">
+        <div className="rounded-md border border-border bg-accent/40 p-4 text-sm">
           Esta lista se calcula desde <span className="font-medium">{priceList.basePriceListName}</span>. Ajuste:{' '}
           <span className="font-medium">
             {priceList.adjustmentType && adjustmentTypeLabel(priceList.adjustmentType)}{' '}
@@ -189,7 +175,7 @@ function ResumenTab({ priceList }: { priceList: PriceListDto }) {
           . Los precios se calculan al momento de la consulta — nunca se duplican como precios fijos.
         </div>
       )}
-      <dl className="grid gap-4 rounded-xl border border-border p-4 sm:grid-cols-2">
+      <dl className="grid gap-4 rounded-md border border-border p-4 sm:grid-cols-2">
         <SummaryField label="Código" value={priceList.code} />
         <SummaryField label="Moneda" value={`${priceList.currencyCode} (${priceList.currencySymbol})`} />
         <SummaryField label="Tipo" value={pricingModeLabel(priceList.pricingMode)} />
@@ -368,7 +354,7 @@ function PreciosTab({
         </Select>
       </div>
 
-      <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+      <div className="overflow-x-auto rounded-md border border-border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>

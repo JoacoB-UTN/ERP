@@ -8,18 +8,15 @@ import { usePermissions, useStockAdjustments, useWarehouses } from '@/lib/auth-c
 import { Select } from '@/components/ui/select';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Unauthorized } from '@/components/layout/unauthorized';
-import { StockSubNav } from '@/components/stock/stock-sub-nav';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import { Toolbar } from '@/components/ui/toolbar';
 
 const PAGE_SIZE = 25;
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('es-AR', { dateStyle: 'medium' });
-}
-
-function statusClassName(status: string): string {
-  if (status === 'CONFIRMED') return 'text-emerald-600';
-  if (status === 'CANCELLED') return 'text-muted-foreground';
-  return 'text-amber-600';
 }
 
 export default function AjustesPage() {
@@ -51,16 +48,11 @@ export default function AjustesPage() {
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / pagination.pageSize)) : 1;
 
   return (
-    <div className="flex flex-col gap-6">
-      <StockSubNav />
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Ajustes</h1>
-          <p className="text-sm text-muted-foreground">
-            Correcciones manuales de inventario. Un ajuste confirmado genera movimientos y no puede modificarse.
-          </p>
-        </div>
-        <div className="flex gap-2">
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Ajustes"
+        description="Correcciones controladas de inventario. Al confirmar, generan movimientos inmutables."
+        actions={<>
           {canCreateInitialBalance && (
             <Link href="/stock/ajustes/carga-inicial" className={buttonVariants({ variant: 'outline' })}>
               <ClipboardPlus className="size-4" />
@@ -73,10 +65,10 @@ export default function AjustesPage() {
               Nuevo ajuste
             </Link>
           )}
-        </div>
-      </div>
+        </>}
+      />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <Toolbar>
         <Select
           value={warehouseId}
           onChange={(e) => {
@@ -107,9 +99,9 @@ export default function AjustesPage() {
           <option value="CONFIRMED">Confirmado</option>
           <option value="CANCELLED">Cancelado</option>
         </Select>
-      </div>
+      </Toolbar>
 
-      <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+      <div className="overflow-x-auto rounded-md border border-border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
@@ -122,6 +114,7 @@ export default function AjustesPage() {
             </tr>
           </thead>
           <tbody>
+            {adjustmentsQuery.isLoading && <TableRowsSkeleton columns={6} />}
             {items.map((a) => (
               <tr key={a.id} className="border-t border-border">
                 <td className="px-4 py-2 whitespace-nowrap">
@@ -133,46 +126,50 @@ export default function AjustesPage() {
                 <td className="px-4 py-2 whitespace-nowrap">{a.warehouseName}</td>
                 <td className="px-4 py-2">{a.reason}</td>
                 <td className="px-4 py-2">{a.lineCount}</td>
-                <td className={`px-4 py-2 ${statusClassName(a.status)}`}>{stockAdjustmentStatusLabel(a.status)}</td>
-              </tr>
-            ))}
-            {!adjustmentsQuery.isLoading && items.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
-                  Todavía no hay ajustes registrados.
+                <td className="px-4 py-2">
+                  <StatusBadge status={a.status}>{stockAdjustmentStatusLabel(a.status)}</StatusBadge>
                 </td>
               </tr>
+            ))}
+            {adjustmentsQuery.isError && (
+              <TableMessage
+                columns={6}
+                kind="error"
+                title="No pudimos cargar los ajustes"
+                description="Revisá la conexión e intentá nuevamente."
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => adjustmentsQuery.refetch()}>
+                    Reintentar
+                  </Button>
+                }
+              />
+            )}
+            {!adjustmentsQuery.isLoading && !adjustmentsQuery.isError && items.length === 0 && (
+              <TableMessage
+                columns={6}
+                kind={warehouseId || status ? 'filtered' : 'empty'}
+                title={warehouseId || status ? 'No encontramos ajustes' : 'Todavía no hay ajustes registrados'}
+                description={warehouseId || status ? 'Probá con otros filtros.' : 'Creá un ajuste cuando necesites corregir existencias.'}
+                action={!warehouseId && !status && canCreate && (
+                  <Link href="/stock/ajustes/nuevo" className={buttonVariants()}>
+                    <Plus className="size-4" />
+                    Nuevo ajuste
+                  </Link>
+                )}
+              />
             )}
           </tbody>
         </table>
       </div>
 
       {pagination && pagination.total > 0 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            Página {pagination.page} de {totalPages} — {pagination.total} ajuste{pagination.total === 1 ? '' : 's'}
-          </span>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Anterior
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              Siguiente
-            </Button>
-          </div>
-        </div>
+        <Pagination
+          page={pagination.page}
+          totalPages={totalPages}
+          total={pagination.total}
+          itemLabel={pagination.total === 1 ? 'ajuste' : 'ajustes'}
+          onPageChange={setPage}
+        />
       )}
     </div>
   );

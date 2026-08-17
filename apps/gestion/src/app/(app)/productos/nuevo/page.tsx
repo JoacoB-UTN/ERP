@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { FormSection, FieldError } from '@/components/ui/form-section';
 import { CodeCard } from '@/components/productos/code-card';
@@ -124,12 +125,12 @@ export default function NuevoProductoPage() {
 
   return (
     <form onSubmit={handleSubmit} className="flex max-w-3xl flex-col gap-6" noValidate>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Nuevo producto</h1>
-        <p className="text-sm text-muted-foreground">
-          Completá los datos principales. El resto se puede agregar después.
-        </p>
-      </div>
+      <PageHeader
+        title="Nuevo producto"
+        description="Definí identidad y clasificación; inventario, variantes y códigos se muestran cuando corresponden."
+        backHref="/productos"
+        backLabel="Productos"
+      />
 
       <FormSection title="Datos principales" defaultOpen>
         <div className="grid gap-4 sm:grid-cols-2">

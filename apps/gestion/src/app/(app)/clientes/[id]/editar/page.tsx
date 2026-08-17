@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { FormSection, FieldError } from '@/components/clientes/customer-form-sections';
 import { customerFieldErrors } from '@/components/clientes/form-errors';
@@ -118,12 +119,12 @@ function EditarClienteForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex max-w-3xl flex-col gap-6" noValidate>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Editar cliente</h1>
-        <p className="text-sm text-muted-foreground">
-          {customer.code} — {customer.displayName}
-        </p>
-      </div>
+      <PageHeader
+        title="Editar cliente"
+        description={`${customer.code} · ${customer.displayName}`}
+        backHref={`/clientes/${customer.id}`}
+        backLabel="Volver al cliente"
+      />
 
       <FormSection title="Datos principales" defaultOpen>
         <div className="grid gap-4 sm:grid-cols-2">

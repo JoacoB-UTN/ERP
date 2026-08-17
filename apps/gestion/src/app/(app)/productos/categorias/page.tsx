@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { ProductosSubNav } from '@/components/productos/productos-sub-nav';
+import { PageHeader } from '@/components/ui/page-header';
 import { cn } from '@/lib/utils';
 
 export default function CategoriasPage() {
@@ -176,18 +177,16 @@ export default function CategoriasPage() {
   return (
     <div className="flex flex-col gap-6">
       <ProductosSubNav />
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Categorías</h1>
-          <p className="text-sm text-muted-foreground">Organizá el catálogo en categorías jerárquicas.</p>
-        </div>
-        {canCreate && (
+      <PageHeader
+        title="Categorías"
+        description="Organizá el catálogo en una jerarquía clara y navegable."
+        actions={canCreate && (
           <Button type="button" onClick={() => openCreate(null)}>
             <Plus className="size-4" />
             Nueva categoría
           </Button>
         )}
-      </div>
+      />
 
       {creatingParentId === null && renderCreateForm()}
 

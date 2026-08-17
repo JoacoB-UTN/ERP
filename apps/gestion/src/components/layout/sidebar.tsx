@@ -4,135 +4,199 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Building2,
-  Home,
-  Users,
-  ShieldCheck,
-  History,
   Contact,
+  FileClock,
+  History,
+  Home,
   Package,
-  Warehouse,
-  Tag,
+  PanelsTopLeft,
+  Scale,
+  ShieldCheck,
   ShoppingCart,
+  SlidersHorizontal,
+  Tag,
+  Users,
+  Warehouse,
+  X,
 } from 'lucide-react';
 import { usePermissions } from '@/lib/auth-client';
+import { Button } from '@/components/ui/button';
+import { Sheet, SheetClose, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
   href: string;
   label: string;
   icon: typeof Home;
+  visible: boolean;
+  exact?: boolean;
 }
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+function NavLink({ item, pathname, onNavigate }: { item: NavItem; pathname: string; onNavigate?: () => void }) {
   const Icon = item.icon;
+  const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
+
   return (
     <Link
       href={item.href}
+      onClick={onNavigate}
+      aria-current={active ? 'page' : undefined}
       className={cn(
-        'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium',
+        'group flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[0.8125rem] font-medium transition-colors',
         active
           ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-          : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground',
+          : 'text-sidebar-foreground/75 hover:bg-muted hover:text-sidebar-foreground',
       )}
     >
-      <Icon className="size-4" />
-      {item.label}
+      <Icon className={cn('size-3.5', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} />
+      <span>{item.label}</span>
     </Link>
   );
 }
 
-/**
- * Permission-aware navigation (see CLAUDE.md — frontend visibility hides
- * what a user has no access to, it does not enforce it; the backend does
- * that independently). Only a small administration area exists for this
- * task — no fake menus for future ERP modules that don't exist yet.
- */
-export function Sidebar() {
+function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const { can, canAny, isLoading } = usePermissions();
+  const { can, isLoading } = usePermissions();
+  const allowed = (permission: string) => !isLoading && can(permission);
 
-  const canSeeCustomers = !isLoading && can('customers.read');
-  const canSeeProducts = !isLoading && can('products.read');
-  const canSeePriceLists = !isLoading && can('pricing.lists.read');
-  const canSeeSales = !isLoading && can('sales.documents.read');
-  const canSeeStock =
-    !isLoading &&
-    canAny([
-      'inventory.stock.read',
-      'inventory.movements.read',
-      'inventory.adjustments.read',
-      'inventory.warehouses.read',
-    ]);
-  const canSeeUsers = !isLoading && can('administration.users.read');
-  const canSeeRoles = !isLoading && can('administration.roles.read');
-  const canSeeAudit = !isLoading && can('administration.audit.read');
-  const showAdministration = canSeeUsers || canSeeRoles || canSeeAudit;
+  const sections: { label?: string; items: NavItem[] }[] = [
+    {
+      items: [{ href: '/', label: 'Inicio', icon: Home, visible: true, exact: true }],
+    },
+    {
+      label: 'Operación',
+      items: [
+        { href: '/ventas', label: 'Ventas', icon: ShoppingCart, visible: allowed('sales.documents.read') },
+      ],
+    },
+    {
+      label: 'Maestros',
+      items: [
+        { href: '/clientes', label: 'Clientes', icon: Contact, visible: allowed('customers.read') },
+        { href: '/productos', label: 'Productos', icon: Package, visible: allowed('products.read') },
+      ],
+    },
+    {
+      label: 'Inventario y precios',
+      items: [
+        { href: '/stock', label: 'Stock', icon: Warehouse, visible: allowed('inventory.stock.read'), exact: true },
+        {
+          href: '/stock/movimientos',
+          label: 'Movimientos',
+          icon: FileClock,
+          visible: allowed('inventory.movements.read'),
+        },
+        {
+          href: '/stock/ajustes',
+          label: 'Ajustes',
+          icon: SlidersHorizontal,
+          visible: allowed('inventory.adjustments.read'),
+        },
+        {
+          href: '/stock/depositos',
+          label: 'Depósitos',
+          icon: PanelsTopLeft,
+          visible: allowed('inventory.warehouses.read'),
+        },
+        {
+          href: '/listas-de-precios',
+          label: 'Listas de precios',
+          icon: Tag,
+          visible: allowed('pricing.lists.read'),
+        },
+      ],
+    },
+    {
+      label: 'Administración',
+      items: [
+        {
+          href: '/administracion/usuarios',
+          label: 'Usuarios',
+          icon: Users,
+          visible: allowed('administration.users.read'),
+        },
+        {
+          href: '/administracion/roles',
+          label: 'Roles',
+          icon: ShieldCheck,
+          visible: allowed('administration.roles.read'),
+        },
+        {
+          href: '/administracion/auditoria',
+          label: 'Auditoría',
+          icon: History,
+          visible: allowed('administration.audit.read'),
+        },
+      ],
+    },
+  ];
 
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
-      <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
-        <Building2 className="size-5" />
-        <span className="text-sm font-semibold tracking-tight">Gestión</span>
-      </div>
-      <nav className="flex-1 space-y-4 px-2 py-4">
-        <div className="space-y-0.5">
-          <NavLink item={{ href: '/', label: 'Inicio', icon: Home }} active={pathname === '/'} />
-          {canSeeCustomers && (
-            <NavLink
-              item={{ href: '/clientes', label: 'Clientes', icon: Contact }}
-              active={pathname.startsWith('/clientes')}
-            />
-          )}
-          {canSeeProducts && (
-            <NavLink
-              item={{ href: '/productos', label: 'Productos', icon: Package }}
-              active={pathname.startsWith('/productos')}
-            />
-          )}
-          {canSeePriceLists && (
-            <NavLink
-              item={{ href: '/listas-de-precios', label: 'Listas de precios', icon: Tag }}
-              active={pathname.startsWith('/listas-de-precios')}
-            />
-          )}
-          {canSeeStock && (
-            <NavLink
-              item={{ href: '/stock', label: 'Stock', icon: Warehouse }}
-              active={pathname.startsWith('/stock')}
-            />
-          )}
-          {canSeeSales && (
-            <NavLink
-              item={{ href: '/ventas', label: 'Ventas', icon: ShoppingCart }}
-              active={pathname.startsWith('/ventas')}
-            />
-          )}
+    <div className="flex h-full flex-col">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-sidebar-border px-4">
+        <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+          <Building2 className="size-4" />
+        </span>
+        <div className="leading-tight">
+          <span className="block text-sm font-semibold tracking-tight">Gestión</span>
+          <span className="block text-[0.6875rem] text-muted-foreground">Administración ERP</span>
         </div>
+      </div>
+      <nav aria-label="Navegación principal" className="flex-1 overflow-y-auto px-2.5 py-3">
+        {sections.map((section, index) => {
+          const items = section.items.filter((item) => item.visible);
+          if (items.length === 0) return null;
 
-        {showAdministration && (
-          <div className="space-y-0.5">
-            <p className="px-2 text-xs font-medium text-muted-foreground">Administración</p>
-            {canSeeUsers && (
-              <NavLink
-                item={{ href: '/administracion/usuarios', label: 'Usuarios', icon: Users }}
-                active={pathname.startsWith('/administracion/usuarios')}
-              />
-            )}
-            {canSeeRoles && (
-              <NavLink
-                item={{ href: '/administracion/roles', label: 'Roles', icon: ShieldCheck }}
-                active={pathname.startsWith('/administracion/roles')}
-              />
-            )}
-            {canSeeAudit && (
-              <NavLink
-                item={{ href: '/administracion/auditoria', label: 'Auditoría', icon: History }}
-                active={pathname.startsWith('/administracion/auditoria')}
-              />
-            )}
-          </div>
-        )}
+          return (
+            <div key={section.label ?? 'inicio'} className={cn(index > 0 && 'mt-4')}>
+              {section.label && (
+                <p className="mb-1 px-2.5 text-[0.625rem] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                  {section.label}
+                </p>
+              )}
+              <div className="space-y-0.5">
+                {items.map((item) => (
+                  <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </nav>
-    </aside>
+      <div className="border-t border-sidebar-border px-4 py-3 text-[0.6875rem] text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <Scale className="size-3" />
+          Operación trazable y segura
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export function Sidebar({
+  mobileOpen,
+  onMobileOpenChange,
+}: {
+  mobileOpen: boolean;
+  onMobileOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <>
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 border-r border-sidebar-border bg-sidebar md:block">
+        <SidebarContent />
+      </aside>
+      <Sheet open={mobileOpen} onOpenChange={onMobileOpenChange}>
+        <SheetContent>
+          <SheetTitle className="sr-only">Navegación de Gestión</SheetTitle>
+          <SheetClose
+            aria-label="Cerrar navegación"
+            render={<Button variant="ghost" size="icon-sm" className="absolute top-3 right-3 z-10" />}
+          >
+            <X className="size-4" />
+          </SheetClose>
+          <SidebarContent onNavigate={() => onMobileOpenChange(false)} />
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }

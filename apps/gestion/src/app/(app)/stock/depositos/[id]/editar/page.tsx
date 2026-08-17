@@ -18,8 +18,8 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { FieldError } from '@/components/ui/form-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
-import { StockSubNav } from '@/components/stock/stock-sub-nav';
 import { stockErrorMessage } from '@/components/stock/stock-errors';
 
 export default function EditarDepositoPage() {
@@ -90,7 +90,6 @@ function EditarDepositoForm({
 
   return (
     <div className="flex flex-col gap-6">
-      <StockSubNav />
       <Link
         href="/stock/depositos"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -100,12 +99,10 @@ function EditarDepositoForm({
       </Link>
 
       <form onSubmit={handleSubmit} className="flex max-w-2xl flex-col gap-6" noValidate>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Editar {warehouse.name}</h1>
-          <p className="text-sm text-muted-foreground">
-            {warehouse.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}
-          </p>
-        </div>
+        <PageHeader
+          title={`Editar ${warehouse.name}`}
+          description={warehouse.status === 'ACTIVE' ? 'Depósito activo' : 'Depósito inactivo'}
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">

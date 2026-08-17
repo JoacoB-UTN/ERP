@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { FieldError } from '@/components/ui/form-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import {
   AdjustmentLineEditor,
@@ -126,10 +127,10 @@ function EditarAjusteForm({
       </Link>
 
       <form onSubmit={handleSubmit} className="flex max-w-3xl flex-col gap-6" noValidate>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Editar {adjustment.number}</h1>
-          <p className="text-sm text-muted-foreground">Sigue siendo un borrador — no afecta el stock todavía.</p>
-        </div>
+        <PageHeader
+          title={`Editar ${adjustment.number}`}
+          description="Sigue siendo un borrador; todavía no afecta el stock."
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">

@@ -23,10 +23,10 @@ export function FormSection({
 }) {
   return (
     <details
-      className="group rounded-lg border border-border bg-card [&[open]>summary]:border-b [&[open]>summary]:border-border"
+      className="group rounded-md border border-border bg-card [&[open]>summary]:border-b [&[open]>summary]:border-border"
       open={defaultOpen}
     >
-      <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3">
+      <summary className="flex cursor-pointer list-none items-center justify-between rounded-md px-4 py-3 transition-colors hover:bg-muted/45 focus-visible:outline-2 focus-visible:outline-ring">
         <div>
           <span className="text-sm font-semibold">{title}</span>
           {description && <p className="text-xs text-muted-foreground">{description}</p>}

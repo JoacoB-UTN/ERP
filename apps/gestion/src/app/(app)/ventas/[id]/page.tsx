@@ -9,6 +9,8 @@ import { usePermissions, useSale, useConfirmSale, useCancelSale } from '@/lib/au
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { saleErrorMessage } from '@/components/sales/sales-errors';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('es-AR', { dateStyle: 'long', timeStyle: 'short' });
@@ -16,12 +18,6 @@ function formatDateTime(iso: string): string {
 
 function qty(value: string): string {
   return formatDecimalDisplay(value, 6) ?? value;
-}
-
-function statusClassName(status: string): string {
-  if (status === 'CONFIRMED') return 'text-emerald-600';
-  if (status === 'CANCELLED') return 'text-muted-foreground';
-  return 'text-amber-600';
 }
 
 export default function VentaDetailPage() {
@@ -84,26 +80,14 @@ export default function VentaDetailPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <Link href="/ventas" className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="size-4" />
-        Volver a ventas
-      </Link>
-
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{sale.number}</h1>
-          <p className="text-sm text-muted-foreground">
-            {sale.customer.legalName} · {sale.warehouse.name} · {formatDateTime(sale.occurredAt)}
-          </p>
-        </div>
-        <span className={`text-sm font-medium ${statusClassName(sale.status)}`}>
-          {salesDocumentStatusLabel(sale.status)}
-        </span>
-      </div>
-
-      {(canEdit || canConfirm || canCancel) && (
-        <div className="flex flex-wrap gap-2">
+    <div className="flex max-w-6xl flex-col gap-5">
+      <PageHeader
+        eyebrow="Venta interna"
+        title={<span className="flex flex-wrap items-center gap-2">{sale.number}<StatusBadge status={sale.status}>{salesDocumentStatusLabel(sale.status)}</StatusBadge></span>}
+        description={`${sale.customer.legalName} · ${sale.warehouse.name} · ${formatDateTime(sale.occurredAt)}`}
+        backHref="/ventas"
+        backLabel="Ventas"
+        actions={(canEdit || canConfirm || canCancel) && <>
           {canEdit && (
             <Link href={`/ventas/${sale.id}/editar`} className={buttonVariants({ variant: 'outline' })}>
               <Pencil className="size-4" />
@@ -122,11 +106,11 @@ export default function VentaDetailPage() {
               Cancelar borrador
             </Button>
           )}
-        </div>
-      )}
-      {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+        </>}
+      />
+      {actionError && <p role="alert" className="rounded-md border border-destructive/25 bg-destructive-muted px-3 py-2 text-sm text-destructive">{actionError}</p>}
 
-      <div className="rounded-xl border border-border p-4">
+      <div className="rounded-md border border-border bg-card p-4">
         <dl className="grid gap-4 sm:grid-cols-2">
           <div>
             <dt className="text-xs font-medium text-muted-foreground">Lista de precios</dt>
@@ -181,7 +165,7 @@ export default function VentaDetailPage() {
         </dl>
       </div>
 
-      <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+      <div className="overflow-x-auto rounded-md border border-border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
@@ -215,7 +199,7 @@ export default function VentaDetailPage() {
         </table>
       </div>
 
-      <div className="ml-auto flex max-w-xs flex-col gap-1 text-sm">
+      <div className="ml-auto flex w-full max-w-sm flex-col gap-1.5 rounded-md border border-border bg-card p-4 text-sm">
         <div className="flex justify-between">
           <span className="text-muted-foreground">Subtotal</span>
           <span className="tabular-nums">{formatMoney(sale.subtotal, sale.currencyCode)}</span>

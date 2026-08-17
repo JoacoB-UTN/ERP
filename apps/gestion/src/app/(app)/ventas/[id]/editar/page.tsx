@@ -3,13 +3,13 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
 import type { SalesDocumentDetailDto } from '@erp/shared';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { FieldError } from '@/components/ui/form-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { SaleLineEditor, toSaleLineInputs, type SaleLineDraft } from '@/components/sales/sale-line-editor';
 import { saleErrorMessage } from '@/components/sales/sales-errors';
@@ -114,28 +114,19 @@ function EditarVentaForm({
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <Link
-        href={`/ventas/${sale.id}`}
-        className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" />
-        Volver a la venta
-      </Link>
-
-      <form onSubmit={handleSubmit} className="flex max-w-3xl flex-col gap-6" noValidate>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Editar {sale.number}</h1>
-          <p className="text-sm text-muted-foreground">
-            Sigue siendo un borrador — no afecta el stock todavía. Si cambiás la lista de precios, se vuelven a
-            resolver todos los precios de las líneas.
-          </p>
-        </div>
+    <div className="flex flex-col gap-5">
+      <form onSubmit={handleSubmit} className="flex max-w-5xl flex-col gap-6" noValidate>
+        <PageHeader
+          title={`Editar ${sale.number}`}
+          description="Sigue siendo un borrador; si cambiás la lista, todos los precios se vuelven a resolver."
+          backHref={`/ventas/${sale.id}`}
+          backLabel="Volver a la venta"
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="customer">Cliente</Label>
-            <p className="flex h-9 items-center text-sm text-muted-foreground">{sale.customer.legalName}</p>
+            <p className="flex h-(--control-height) items-center text-sm text-muted-foreground">{sale.customer.legalName}</p>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="warehouse">Depósito</Label>

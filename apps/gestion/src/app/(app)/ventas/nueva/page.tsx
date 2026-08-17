@@ -2,13 +2,12 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { FieldError } from '@/components/ui/form-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { CustomerPicker, type CustomerPickerSelection } from '@/components/sales/customer-picker';
 import { SaleLineEditor, toSaleLineInputs, type SaleLineDraft } from '@/components/sales/sale-line-editor';
@@ -83,19 +82,14 @@ export default function NuevaVentaPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <Link href="/ventas" className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="size-4" />
-        Volver a ventas
-      </Link>
-
-      <form onSubmit={handleSubmit} className="flex max-w-3xl flex-col gap-6" noValidate>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Nueva venta</h1>
-          <p className="text-sm text-muted-foreground">
-            Se guarda como borrador — no afecta el stock hasta que la confirmes.
-          </p>
-        </div>
+    <div className="flex flex-col gap-5">
+      <form onSubmit={handleSubmit} className="flex max-w-5xl flex-col gap-6" noValidate>
+        <PageHeader
+          title="Nueva venta"
+          description="Se guarda como borrador; no afecta el stock hasta que la confirmes."
+          backHref="/ventas"
+          backLabel="Ventas"
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">

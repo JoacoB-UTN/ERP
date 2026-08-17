@@ -8,18 +8,16 @@ import { usePermissions, useSales, useWarehouses } from '@/lib/auth-client';
 import { Select } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
 const PAGE_SIZE = 25;
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('es-AR', { dateStyle: 'medium' });
-}
-
-function statusClassName(status: string): string {
-  if (status === 'CONFIRMED') return 'text-emerald-600';
-  if (status === 'CANCELLED') return 'text-muted-foreground';
-  return 'text-amber-600';
 }
 
 export default function VentasPage() {
@@ -50,25 +48,29 @@ export default function VentasPage() {
   const items = salesQuery.data?.items ?? [];
   const pagination = salesQuery.data?.pagination;
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / pagination.pageSize)) : 1;
+  const hasActiveFilters = !!(search.trim() || warehouseId || status);
+
+  function clearFilters() {
+    setSearch('');
+    setWarehouseId('');
+    setStatus('');
+    setPage(1);
+  }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Ventas</h1>
-          <p className="text-sm text-muted-foreground">
-            Ventas internas — el flujo comercial completo desde el cliente hasta el descuento de stock.
-          </p>
-        </div>
-        {canCreate && (
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Ventas"
+        description="Ventas internas y su impacto operativo sobre precios y stock."
+        actions={canCreate && (
           <Link href="/ventas/nueva" className={buttonVariants()}>
             <Plus className="size-4" />
             Nueva venta
           </Link>
         )}
-      </div>
+      />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <Toolbar>
         <Input
           value={search}
           onChange={(e) => {
@@ -109,9 +111,9 @@ export default function VentasPage() {
           <option value="CONFIRMED">Confirmada</option>
           <option value="CANCELLED">Cancelada</option>
         </Select>
-      </div>
+      </Toolbar>
 
-      <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+      <div className="overflow-x-auto rounded-md border border-border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
@@ -125,6 +127,7 @@ export default function VentasPage() {
             </tr>
           </thead>
           <tbody>
+            {salesQuery.isLoading && <TableRowsSkeleton columns={7} />}
             {items.map((s) => (
               <tr key={s.id} className="border-t border-border">
                 <td className="px-4 py-2 whitespace-nowrap">
@@ -137,46 +140,66 @@ export default function VentasPage() {
                 <td className="px-4 py-2 whitespace-nowrap">{s.warehouse.name}</td>
                 <td className="px-4 py-2 whitespace-nowrap">{s.priceList.name}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{formatMoney(s.total, s.currencyCode)}</td>
-                <td className={`px-4 py-2 ${statusClassName(s.status)}`}>{salesDocumentStatusLabel(s.status)}</td>
-              </tr>
-            ))}
-            {!salesQuery.isLoading && items.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                  Todavía no hay ventas registradas.
+                <td className="px-4 py-2">
+                  <StatusBadge status={s.status}>{salesDocumentStatusLabel(s.status)}</StatusBadge>
                 </td>
               </tr>
+            ))}
+            {salesQuery.isError && (
+              <TableMessage
+                columns={7}
+                kind="error"
+                title="No pudimos cargar las ventas"
+                description="Revisá la conexión e intentá nuevamente."
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => salesQuery.refetch()}>
+                    Reintentar
+                  </Button>
+                }
+              />
+            )}
+            {!salesQuery.isLoading && !salesQuery.isError && items.length === 0 && !hasActiveFilters && (
+              <TableMessage
+                columns={7}
+                title="Todavía no hay ventas registradas"
+                description="Creá un borrador para comenzar el flujo comercial."
+                action={canCreate && (
+                  <Link href="/ventas/nueva" className={buttonVariants()}>
+                    <Plus className="size-4" />
+                    Nueva venta
+                  </Link>
+                )}
+              />
+            )}
+            {!salesQuery.isLoading && !salesQuery.isError && items.length === 0 && hasActiveFilters && (
+              <TableMessage
+                columns={7}
+                kind="filtered"
+                title="No encontramos ventas"
+                description="Probá con otros criterios o limpiá los filtros."
+                action={
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    Limpiar filtros
+                  </button>
+                }
+              />
             )}
           </tbody>
         </table>
       </div>
 
       {pagination && pagination.total > 0 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            Página {pagination.page} de {totalPages} — {pagination.total} venta{pagination.total === 1 ? '' : 's'}
-          </span>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Anterior
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              Siguiente
-            </Button>
-          </div>
-        </div>
+        <Pagination
+          page={pagination.page}
+          totalPages={totalPages}
+          total={pagination.total}
+          itemLabel={pagination.total === 1 ? 'venta' : 'ventas'}
+          onPageChange={setPage}
+        />
       )}
     </div>
   );

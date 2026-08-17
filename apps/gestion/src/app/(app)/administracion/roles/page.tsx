@@ -4,8 +4,12 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { usePermissions, useRoles } from '@/lib/auth-client';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
 export default function RolesPage() {
@@ -13,7 +17,7 @@ export default function RolesPage() {
   const rolesQuery = useRoles();
   const [search, setSearch] = useState('');
 
-  if (permissionsLoading || rolesQuery.isLoading) {
+  if (permissionsLoading) {
     return null;
   }
   if (!can('administration.roles.read')) {
@@ -26,31 +30,29 @@ export default function RolesPage() {
   const canCreate = can('administration.roles.create');
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Roles y permisos</h1>
-          <p className="text-sm text-muted-foreground">
-            Definí qué puede hacer cada rol y asignalo a los usuarios de la empresa.
-          </p>
-        </div>
-        {canCreate && (
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Roles y permisos"
+        description="Definí capacidades por rol y asignalas a los usuarios de la empresa."
+        actions={canCreate && (
           <Link href="/administracion/roles/nuevo" className={buttonVariants()}>
             <Plus className="size-4" />
             Nuevo rol
           </Link>
         )}
-      </div>
-
-      <Input
-        placeholder="Buscar rol…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="max-w-xs"
-        aria-label="Buscar rol"
       />
 
-      <div className="overflow-hidden rounded-xl ring-1 ring-foreground/10">
+      <Toolbar>
+        <Input
+          placeholder="Buscar rol…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-xs"
+          aria-label="Buscar rol"
+        />
+      </Toolbar>
+
+      <div className="overflow-x-auto rounded-md border border-border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
@@ -61,6 +63,7 @@ export default function RolesPage() {
             </tr>
           </thead>
           <tbody>
+            {rolesQuery.isLoading && <TableRowsSkeleton columns={4} />}
             {roles.map((role) => (
               <tr key={role.id} className="border-t border-border">
                 <td className="px-4 py-2">
@@ -74,24 +77,35 @@ export default function RolesPage() {
                 <td className="px-4 py-2 text-muted-foreground">{role.description ?? '—'}</td>
                 <td className="px-4 py-2">
                   {role.isSystem && (
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">Sistema</span>
+                    <StatusBadge tone="info">Sistema</StatusBadge>
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  {role.active ? (
-                    <span className="text-emerald-600">Activo</span>
-                  ) : (
-                    <span className="text-muted-foreground">Inactivo</span>
-                  )}
+                  <StatusBadge status={role.active ? 'ACTIVE' : 'INACTIVE'}>
+                    {role.active ? 'Activo' : 'Inactivo'}
+                  </StatusBadge>
                 </td>
               </tr>
             ))}
-            {roles.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">
-                  No se encontraron roles.
-                </td>
-              </tr>
+            {rolesQuery.isError && (
+              <TableMessage
+                columns={4}
+                kind="error"
+                title="No pudimos cargar los roles"
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => rolesQuery.refetch()}>
+                    Reintentar
+                  </Button>
+                }
+              />
+            )}
+            {!rolesQuery.isLoading && !rolesQuery.isError && roles.length === 0 && (
+              <TableMessage
+                columns={4}
+                kind={search ? 'filtered' : 'empty'}
+                title={search ? 'No encontramos roles' : 'No hay roles para mostrar'}
+                description={search ? 'Probá con otro nombre.' : undefined}
+              />
             )}
           </tbody>
         </table>

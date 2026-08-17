@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { FormSection } from '@/components/ui/form-section';
 import { productFieldErrors } from '@/components/productos/form-errors';
@@ -135,12 +136,12 @@ function EditarProductoForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex max-w-3xl flex-col gap-6" noValidate>
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Editar producto</h1>
-        <p className="text-sm text-muted-foreground">
-          {product.code} — {product.name}
-        </p>
-      </div>
+      <PageHeader
+        title="Editar producto"
+        description={`${product.code} · ${product.name}`}
+        backHref={`/productos/${product.id}`}
+        backLabel="Volver al producto"
+      />
 
       <FormSection title="Datos principales" defaultOpen>
         <div className="grid gap-4 sm:grid-cols-2">

@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { FieldError } from '@/components/ui/form-section';
+import { PageHeader } from '@/components/ui/page-header';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { pricingErrorMessage } from '@/components/pricing/pricing-errors';
 
@@ -103,13 +104,10 @@ function EditarListaForm({ priceList, allLists }: { priceList: PriceListDto; all
       </Link>
 
       <form onSubmit={handleSubmit} className="flex max-w-2xl flex-col gap-6" noValidate>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Editar {priceList.name}</h1>
-          <p className="text-sm text-muted-foreground">
-            Moneda ({priceList.currencyCode}) y tipo ({isDerived ? 'Derivada' : 'Fija'}) no se pueden cambiar —
-            creá una lista nueva si necesitás otra combinación.
-          </p>
-        </div>
+        <PageHeader
+          title={`Editar ${priceList.name}`}
+          description={`Moneda ${priceList.currencyCode} y tipo ${isDerived ? 'Derivada' : 'Fija'} no se pueden cambiar.`}
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
