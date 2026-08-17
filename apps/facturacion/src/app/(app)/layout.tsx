@@ -52,9 +52,11 @@ export default function AuthenticatedLayout({ children }: { children: React.Reac
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex h-screen flex-col overflow-hidden">
       <Topbar userLabel={`${data.user.firstName} ${data.user.lastName}`} userEmail={data.user.email} />
-      <main className="flex-1 overflow-auto p-4 md:p-6">{content}</main>
+      <main data-facturacion-workspace className="min-h-0 flex-1 overflow-auto px-4 py-5 md:px-6 md:py-6">
+        {content}
+      </main>
     </div>
   );
 }

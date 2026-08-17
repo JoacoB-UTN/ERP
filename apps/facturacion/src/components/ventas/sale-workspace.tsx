@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Printer } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Printer } from 'lucide-react';
 import { formatMoney, type SalesDocumentDetailDto } from '@erp/shared';
 import {
   usePermissions,
@@ -15,6 +16,7 @@ import {
   useConfirmSale,
 } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { CustomerPicker, type CustomerPickerSelection } from './customer-picker';
 import { ProductSearch, type ProductSearchHandle, type ProductSearchSelection } from './product-search';
 import { SaleLinesTable, SaleTotals, computeCartTotals, toSaleLineInputs, type SaleLineDraft } from './cart';
@@ -35,6 +37,20 @@ import { saleErrorMessage } from './ventas-errors';
  */
 const CONFIRM_ERROR_STORAGE_KEY = 'facturacion:sale-workspace:confirm-error';
 
+function SaleWorkspaceSkeleton() {
+  return (
+    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4" aria-label="Cargando venta">
+      <div className="h-16 animate-pulse rounded-md bg-muted" />
+      <div className="grid gap-3 lg:grid-cols-[20rem_minmax(0,1fr)]">
+        <div className="h-20 animate-pulse rounded-md bg-muted" />
+        <div className="h-20 animate-pulse rounded-md bg-muted" />
+      </div>
+      <div className="h-64 animate-pulse rounded-md bg-muted" />
+      <div className="h-24 animate-pulse rounded-md bg-muted" />
+    </div>
+  );
+}
+
 /**
  * The main Facturación operational workspace — used for both a brand new
  * sale (`saleId: null`) and continuing/confirming an existing DRAFT
@@ -48,7 +64,12 @@ export function SaleWorkspace({ saleId }: { saleId: string | null }) {
   const router = useRouter();
   const { can, isLoading: permissionsLoading } = usePermissions();
   const companyId = useActiveCompanyId();
-  const { activeWarehouseId, isLoading: warehouseLoading, hasNoEligibleWarehouses } = useActiveWarehouse();
+  const {
+    activeWarehouseId,
+    activeWarehouse,
+    isLoading: warehouseLoading,
+    hasNoEligibleWarehouses,
+  } = useActiveWarehouse();
   const {
     activePriceListId,
     activePriceList,
@@ -171,6 +192,7 @@ export function SaleWorkspace({ saleId }: { saleId: string | null }) {
   const canUpdate = can('sales.documents.update');
   const canConfirm = can('sales.documents.confirm');
   const canEdit = savedSaleId ? canUpdate : canCreate;
+  const loadedSale = saleQuery.data?.salesDocument;
 
   useEffect(() => {
     function handler(e: KeyboardEvent) {
@@ -319,7 +341,7 @@ export function SaleWorkspace({ saleId }: { saleId: string | null }) {
   }
 
   if (permissionsLoading || warehouseLoading || priceListLoading || (saleId && saleQuery.isLoading)) {
-    return <div className="h-40" />;
+    return <SaleWorkspaceSkeleton />;
   }
 
   if (saleId && !saleQuery.data) {
@@ -328,14 +350,28 @@ export function SaleWorkspace({ saleId }: { saleId: string | null }) {
 
   if (successSale) {
     return (
-      <div className="flex max-w-md flex-col gap-4">
-        <div>
-          <p className="text-sm font-medium text-emerald-600">Venta confirmada</p>
-          <h1 className="text-2xl font-semibold tracking-tight">{successSale.number}</h1>
+      <div className="mx-auto flex w-full max-w-xl flex-col gap-5 py-8">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex size-9 items-center justify-center rounded-full bg-success-muted text-success">
+            <CheckCircle2 className="size-5" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-success">Venta confirmada</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight">{successSale.number}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              La operación quedó registrada y el stock fue actualizado.
+            </p>
+          </div>
         </div>
-        <div className="rounded-lg border border-border p-3 text-sm">
-          <p>{successSale.customer.legalName}</p>
-          <p className="mt-1 text-lg font-semibold">{formatMoney(successSale.total, successSale.currencyCode)}</p>
+        <div className="rounded-md border border-border bg-card p-4 text-sm">
+          <p className="text-muted-foreground">Cliente</p>
+          <p className="font-medium">{successSale.customer.legalName}</p>
+          <div className="mt-4 border-t border-border pt-3 text-right">
+            <p className="text-xs font-medium text-muted-foreground">Total {successSale.currencyCode}</p>
+            <p className="text-2xl font-bold tabular-nums">
+              {formatMoney(successSale.total, successSale.currencyCode)}
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" onClick={handleNewSale}>
@@ -368,72 +404,168 @@ export function SaleWorkspace({ saleId }: { saleId: string | null }) {
     );
   }
 
-  const loadedSale = saleQuery.data?.salesDocument;
   if (loadedSale && loadedSale.status !== 'DRAFT') {
     return <SaleReadOnly sale={loadedSale} />;
   }
 
   if (!canEdit) {
-    return <p className="text-sm text-muted-foreground">No tenés permiso para {savedSaleId ? 'editar' : 'crear'} ventas.</p>;
-  }
-
-  if (hasNoEligibleWarehouses || hasNoEligibleLists) {
     return (
-      <p className="max-w-prose text-sm text-muted-foreground">
-        Elegí un depósito y una lista de precios activos en la barra superior para empezar una venta.
+      <p className="text-sm text-muted-foreground">
+        No tenés permiso para {savedSaleId ? 'editar' : 'crear'} ventas.
       </p>
     );
   }
 
+  if (hasNoEligibleWarehouses || hasNoEligibleLists) {
+    return (
+      <div className="mx-auto w-full max-w-2xl rounded-lg border border-dashed border-border bg-card px-6 py-10 text-center">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          Contexto operativo
+        </p>
+        <h1 className="mt-2 text-xl font-semibold tracking-tight">Falta contexto para iniciar la venta</h1>
+        <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
+          Elegí un depósito y una lista de precios activos en la barra superior. Esos datos definen la
+          disponibilidad y los importes de la operación.
+        </p>
+      </div>
+    );
+  }
+
+  const customerNeedsAttention = error === 'Elegí un cliente.';
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-2">
+    <div className="mx-auto flex min-h-full w-full max-w-[1440px] flex-col gap-4">
+      <header className="flex flex-col justify-between gap-3 border-b border-border pb-4 md:flex-row md:items-end">
         <div>
-          <p className="mb-1 text-xs font-medium text-muted-foreground">Cliente</p>
-          <CustomerPicker value={customer} onSelect={setCustomer} onClear={() => setCustomer(null)} autoFocus={!customer} />
+          <Link
+            href="/ventas"
+            className="mb-2 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ArrowLeft className="size-3.5" />
+            Ventas
+          </Link>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Venta interna
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight">{loadedSale?.number ?? 'Nueva venta'}</h1>
+            {loadedSale && <StatusBadge status="DRAFT">Borrador</StatusBadge>}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Seleccioná cliente y productos para preparar la operación.
+          </p>
         </div>
-        <div>
-          <p className="mb-1 text-xs font-medium text-muted-foreground">Producto (Ctrl+K)</p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span>
+            Depósito <strong className="font-medium text-foreground">{activeWarehouse?.name}</strong>
+          </span>
+          <span>
+            Lista <strong className="font-medium text-foreground">{activePriceList?.name}</strong>
+          </span>
+          {currencyCode && <span className="font-medium text-foreground">{currencyCode}</span>}
+        </div>
+      </header>
+
+      <div className="grid gap-3 lg:grid-cols-[20rem_minmax(0,1fr)]">
+        <section className="rounded-md border border-border bg-card p-3">
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold">Cliente</h2>
+            <span className="text-xs text-muted-foreground">Requerido</span>
+          </div>
+          <CustomerPicker
+            value={customer}
+            onSelect={setCustomer}
+            onClear={() => setCustomer(null)}
+            autoFocus={!customer}
+            invalid={customerNeedsAttention}
+            errorId="sale-customer-error"
+          />
+          {customerNeedsAttention && (
+            <p id="sale-customer-error" className="mt-2 text-xs font-medium text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+        </section>
+
+        <section className="rounded-md border border-primary/30 bg-primary/5 p-3">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold">Buscar producto</h2>
+            <span className="text-xs text-muted-foreground">Nombre, SKU o código de barras</span>
+          </div>
           <ProductSearch
             ref={searchRef}
             warehouseId={activeWarehouseId}
             priceListId={activePriceListId}
             onSelect={addLine}
+            appearance="primary"
           />
-        </div>
+        </section>
       </div>
 
       {repriceNotice && (
-        <p className="rounded-md bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-700">
+        <p
+          className="rounded-md border border-warning/20 bg-warning-muted px-3 py-2 text-xs font-medium text-warning"
+          role="status"
+        >
           Se actualizaron los precios según {activePriceList?.name}.
         </p>
       )}
 
-      <SaleLinesTable
-        lines={lines}
-        priceMap={priceMap}
-        currencyCode={currencyCode}
-        onChange={(key, patch) => setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))}
-        onRemove={(key) => setLines((prev) => prev.filter((l) => l.key !== key))}
-      />
-
-      <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={handleSaveDraft} disabled={createSale.isPending || updateSale.isPending}>
-            {createSale.isPending || updateSale.isPending ? 'Guardando…' : 'Guardar borrador'}
-          </Button>
-          {canConfirm && (
-            <Button type="button" onClick={handleConfirmClick} disabled={lines.length === 0}>
-              Confirmar venta
-            </Button>
-          )}
+      <section className="flex min-h-0 flex-1 flex-col gap-2" aria-labelledby="sale-lines-heading">
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="sale-lines-heading" className="text-sm font-semibold">
+            Productos
+          </h2>
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {lines.length} {lines.length === 1 ? 'línea' : 'líneas'}
+          </span>
         </div>
-        <div className="w-full max-w-xs">
-          <SaleTotals subtotal={totals.subtotal} discountTotal={totals.discountTotal} total={totals.total} currencyCode={currencyCode} />
+        <SaleLinesTable
+          lines={lines}
+          priceMap={priceMap}
+          currencyCode={currencyCode}
+          onChange={(key, patch) =>
+            setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
+          }
+          onRemove={(key) => setLines((prev) => prev.filter((l) => l.key !== key))}
+        />
+      </section>
+
+      <div className="sticky bottom-0 z-20 -mx-1 mt-auto rounded-lg border border-border bg-card p-3 shadow-[0_-8px_24px_-18px_rgba(15,23,42,0.35)]">
+        {error && !customerNeedsAttention && (
+          <p
+            className="mb-3 rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive"
+            role="alert"
+          >
+            {error}
+          </p>
+        )}
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="order-2 flex flex-wrap gap-2 md:order-1">
+            {canConfirm && (
+              <Button type="button" onClick={handleConfirmClick} disabled={lines.length === 0}>
+                Confirmar venta
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleSaveDraft}
+              disabled={createSale.isPending || updateSale.isPending}
+            >
+              {createSale.isPending || updateSale.isPending ? 'Guardando…' : 'Guardar borrador'}
+            </Button>
+          </div>
+          <div className="order-1 w-full md:order-2 md:max-w-sm">
+            <SaleTotals
+              subtotal={totals.subtotal}
+              discountTotal={totals.discountTotal}
+              total={totals.total}
+              currencyCode={currencyCode}
+            />
+          </div>
         </div>
       </div>
-
-      {error && <p className="text-sm text-destructive">{error}</p>}
 
       <ConfirmSaleDialog
         open={confirmOpen}

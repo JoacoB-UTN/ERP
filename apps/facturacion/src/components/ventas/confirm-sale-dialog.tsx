@@ -24,22 +24,25 @@ export function ConfirmSaleDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogTitle>Confirmar venta</DialogTitle>
-        <DialogDescription render={<div />} className="mt-3 flex flex-col gap-2 text-sm text-foreground">
-          <span className="flex justify-between">
+      <DialogContent className="max-w-md">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Último paso</p>
+        <DialogTitle className="mt-1 text-lg">Confirmar venta</DialogTitle>
+        <DialogDescription render={<div />} className="mt-4 flex flex-col gap-3 text-sm text-foreground">
+          <span className="flex justify-between gap-4">
             <span className="text-muted-foreground">Cliente</span>
-            <span className="font-medium">{customerName}</span>
+            <span className="text-right font-medium">{customerName}</span>
           </span>
-          <span className="flex justify-between text-base">
-            <span className="text-muted-foreground">Total</span>
-            <span className="font-semibold">{currencyCode ? formatMoney(String(total), currencyCode) : '—'}</span>
+          <span className="flex items-end justify-between gap-4 rounded-md bg-muted px-3 py-2.5">
+            <span className="text-xs font-medium text-muted-foreground">Total {currencyCode ?? ''}</span>
+            <span className="text-xl font-bold tracking-tight tabular-nums">
+              {currencyCode ? formatMoney(String(total), currencyCode) : '—'}
+            </span>
           </span>
-          <span className="mt-1 block text-muted-foreground">
-            La operación descontará stock del depósito seleccionado.
+          <span className="block border-l-2 border-warning bg-warning-muted px-3 py-2 text-xs text-foreground">
+            Al confirmar, la operación queda registrada y descuenta stock del depósito seleccionado.
           </span>
         </DialogDescription>
-        <DialogFooter>
+        <DialogFooter className="mt-5">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
             Cancelar
           </Button>

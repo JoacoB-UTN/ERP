@@ -20,32 +20,41 @@ export default function VentasPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold tracking-tight">Ventas recientes</h1>
+    <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-5">
+      <header className="flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold tracking-[0.08em] text-muted-foreground uppercase">Operación</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Ventas</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Continuá borradores o consultá operaciones ya confirmadas.
+          </p>
+        </div>
         {can('sales.documents.create') && (
-          <Link href="/ventas/nueva" className={buttonVariants()}>
+          <Link href="/ventas/nueva" className={buttonVariants({ size: 'lg' })}>
             <Plus className="size-4" />
             Nueva venta
           </Link>
         )}
-      </div>
+      </header>
 
-      <Select
-        value={status}
-        onChange={(e) => setStatus(e.target.value)}
-        className="max-w-44"
-        aria-label="Estado"
-      >
-        <option value="">Todos los estados</option>
-        <option value="DRAFT">Borradores</option>
-        <option value="CONFIRMED">Confirmadas</option>
-        <option value="CANCELLED">Canceladas</option>
-      </Select>
+      <div className="flex items-center gap-3 border-y border-border bg-card/60 py-3">
+        <span className="text-xs font-medium text-muted-foreground">Estado</span>
+        <Select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          className="max-w-48"
+          aria-label="Estado"
+        >
+          <option value="">Todos los estados</option>
+          <option value="DRAFT">Borradores</option>
+          <option value="CONFIRMED">Confirmadas</option>
+          <option value="CANCELLED">Canceladas</option>
+        </Select>
+      </div>
 
       <RecentSalesList
         filters={{ status: (status || undefined) as SalesListQuery['status'], pageSize: 50 }}
-        emptyLabel="Todavía no hay ventas registradas."
+        emptyLabel={status ? 'No hay ventas con ese estado.' : 'Todavía no hay ventas registradas.'}
       />
     </div>
   );

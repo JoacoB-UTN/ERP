@@ -1,6 +1,6 @@
 'use client';
 
-import { X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { formatMoney } from '@erp/shared';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -83,40 +83,54 @@ export function SaleLinesTable({
 }) {
   if (lines.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-        Buscá un producto por nombre, SKU o código de barras.
+      <div className="flex min-h-56 flex-1 flex-col items-center justify-center rounded-md border border-dashed border-border bg-card/40 p-10 text-center">
+        <Search className="mb-3 size-5 text-muted-foreground" aria-hidden="true" />
+        <p className="font-medium">La venta todavía no tiene productos</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Buscá por nombre, SKU o código de barras para agregar la primera línea.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
-      <table className="w-full text-sm">
-        <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
+    <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <table className="w-full min-w-[50rem] text-sm">
+        <thead className="bg-muted/60 text-left text-[0.6875rem] font-semibold tracking-wide text-muted-foreground uppercase">
           <tr>
-            <th className="px-3 py-2">Producto</th>
-            <th className="px-3 py-2 text-right">Cantidad</th>
-            <th className="px-3 py-2 text-right">Precio unit.</th>
-            <th className="px-3 py-2 text-right">Desc. %</th>
-            <th className="px-3 py-2 text-right">Subtotal</th>
-            {!readOnly && <th className="px-3 py-2" />}
+            <th className="h-10 px-3">Producto</th>
+            <th className="h-10 px-3 text-right">Cantidad</th>
+            <th className="h-10 px-3 text-right">Precio unit.</th>
+            <th className="h-10 px-3 text-right">Desc. %</th>
+            <th className="h-10 px-3 text-right">Subtotal</th>
+            {!readOnly && (
+              <th className="h-10 w-10 px-3">
+                <span className="sr-only">Acciones</span>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
           {lines.map((line) => {
             const price = priceMap[line.variantId];
             const isService = line.productType === 'SERVICE';
-            const lineTotal = price !== null && price !== undefined ? previewLineTotal(line.quantity, price, line.discountPercentage) : null;
+            const lineTotal =
+              price !== null && price !== undefined
+                ? previewLineTotal(line.quantity, price, line.discountPercentage)
+                : null;
             return (
-              <tr key={line.key} className="border-t border-border">
-                <td className="px-3 py-2">
+              <tr
+                key={line.key}
+                className="border-t border-border transition-colors hover:bg-muted/35 focus-within:bg-accent/40"
+              >
+                <td className="h-14 px-3 py-2">
                   <p className="font-medium">{line.label}</p>
                   <p className="text-xs text-muted-foreground">
                     {line.sku ?? '—'}
                     {isService ? ' · Servicio' : ''}
                   </p>
                 </td>
-                <td className="px-3 py-2 text-right">
+                <td className="h-14 px-3 py-2 text-right">
                   {readOnly ? (
                     <span className="tabular-nums">{line.quantity}</span>
                   ) : (
@@ -126,19 +140,23 @@ export function SaleLinesTable({
                       min="0"
                       value={line.quantity}
                       onChange={(e) => onChange(line.key, { quantity: e.target.value })}
-                      className="ml-auto w-20 text-right"
+                      className="ml-auto w-20 border-transparent bg-transparent text-right hover:border-input focus-visible:border-ring"
                       aria-label={`Cantidad de ${line.label}`}
                     />
                   )}
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums">
-                  {price === undefined
-                    ? 'Cargando…'
-                    : price === null || !currencyCode
-                      ? <span className="text-destructive">Sin precio</span>
-                      : formatMoney(price, currencyCode)}
+                <td className="h-14 px-3 py-2 text-right tabular-nums">
+                  {price === undefined ? (
+                    'Cargando…'
+                  ) : price === null || !currencyCode ? (
+                    <span className="rounded bg-destructive-muted px-1.5 py-0.5 text-xs font-medium text-destructive">
+                      Sin precio
+                    </span>
+                  ) : (
+                    formatMoney(price, currencyCode)
+                  )}
                 </td>
-                <td className="px-3 py-2 text-right">
+                <td className="h-14 px-3 py-2 text-right">
                   {readOnly ? (
                     <span className="tabular-nums">{line.discountPercentage}%</span>
                   ) : (
@@ -149,16 +167,16 @@ export function SaleLinesTable({
                       max="100"
                       value={line.discountPercentage}
                       onChange={(e) => onChange(line.key, { discountPercentage: e.target.value })}
-                      className="ml-auto w-16 text-right"
+                      className="ml-auto w-16 border-transparent bg-transparent text-right hover:border-input focus-visible:border-ring"
                       aria-label={`Descuento de ${line.label}`}
                     />
                   )}
                 </td>
-                <td className="px-3 py-2 text-right font-medium tabular-nums">
+                <td className="h-14 px-3 py-2 text-right font-semibold tabular-nums">
                   {lineTotal !== null && currencyCode ? formatMoney(String(lineTotal), currencyCode) : '—'}
                 </td>
                 {!readOnly && (
-                  <td className="px-3 py-2 text-right">
+                  <td className="h-14 px-3 py-2 text-right">
                     <Button
                       type="button"
                       variant="ghost"
@@ -196,22 +214,18 @@ export function SaleTotals({
   // figure here, exactly as Gestión's own sale detail does.
   const fmt = (n: number) => (currencyCode ? formatMoney(String(n), currencyCode) : '—');
   return (
-    <div className="flex flex-col gap-1 text-sm">
-      <div className="flex justify-between">
+    <div className="flex flex-wrap items-end justify-end gap-x-6 gap-y-2 text-sm">
+      <div className="grid min-w-52 grid-cols-[auto_auto] gap-x-4 gap-y-0.5 text-xs">
         <span className="text-muted-foreground">Subtotal</span>
-        <span className="tabular-nums">{fmt(subtotal)}</span>
-      </div>
-      <div className="flex justify-between">
+        <span className="text-right tabular-nums">{fmt(subtotal)}</span>
         <span className="text-muted-foreground">Descuentos</span>
-        <span className="tabular-nums">{fmt(discountTotal)}</span>
-      </div>
-      <div className="flex justify-between">
+        <span className="text-right tabular-nums">{fmt(discountTotal)}</span>
         <span className="text-muted-foreground">Impuestos</span>
-        <span className="tabular-nums">{fmt(0)}</span>
+        <span className="text-right tabular-nums">{fmt(0)}</span>
       </div>
-      <div className="flex justify-between border-t border-border pt-1 text-lg font-semibold">
-        <span>Total</span>
-        <span className="tabular-nums">{fmt(total)}</span>
+      <div className="min-w-48 border-l border-border pl-5 text-right">
+        <span className="block text-xs font-medium text-muted-foreground">Total {currencyCode ?? ''}</span>
+        <span className="block text-2xl leading-8 font-bold tracking-tight tabular-nums">{fmt(total)}</span>
       </div>
     </div>
   );

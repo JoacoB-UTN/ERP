@@ -1,10 +1,12 @@
 'use client';
 
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { Search } from 'lucide-react';
 import { formatMoney } from '@erp/shared';
 import type { InventoryLookupItem, InventoryLookupResponse } from '@erp/shared';
 import { useInventoryLookup, apiFetch } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { usePriceMap } from './use-price-map';
 
 export interface ProductSearchSelection {
@@ -52,12 +54,16 @@ function useDebounced<T>(value: T, delayMs: number): T {
  * than one opens the list with the first result highlighted so a second
  * Enter (or arrow keys + Enter) disambiguates without re-querying.
  */
-export const ProductSearch = forwardRef<ProductSearchHandle, {
-  warehouseId: string | null;
-  priceListId: string | null;
-  disabled?: boolean;
-  onSelect: (selection: ProductSearchSelection) => void;
-}>(function ProductSearch({ warehouseId, priceListId, disabled, onSelect }, ref) {
+export const ProductSearch = forwardRef<
+  ProductSearchHandle,
+  {
+    warehouseId: string | null;
+    priceListId: string | null;
+    disabled?: boolean;
+    appearance?: 'default' | 'primary';
+    onSelect: (selection: ProductSearchSelection) => void;
+  }
+>(function ProductSearch({ warehouseId, priceListId, disabled, appearance = 'default', onSelect }, ref) {
   const [term, setTerm] = useState('');
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -74,7 +80,10 @@ export const ProductSearch = forwardRef<ProductSearchHandle, {
     { enabled: debouncedTerm.trim().length > 0 && scanResults === null },
   );
   const items = scanResults ?? liveQuery.data?.items ?? [];
-  const { prices: priceMap, currencyCode } = usePriceMap(priceListId, items.map((i) => i.variantId));
+  const { prices: priceMap, currencyCode } = usePriceMap(
+    priceListId,
+    items.map((i) => i.variantId),
+  );
 
   function reset() {
     setTerm('');
@@ -127,6 +136,12 @@ export const ProductSearch = forwardRef<ProductSearchHandle, {
 
   return (
     <div className="relative">
+      {appearance === 'primary' && (
+        <Search
+          className="pointer-events-none absolute top-3.5 left-3.5 z-[1] size-5 text-primary"
+          aria-hidden="true"
+        />
+      )}
       <Input
         ref={inputRef}
         value={term}
@@ -157,9 +172,24 @@ export const ProductSearch = forwardRef<ProductSearchHandle, {
         }}
         placeholder="Buscar por nombre, SKU o código de barras…"
         aria-label="Buscar producto"
+        aria-expanded={open}
+        className={cn(
+          appearance === 'primary' &&
+            'h-12 border-primary/35 bg-card pr-20 pl-11 text-base ring-4 ring-primary/5 placeholder:text-muted-foreground/80 focus-visible:border-primary',
+        )}
       />
+      {appearance === 'primary' && (
+        <span className="pointer-events-none absolute top-3 right-3 rounded border border-border bg-muted px-1.5 py-0.5 text-[0.625rem] font-semibold text-muted-foreground">
+          Ctrl K
+        </span>
+      )}
       {open && (term.trim() || notFound) && (
-        <div className="absolute z-10 mt-1 max-h-80 w-full overflow-auto rounded-lg border border-border bg-popover shadow-md">
+        <div
+          className={cn(
+            'absolute z-10 mt-1 max-h-80 w-full overflow-auto rounded-lg border border-border bg-popover shadow-md',
+            appearance === 'primary' && 'rounded-md shadow-lg',
+          )}
+        >
           {notFound && <p className="px-3 py-2 text-sm text-destructive">Producto no encontrado.</p>}
           {!notFound && items.length === 0 && (
             <p className="px-3 py-2 text-sm text-muted-foreground">
@@ -169,13 +199,17 @@ export const ProductSearch = forwardRef<ProductSearchHandle, {
           {items.map((item, index) => {
             const price = priceMap[item.variantId];
             const isService = item.productType === 'SERVICE';
+            const isUnavailable = !isService && item.available !== null && Number(item.available) <= 0;
+            const isMissingPrice = price === null;
             return (
               <button
                 key={item.variantId}
                 type="button"
-                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted ${
-                  index === highlight ? 'bg-muted' : ''
-                }`}
+                className={cn(
+                  'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted',
+                  index === highlight && 'bg-muted',
+                  appearance === 'primary' && 'min-h-14 border-b border-border/70 last:border-b-0',
+                )}
                 onMouseEnter={() => setHighlight(index)}
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -191,17 +225,36 @@ export const ProductSearch = forwardRef<ProductSearchHandle, {
                   </span>
                 </span>
                 <span className="shrink-0 text-right">
-                  <span className="block tabular-nums">
+                  <span
+                    className={cn('block font-medium tabular-nums', isMissingPrice && 'text-destructive')}
+                  >
                     {!priceListId
                       ? '—'
                       : price === undefined
                         ? '…'
                         : price === null || !currencyCode
-                          ? <span className="text-destructive">Sin precio</span>
+                          ? 'Sin precio'
                           : formatMoney(price, currencyCode)}
                   </span>
-                  <span className="block text-xs text-muted-foreground">
-                    {isService ? 'Servicio' : !warehouseId ? '—' : `Disp: ${item.available ?? '0'}`}
+                  <span
+                    className={cn(
+                      'block text-xs text-muted-foreground',
+                      appearance === 'primary' && isService && 'text-primary',
+                      appearance === 'primary' && isUnavailable && 'text-warning',
+                      appearance === 'primary' &&
+                        !isService &&
+                        !isUnavailable &&
+                        item.available !== null &&
+                        'text-success',
+                    )}
+                  >
+                    {isService
+                      ? 'Servicio'
+                      : !warehouseId
+                        ? '—'
+                        : appearance === 'primary' && isUnavailable
+                          ? 'Sin stock disponible'
+                          : `Disponible: ${item.available ?? '0'}`}
                   </span>
                 </span>
               </button>

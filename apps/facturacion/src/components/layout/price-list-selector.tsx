@@ -2,6 +2,7 @@
 
 import { ChevronDown } from 'lucide-react';
 import { useActivePriceList, usePermissions } from '@/lib/auth-client';
+import { ContextField } from './context-field';
 
 /**
  * Price-context FOUNDATION for a future Facturación/POS sales flow — see
@@ -18,8 +19,14 @@ import { useActivePriceList, usePermissions } from '@/lib/auth-client';
  */
 export function PriceListSelector() {
   const { can, isLoading: permissionsLoading } = usePermissions();
-  const { isLoading, priceLists, activePriceListId, activePriceList, setActivePriceList, hasNoEligibleLists } =
-    useActivePriceList();
+  const {
+    isLoading,
+    priceLists,
+    activePriceListId,
+    activePriceList,
+    setActivePriceList,
+    hasNoEligibleLists,
+  } = useActivePriceList();
 
   if (permissionsLoading || !can('pricing.prices.read')) {
     return null;
@@ -30,39 +37,47 @@ export function PriceListSelector() {
 
   if (hasNoEligibleLists) {
     return (
-      <span
-        className="rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700"
-        title="Ninguna lista de precios activa en esta empresa"
-      >
-        Sin lista de precios
-      </span>
+      <ContextField label="Lista de precios" className="min-w-36">
+        <span
+          className="rounded-md bg-warning-muted px-2 py-1 text-xs font-medium text-warning"
+          title="Ninguna lista de precios activa en esta empresa"
+        >
+          Sin lista de precios
+        </span>
+      </ContextField>
     );
   }
 
   if (priceLists.length === 1) {
-    return <span className="text-sm text-muted-foreground">{activePriceList?.name}</span>;
+    return (
+      <ContextField label="Lista de precios" className="min-w-36">
+        <span className="max-w-44 truncate">{activePriceList?.name}</span>
+      </ContextField>
+    );
   }
 
   return (
-    <div className="relative inline-flex items-center">
-      <select
-        aria-label="Lista de precios activa"
-        value={activePriceListId ?? ''}
-        onChange={(e) => setActivePriceList(e.target.value || null)}
-        className="appearance-none rounded-md border border-border bg-background py-1 pl-2 pr-7 text-sm text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-      >
-        {!activePriceListId && (
-          <option value="" disabled>
-            Elegir lista…
-          </option>
-        )}
-        {priceLists.map((pl) => (
-          <option key={pl.id} value={pl.id}>
-            {pl.name}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-2 size-3.5 text-muted-foreground" />
-    </div>
+    <ContextField label="Lista de precios" className="min-w-36">
+      <div className="relative inline-flex min-w-0 items-center">
+        <select
+          aria-label="Lista de precios activa"
+          value={activePriceListId ?? ''}
+          onChange={(e) => setActivePriceList(e.target.value || null)}
+          className="h-7 max-w-48 appearance-none rounded-md border border-border bg-card py-0 pl-2 pr-7 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          {!activePriceListId && (
+            <option value="" disabled>
+              Elegir lista…
+            </option>
+          )}
+          {priceLists.map((pl) => (
+            <option key={pl.id} value={pl.id}>
+              {pl.name}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-2 size-3 text-muted-foreground" />
+      </div>
+    </ContextField>
   );
 }
