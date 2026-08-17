@@ -31,7 +31,7 @@ export default function FacturacionHomePage() {
       </header>
 
       {!isLoading && can('sales.documents.create') && (
-        <section className="flex flex-col gap-4 border-y border-border bg-card/60 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <section className="flex flex-col gap-4 border-y border-border bg-card/60 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
               <Plus className="size-4" />

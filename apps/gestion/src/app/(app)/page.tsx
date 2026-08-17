@@ -190,7 +190,7 @@ export default function DashboardPage() {
       )}
 
       {quickActions.length > 0 && (
-        <section className="flex flex-col gap-2 border-y border-border bg-card/60 py-3 sm:flex-row sm:items-center">
+        <section className="flex flex-col gap-2 border-y border-border bg-card/60 px-4 py-3 sm:flex-row sm:items-center">
           <h2 className="mr-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Acciones rápidas</h2>
           <div className="flex flex-wrap gap-2">
             {quickActions.map((action) => (
