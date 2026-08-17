@@ -54,14 +54,30 @@ export function PosWorkspace() {
   const [customer, setCustomer] = useState<CustomerPickerSelection | null>(null);
   const [lines, setLines] = useState<SaleLineDraft[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  // The editable DRAFT id — kept up to date across `persistDraft()` calls
+  // (create once, update thereafter) while the operator is still building
+  // the cart. Distinct from `checkoutSaleId` below: this one may point at
+  // a sale whose lines no longer match what's on screen (the operator can
+  // keep editing after cancelling checkout).
   const [savedSaleId, setSavedSaleId] = useState<string | null>(null);
   const [error, setError] = useState<string | undefined>();
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  // The backend-canonical decimal-string total for the payment panel —
-  // NEVER the local `computeCartTotals` preview number. See docs/pos.md
-  // and AGENTS.md's "never floating point for money" rule: a JS-number
-  // preview total (e.g. from `0.10 * 3`) can carry binary floating-point
-  // error that a plain `String()` wrap does not remove.
+  // The FROZEN checkout snapshot — the exact persisted `SalesDocument` id
+  // the operator is currently being shown a total for in `PaymentPanel`.
+  // Set once, atomically with `checkoutTotal`, when checkout opens
+  // (`handleOpenCheckout`); never touched again until the panel closes or
+  // confirmation succeeds/fails. `handleCheckoutConfirm` MUST confirm this
+  // exact id and MUST NOT call `persistDraft()` again — doing so could
+  // reprice the sale after the operator already approved a different
+  // total (see docs/pos.md). `checkoutSaleId === null` means "no frozen
+  // snapshot" — the payment panel must not be actionable in that state.
+  const [checkoutSaleId, setCheckoutSaleId] = useState<string | null>(null);
+  // The backend-canonical decimal-string total belonging to
+  // `checkoutSaleId` — NEVER the local `computeCartTotals` preview
+  // number. See docs/pos.md and AGENTS.md's "never floating point for
+  // money" rule: a JS-number preview total (e.g. from `0.10 * 3`) can
+  // carry binary floating-point error that a plain `String()` wrap does
+  // not remove.
   const [checkoutTotal, setCheckoutTotal] = useState<string | null>(null);
   const [openingCheckout, setOpeningCheckout] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | undefined>();
@@ -93,6 +109,7 @@ export function PosWorkspace() {
       setSavedSaleId(null);
       setError(undefined);
       setSuccessSale(null);
+      setCheckoutSaleId(null);
       setCheckoutTotal(null);
       setCheckoutOpen(false);
     }
@@ -230,12 +247,18 @@ export function PosWorkspace() {
   }
 
   /**
-   * Never called per scanned line — only at checkout (F10/Cobrar), see
-   * docs/pos.md. Returns the backend-canonical `salesDocument.total`
-   * (a Prisma.Decimal-computed decimal string) alongside the sale id —
-   * this, not `computeCartTotals`'s JS-number preview, is the only value
-   * ever allowed to reach the payment panel / tender flow. See AGENTS.md's
-   * "never floating point for money" rule.
+   * Never called per scanned line — only once, at checkout (F10/Cobrar,
+   * via `handleOpenCheckout`), see docs/pos.md. Returns the backend-
+   * canonical `salesDocument.total` (a Prisma.Decimal-computed decimal
+   * string) alongside the sale id — this, not `computeCartTotals`'s
+   * JS-number preview, is the only value ever allowed to reach the
+   * payment panel / tender flow. See AGENTS.md's "never floating point
+   * for money" rule.
+   *
+   * MUST NOT be called again once a checkout snapshot (`checkoutSaleId`)
+   * is frozen — `handleCheckoutConfirm` confirms that exact snapshot
+   * without re-persisting, so the total the operator approved in
+   * `PaymentPanel` can never silently drift before confirmation.
    */
   async function persistDraft(): Promise<{ id: string; total: string } | null> {
     try {
@@ -266,10 +289,12 @@ export function PosWorkspace() {
   }
 
   /**
-   * Persists/updates the draft to obtain the backend-canonical total, then
-   * opens the payment panel — never the other way around. If persisting
-   * fails (missing price, invalid quantity, ...) the panel must NOT open;
-   * `persistDraft` has already surfaced the operational error via `setError`.
+   * Persists/updates the draft to obtain the backend-canonical total,
+   * freezes it as the checkout snapshot (`checkoutSaleId`/`checkoutTotal`),
+   * then opens the payment panel — never the other way around. If
+   * persisting fails (missing price, invalid quantity, ...) the panel
+   * must NOT open; `persistDraft` has already surfaced the operational
+   * error via `setError`.
    */
   async function handleOpenCheckout() {
     const validationError = validate();
@@ -283,6 +308,7 @@ export function PosWorkspace() {
     try {
       const result = await persistDraft();
       if (!result) return;
+      setCheckoutSaleId(result.id);
       setCheckoutTotal(result.total);
       setCheckoutOpen(true);
     } finally {
@@ -290,26 +316,64 @@ export function PosWorkspace() {
     }
   }
 
+  /**
+   * Confirms the exact frozen checkout snapshot (`checkoutSaleId`) — see
+   * the `checkoutSaleId` state comment. Deliberately does NOT call
+   * `persistDraft()`: doing so would let a price/context change reprice
+   * the sale between the moment the operator saw `checkoutTotal` in
+   * `PaymentPanel` and the moment they clicked "Confirmar y cobrar",
+   * confirming a total the operator never actually approved. The
+   * backend's own `SalesService.confirm()` still independently derives
+   * `SalesTender.amountApplied` from the persisted `SalesDocument.total`
+   * and runs status flip + stock movement + tender creation in one
+   * transaction — this fix only removes a redundant, unsafe client-side
+   * re-persist, it changes no backend semantics.
+   */
   async function handleCheckoutConfirm(tender: ConfirmSaleTenderInput) {
+    if (!checkoutSaleId) {
+      // No frozen snapshot to confirm — fail safely rather than invent
+      // an id or fall back to persisting a new draft.
+      setCheckoutOpen(false);
+      return;
+    }
     setConfirming(true);
     setCheckoutError(undefined);
     try {
-      const result = await persistDraft();
-      if (!result) {
-        setCheckoutOpen(false);
-        return;
-      }
-      setCheckoutTotal(result.total);
-      const confirmed = await confirmSale.mutateAsync({ id: result.id, tender });
+      const confirmed = await confirmSale.mutateAsync({ id: checkoutSaleId, tender });
       setCheckoutOpen(false);
+      setCheckoutSaleId(null);
+      setCheckoutTotal(null);
+      setSavedSaleId(null);
       setSuccessSale(confirmed.salesDocument);
     } catch (err) {
-      // Keep the panel open (insufficient stock, a price/customer race,
-      // ...) — the draft is already saved, so the operator can adjust the
-      // cart and retry without losing the sale. See docs/pos.md.
+      // Keep the panel — and the frozen snapshot — open (insufficient
+      // stock, a race, ...): the draft is already saved under
+      // `checkoutSaleId`, so the operator can retry (e.g. a different
+      // payment method) without losing it. Closing checkout (Escape/
+      // Cancel) is still the only way to go edit the cart and force a
+      // fresh snapshot. See docs/pos.md.
       setCheckoutError(saleErrorMessage(err));
     } finally {
       setConfirming(false);
+    }
+  }
+
+  /**
+   * `PaymentPanel`'s `onOpenChange` — fires for every operator-driven
+   * close (Cancel button, Escape, backdrop click), never for the
+   * programmatic `setCheckoutOpen(false)` calls this component makes
+   * itself (e.g. on successful confirmation), so there's no cleanup race
+   * between this and `handleCheckoutConfirm`'s own success-path cleanup.
+   * Discards the checkout snapshot but deliberately leaves `savedSaleId`
+   * alone — the persisted DRAFT stays available for the operator to keep
+   * editing and reopen checkout against later.
+   */
+  function handleCheckoutOpenChange(open: boolean) {
+    setCheckoutOpen(open);
+    if (!open) {
+      setCheckoutSaleId(null);
+      setCheckoutTotal(null);
+      setCheckoutError(undefined);
     }
   }
 
@@ -322,6 +386,7 @@ export function PosWorkspace() {
     setSavedSaleId(null);
     setSuccessSale(null);
     setError(undefined);
+    setCheckoutSaleId(null);
     setCheckoutTotal(null);
     setOpeningCheckout(false);
     setTimeout(() => searchRef.current?.focus(), 0);
@@ -500,7 +565,7 @@ export function PosWorkspace() {
 
       <PaymentPanel
         open={checkoutOpen}
-        onOpenChange={setCheckoutOpen}
+        onOpenChange={handleCheckoutOpenChange}
         total={checkoutTotal ?? '0'}
         currencyCode={currencyCode}
         onConfirm={handleCheckoutConfirm}
