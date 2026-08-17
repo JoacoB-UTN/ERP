@@ -7,7 +7,7 @@ export function Toolbar({ children, className }: { children: ReactNode; classNam
     <div
       role="search"
       className={cn(
-        'flex flex-col gap-2 border-y border-border bg-card/60 py-3 sm:flex-row sm:flex-wrap sm:items-center',
+        'flex flex-col gap-2 border-y border-border bg-card/60 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center',
         className,
       )}
     >

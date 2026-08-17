@@ -495,6 +495,9 @@ export function PosWorkspace() {
           )}
         </div>
         <div>
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <p className="text-xs font-semibold text-muted-foreground">Producto</p>
+          </div>
           <ProductSearch
             ref={searchRef}
             warehouseId={activeWarehouseId}
