@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Banknote, CreditCard, MoreHorizontal, Repeat } from 'lucide-react';
 import { formatMoney, SALES_TENDER_METHOD_LABELS } from '@erp/shared';
 import type { SalesTenderMethod, ConfirmSaleTenderInput } from '@erp/shared';
 import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -10,6 +11,12 @@ import { cn } from '@/lib/utils';
 import { resolveCashTender, buildTenderInput } from './pos-tender';
 
 const METHODS: SalesTenderMethod[] = ['CASH', 'CARD', 'TRANSFER', 'OTHER'];
+const METHOD_ICONS: Record<SalesTenderMethod, typeof Banknote> = {
+  CASH: Banknote,
+  CARD: CreditCard,
+  TRANSFER: Repeat,
+  OTHER: MoreHorizontal,
+};
 
 /**
  * The POS checkout step (F10) — see docs/pos.md. Doubles as the
@@ -71,6 +78,7 @@ export function PaymentPanel({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        className="max-w-md"
         onKeyDown={(e) => {
           if (e.key >= '1' && e.key <= '4' && document.activeElement?.tagName !== 'INPUT') {
             const m = METHODS[Number(e.key) - 1];
@@ -82,35 +90,39 @@ export function PaymentPanel({
         }}
       >
         <DialogTitle>Cobrar</DialogTitle>
-        <div className="mt-3 flex justify-between text-base">
-          <span className="text-muted-foreground">Total</span>
-          <span className="text-xl font-semibold tabular-nums">{fmt(total)}</span>
+        <div className="mt-3 flex items-baseline justify-between rounded-lg bg-muted/50 px-3 py-2.5">
+          <span className="text-sm font-medium text-muted-foreground">Total</span>
+          <span className="text-2xl font-bold tabular-nums">{fmt(total)}</span>
         </div>
 
         <div className="mt-4 grid grid-cols-4 gap-1.5" role="group" aria-label="Método de pago">
-          {METHODS.map((m, i) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setMethod(m)}
-              aria-pressed={method === m}
-              className={cn(
-                'flex flex-col items-center gap-0.5 rounded-lg border px-2 py-2 text-xs font-medium transition-colors',
-                method === m
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border text-muted-foreground hover:bg-muted',
-              )}
-            >
-              <span className="text-[10px] text-muted-foreground/70">{i + 1}</span>
-              {SALES_TENDER_METHOD_LABELS[m]}
-            </button>
-          ))}
+          {METHODS.map((m, i) => {
+            const Icon = METHOD_ICONS[m];
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMethod(m)}
+                aria-pressed={method === m}
+                className={cn(
+                  'relative flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-xs font-medium transition-colors',
+                  method === m
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border text-muted-foreground hover:bg-muted',
+                )}
+              >
+                <span className="absolute top-1 left-1.5 text-[10px] text-muted-foreground/60">{i + 1}</span>
+                <Icon className="size-4" aria-hidden="true" />
+                {SALES_TENDER_METHOD_LABELS[m]}
+              </button>
+            );
+          })}
         </div>
 
         {method === 'CASH' && (
-          <div className="mt-4 flex flex-col gap-2">
-            <label className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-muted-foreground">Recibido</span>
+          <div className="mt-4 flex flex-col gap-2.5 rounded-lg border border-border p-3">
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-muted-foreground">Recibido</span>
               <Input
                 ref={receivedRef}
                 type="number"
@@ -120,27 +132,41 @@ export function PaymentPanel({
                 value={received}
                 onChange={(e) => setReceived(e.target.value)}
                 placeholder={total}
-                className="w-32 text-right"
+                className="w-36 text-right text-base font-semibold"
                 aria-label="Importe recibido"
                 aria-invalid={cashInsufficient}
               />
             </label>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Vuelto</span>
-              <span className={cn('font-medium tabular-nums', cashInsufficient && 'text-destructive')}>
+            <div
+              className={cn(
+                'flex items-center justify-between rounded-md px-2 py-1.5',
+                cashInsufficient ? 'bg-destructive-muted' : 'bg-success-muted',
+              )}
+            >
+              <span className="text-sm font-medium text-muted-foreground">Vuelto</span>
+              <span
+                className={cn(
+                  'text-lg font-bold tabular-nums',
+                  cashInsufficient ? 'text-destructive' : 'text-success',
+                )}
+              >
                 {cashInsufficient ? 'Importe insuficiente' : fmt(change)}
               </span>
             </div>
           </div>
         )}
 
-        {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+        {error && (
+          <p className="mt-3 rounded-md bg-destructive-muted px-3 py-2 text-sm font-medium text-destructive" role="alert">
+            {error}
+          </p>
+        )}
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
             Cancelar
           </Button>
-          <Button type="button" onClick={submit} disabled={!canConfirm}>
+          <Button type="button" size="lg" onClick={submit} disabled={!canConfirm}>
             {pending ? 'Confirmando…' : 'Confirmar y cobrar'}
           </Button>
         </DialogFooter>

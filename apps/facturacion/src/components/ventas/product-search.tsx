@@ -61,9 +61,14 @@ export const ProductSearch = forwardRef<
     priceListId: string | null;
     disabled?: boolean;
     appearance?: 'default' | 'primary';
+    /** Overrides the `appearance="primary"` corner hint (default "Ctrl K"). Pass `null` to hide it — e.g. POS, where the field is always auto-focused and Ctrl+K isn't the relevant shortcut. */
+    shortcutHint?: string | null;
     onSelect: (selection: ProductSearchSelection) => void;
   }
->(function ProductSearch({ warehouseId, priceListId, disabled, appearance = 'default', onSelect }, ref) {
+>(function ProductSearch(
+  { warehouseId, priceListId, disabled, appearance = 'default', shortcutHint = 'Ctrl K', onSelect },
+  ref,
+) {
   const [term, setTerm] = useState('');
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -178,9 +183,9 @@ export const ProductSearch = forwardRef<
             'h-12 border-primary/35 bg-card pr-20 pl-11 text-base ring-4 ring-primary/5 placeholder:text-muted-foreground/80 focus-visible:border-primary',
         )}
       />
-      {appearance === 'primary' && (
+      {appearance === 'primary' && shortcutHint && (
         <span className="pointer-events-none absolute top-3 right-3 rounded border border-border bg-muted px-1.5 py-0.5 text-[0.625rem] font-semibold text-muted-foreground">
-          Ctrl K
+          {shortcutHint}
         </span>
       )}
       {open && (term.trim() || notFound) && (

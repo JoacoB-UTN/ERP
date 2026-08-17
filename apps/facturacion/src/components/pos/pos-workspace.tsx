@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Printer } from 'lucide-react';
+import { CheckCircle2, Printer } from 'lucide-react';
 import { formatMoney, salesTenderMethodLabel } from '@erp/shared';
 import type { SalesDocumentDetailDto, ConfirmSaleTenderInput } from '@erp/shared';
 import {
@@ -21,6 +21,7 @@ import { computeCartTotals, toSaleLineInputs, type SaleLineDraft } from '@/compo
 import { usePriceMap } from '@/components/ventas/use-price-map';
 import { saleErrorMessage } from '@/components/ventas/ventas-errors';
 import { PrintReceipt } from '@/components/ventas/print-receipt';
+import { cn } from '@/lib/utils';
 import { PosCart } from './pos-cart';
 import { PaymentPanel } from './payment-panel';
 import { resolvePosKeydownAction } from './pos-keyboard';
@@ -345,62 +346,98 @@ export function PosWorkspace() {
   if (successSale) {
     const tender = successSale.tender;
     return (
-      <div className="flex max-w-md flex-col gap-4">
-        <div>
-          <p className="text-sm font-medium text-emerald-600">Venta confirmada</p>
-          <h1 className="text-2xl font-semibold tracking-tight">{successSale.number}</h1>
+      <div className="mx-auto flex h-full max-w-md flex-col justify-center gap-5">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success-muted px-3 py-1 text-xs font-semibold tracking-wide text-success uppercase">
+            <CheckCircle2 className="size-3.5" />
+            Venta confirmada
+          </span>
+          <h1 className="text-3xl font-bold tracking-tight">{successSale.number}</h1>
         </div>
-        <div className="rounded-lg border border-border p-4 text-sm">
-          <p>{successSale.customer.legalName}</p>
-          <p className="mt-1 text-2xl font-semibold">{formatMoney(successSale.total, successSale.currencyCode)}</p>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <p className="text-sm font-medium text-foreground">{successSale.customer.legalName}</p>
+          <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums">
+            {formatMoney(successSale.total, successSale.currencyCode)}
+          </p>
           {tender && (
-            <div className="mt-3 flex flex-col gap-1 border-t border-border pt-3">
+            <div className="mt-4 flex flex-col gap-1.5 border-t border-border pt-4 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Pago</span>
-                <span className="font-medium">{salesTenderMethodLabel(tender.method)}</span>
+                <span className="font-semibold">{salesTenderMethodLabel(tender.method)}</span>
               </div>
               {tender.amountReceived !== null && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Recibido</span>
-                  <span className="tabular-nums">{formatMoney(tender.amountReceived, successSale.currencyCode)}</span>
+                  <span className="font-medium tabular-nums">
+                    {formatMoney(tender.amountReceived, successSale.currencyCode)}
+                  </span>
                 </div>
               )}
               {tender.change !== null && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Vuelto</span>
-                  <span className="font-medium tabular-nums">{formatMoney(tender.change, successSale.currencyCode)}</span>
+                  <span className="font-bold tabular-nums text-success">
+                    {formatMoney(tender.change, successSale.currencyCode)}
+                  </span>
                 </div>
               )}
             </div>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={handleNewSale} autoFocus>
+        <div className="flex flex-col gap-2">
+          <Button type="button" size="lg" onClick={handleNewSale} autoFocus className="h-14 text-base">
             Nueva venta
           </Button>
-          <Link href={`/ventas/${successSale.id}`} className={buttonVariants({ variant: 'outline' })}>
-            Ver venta
-          </Link>
-          <Button type="button" variant="outline" onClick={() => window.print()}>
-            <Printer className="size-4" />
-            Imprimir comprobante interno
-          </Button>
+          <div className="flex gap-2">
+            <Link href={`/ventas/${successSale.id}`} className={cn(buttonVariants({ variant: 'outline' }), 'flex-1')}>
+              Ver venta
+            </Link>
+            <Button type="button" variant="outline" onClick={() => window.print()} className="flex-1">
+              <Printer className="size-4" />
+              Imprimir comprobante
+            </Button>
+          </div>
         </div>
         <PrintReceipt sale={successSale} />
       </div>
     );
   }
 
+  const customerNeedsAttention = error === 'Elegí un cliente.';
+
   return (
     <div className="flex h-full flex-col gap-3">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-[17rem_minmax(0,1fr)]">
         <div>
-          <p className="mb-1 text-xs font-medium text-muted-foreground">Cliente (F2)</p>
-          <CustomerPicker ref={customerRef} value={customer} onSelect={setCustomer} onClear={() => setCustomer(null)} />
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <p className="text-xs font-semibold text-muted-foreground">Cliente</p>
+            <span className="rounded border border-border bg-muted px-1 py-0.5 text-[0.625rem] leading-none font-semibold text-muted-foreground">
+              F2
+            </span>
+          </div>
+          <CustomerPicker
+            ref={customerRef}
+            value={customer}
+            onSelect={setCustomer}
+            onClear={() => setCustomer(null)}
+            invalid={customerNeedsAttention}
+            errorId="pos-customer-error"
+          />
+          {customerNeedsAttention && (
+            <p id="pos-customer-error" className="mt-1.5 text-xs font-medium text-destructive" role="alert">
+              {error}
+            </p>
+          )}
         </div>
         <div>
-          <p className="mb-1 text-xs font-medium text-muted-foreground">Producto</p>
-          <ProductSearch ref={searchRef} warehouseId={activeWarehouseId} priceListId={activePriceListId} onSelect={addLine} />
+          <ProductSearch
+            ref={searchRef}
+            warehouseId={activeWarehouseId}
+            priceListId={activePriceListId}
+            onSelect={addLine}
+            appearance="primary"
+            shortcutHint={null}
+          />
         </div>
       </div>
 
@@ -413,16 +450,29 @@ export function PosWorkspace() {
         onRemove={removeLine}
       />
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
-
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/30 px-4 py-3">
-        <p className="text-xs text-muted-foreground">
-          {activeKey ? '+ / − cantidad de la línea seleccionada · Supr para quitarla' : 'Seleccioná una línea para editar la cantidad'}
+      {error && !customerNeedsAttention && (
+        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive" role="alert">
+          {error}
         </p>
-        <div className="flex items-center gap-4">
+      )}
+
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground">
+          {lines.length === 0
+            ? ''
+            : activeKey
+              ? '+ / − cantidad de la línea seleccionada · Supr para quitarla'
+              : 'Seleccioná una línea para editar la cantidad'}
+        </p>
+        <div className="flex items-center justify-between gap-4 sm:justify-end">
+          {lines.length > 0 && (
+            <p className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+              {lines.length} {lines.length === 1 ? 'línea' : 'líneas'}
+            </p>
+          )}
           <div className="text-right">
-            <p className="text-xs text-muted-foreground">Total</p>
-            <p className="text-2xl font-bold tabular-nums">
+            <p className="text-xs font-medium text-muted-foreground">Total {currencyCode ?? ''}</p>
+            <p className="text-3xl leading-9 font-bold tracking-tight tabular-nums">
               {currencyCode ? formatMoney(String(totals.total), currencyCode) : '—'}
             </p>
           </div>
@@ -432,8 +482,15 @@ export function PosWorkspace() {
               size="lg"
               onClick={() => void handleOpenCheckout()}
               disabled={lines.length === 0 || openingCheckout}
+              className="h-14 shrink-0 px-6 text-base"
             >
-              {openingCheckout ? 'Abriendo…' : 'Cobrar (F10)'}
+              {openingCheckout ? (
+                'Abriendo…'
+              ) : (
+                <>
+                  Cobrar<span className="ml-1.5 font-normal opacity-75">· F10</span>
+                </>
+              )}
             </Button>
           ) : (
             <p className="max-w-40 text-xs text-muted-foreground">No tenés permiso para cobrar.</p>
