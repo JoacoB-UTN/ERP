@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LogOut } from 'lucide-react';
+import { LogOut, ReceiptText } from 'lucide-react';
 import { useLogout, useActiveCompany, useActiveBranch } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -33,51 +33,71 @@ export function Topbar({ userLabel, userEmail }: { userLabel: string; userEmail:
   }
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4 md:px-6">
-      <div className="flex items-center gap-4">
-        <Link href="/" className="text-sm font-semibold tracking-tight">
-          Facturación
-        </Link>
-        <nav className="flex items-center gap-1 text-sm text-muted-foreground">
-          <Link
-            href="/ventas"
-            className={cn(
-              'rounded-md px-2.5 py-1 font-medium',
-              pathname.startsWith('/ventas') ? 'bg-muted text-foreground' : 'hover:text-foreground',
-            )}
-          >
-            Ventas
+    <header className="z-40 shrink-0 border-b border-border bg-card">
+      <div className="mx-auto grid min-h-14 w-full max-w-[1600px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-4 py-2 xl:grid-cols-[auto_minmax(0,1fr)_auto] xl:py-1.5 2xl:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link href="/" className="flex shrink-0 items-center gap-2 text-sm font-semibold tracking-tight">
+            <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <ReceiptText className="size-4" />
+            </span>
+            <span className="hidden sm:inline">Facturación</span>
           </Link>
-          <Link
-            href="/pos"
-            className={cn(
-              'rounded-md px-2.5 py-1 font-medium',
-              pathname.startsWith('/pos') ? 'bg-muted text-foreground' : 'hover:text-foreground',
-            )}
+          <nav
+            aria-label="Modos de Facturación"
+            className="flex items-center gap-1 text-sm text-muted-foreground"
           >
-            POS
-          </Link>
-        </nav>
-        <span className="h-5 w-px bg-border" />
-        <CompanySelector />
-        <BranchSelector companyId={activeCompanyId} />
-        <WarehouseSelector branchId={activeBranchId} />
-        <PriceListSelector />
-      </div>
-      <div className="flex items-center gap-3">
-        <div className="text-right leading-tight">
-          <p className="text-sm font-medium">{userLabel}</p>
-          <p className="text-xs text-muted-foreground">{userEmail}</p>
+            <Link
+              href="/ventas"
+              aria-current={pathname.startsWith('/ventas') ? 'page' : undefined}
+              className={cn(
+                'flex h-8 items-center rounded-md px-3 font-medium transition-colors',
+                pathname.startsWith('/ventas')
+                  ? 'bg-accent text-accent-foreground'
+                  : 'hover:bg-muted hover:text-foreground',
+              )}
+            >
+              Venta
+            </Link>
+            <Link
+              href="/pos"
+              aria-current={pathname.startsWith('/pos') ? 'page' : undefined}
+              className={cn(
+                'flex h-8 items-center rounded-md px-3 font-medium transition-colors',
+                pathname.startsWith('/pos')
+                  ? 'bg-accent text-accent-foreground'
+                  : 'hover:bg-muted hover:text-foreground',
+              )}
+            >
+              POS
+            </Link>
+          </nav>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Cerrar sesión"
-          onClick={handleLogout}
-          disabled={logout.isPending}
+
+        <div
+          className="order-3 col-span-2 mt-2 flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2 border-t border-border pt-2 xl:order-none xl:col-span-1 xl:mt-0 xl:justify-center xl:border-t-0 xl:pt-0"
+          aria-label="Contexto operativo"
         >
-          <LogOut className="size-4" />
-        </Button>
+          <CompanySelector />
+          <BranchSelector companyId={activeCompanyId} />
+          <WarehouseSelector branchId={activeBranchId} />
+          <PriceListSelector />
+        </div>
+
+        <div className="flex min-w-0 items-center justify-end gap-2 sm:gap-3">
+          <div className="hidden min-w-0 text-right leading-tight sm:block">
+            <p className="text-sm font-medium">{userLabel}</p>
+            <p className="max-w-48 truncate text-xs text-muted-foreground">{userEmail}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Cerrar sesión"
+            onClick={handleLogout}
+            disabled={logout.isPending}
+          >
+            <LogOut className="size-4" />
+          </Button>
+        </div>
       </div>
     </header>
   );

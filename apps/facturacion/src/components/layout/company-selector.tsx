@@ -2,6 +2,7 @@
 
 import { ChevronDown } from 'lucide-react';
 import { useActiveCompany } from '@/lib/auth-client';
+import { ContextField } from './context-field';
 
 /**
  * The active company must be very clear in Facturación — future sales
@@ -17,30 +18,34 @@ export function CompanySelector() {
 
   if (companies.length === 1) {
     return (
-      <span className="text-sm font-medium">{activeCompany?.tradeName ?? activeCompany?.legalName}</span>
+      <ContextField label="Empresa" className="min-w-32">
+        <span className="max-w-44 truncate">{activeCompany?.tradeName ?? activeCompany?.legalName}</span>
+      </ContextField>
     );
   }
 
   return (
-    <div className="relative inline-flex items-center">
-      <select
-        aria-label="Empresa activa"
-        value={activeCompanyId ?? ''}
-        onChange={(e) => setActiveCompany(e.target.value || null)}
-        className="appearance-none rounded-md border border-border bg-background py-1 pl-2 pr-7 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring"
-      >
-        {!activeCompanyId && (
-          <option value="" disabled>
-            Elegir empresa…
-          </option>
-        )}
-        {companies.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.tradeName ?? c.legalName}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-2 size-3.5 text-muted-foreground" />
-    </div>
+    <ContextField label="Empresa" className="min-w-40">
+      <div className="relative inline-flex min-w-0 items-center">
+        <select
+          aria-label="Empresa activa"
+          value={activeCompanyId ?? ''}
+          onChange={(e) => setActiveCompany(e.target.value || null)}
+          className="h-7 max-w-48 appearance-none rounded-md border border-border bg-card py-0 pl-2 pr-7 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          {!activeCompanyId && (
+            <option value="" disabled>
+              Elegir empresa…
+            </option>
+          )}
+          {companies.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.tradeName ?? c.legalName}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-2 size-3 text-muted-foreground" />
+      </div>
+    </ContextField>
   );
 }

@@ -37,19 +37,27 @@ function toSelection(item: CustomerLookupItem): CustomerPickerSelection {
  * a customer collapses the search into a compact summary card, never a
  * full customer administration form (that's Gestión's job).
  */
-export const CustomerPicker = forwardRef<CustomerPickerHandle, {
-  value: CustomerPickerSelection | null;
-  onSelect: (selection: CustomerPickerSelection) => void;
-  onClear: () => void;
-  autoFocus?: boolean;
-}>(function CustomerPicker({ value, onSelect, onClear, autoFocus }, ref) {
+export const CustomerPicker = forwardRef<
+  CustomerPickerHandle,
+  {
+    value: CustomerPickerSelection | null;
+    onSelect: (selection: CustomerPickerSelection) => void;
+    onClear: () => void;
+    autoFocus?: boolean;
+    invalid?: boolean;
+    errorId?: string;
+  }
+>(function CustomerPicker({ value, onSelect, onClear, autoFocus, invalid, errorId }, ref) {
   const [term, setTerm] = useState('');
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }));
 
-  const lookupQuery = useCustomerLookup({ search: term.trim() || undefined, limit: 8 }, { enabled: term.trim().length > 0 });
+  const lookupQuery = useCustomerLookup(
+    { search: term.trim() || undefined, limit: 8 },
+    { enabled: term.trim().length > 0 },
+  );
   const items = lookupQuery.data?.items ?? [];
 
   if (value) {
@@ -95,6 +103,8 @@ export const CustomerPicker = forwardRef<CustomerPickerHandle, {
         }}
         placeholder="Buscar cliente por código, nombre o CUIT/DNI…"
         aria-label="Buscar cliente"
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? errorId : undefined}
       />
       {open && term.trim() && (
         <div className="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-border bg-popover shadow-md">
