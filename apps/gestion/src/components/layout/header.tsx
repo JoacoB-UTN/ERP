@@ -5,6 +5,7 @@ import { LogOut, Menu } from 'lucide-react';
 import { useLogout } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { CompanySelector } from './company-selector';
+import { WorkspaceSwitcher } from './workspace-switcher';
 
 export function Header({
   userLabel,
@@ -24,7 +25,7 @@ export function Header({
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-card/95 px-4 backdrop-blur md:px-6">
+    <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border bg-card/95 px-4 backdrop-blur md:px-6">
       <div className="flex min-w-0 items-center gap-3">
         <Button
           type="button"
@@ -36,6 +37,8 @@ export function Header({
         >
           <Menu className="size-4" />
         </Button>
+        <WorkspaceSwitcher />
+        <div className="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
         <CompanySelector />
       </div>
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">

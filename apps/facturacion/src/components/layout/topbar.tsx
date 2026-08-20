@@ -7,6 +7,7 @@ import { useLogout, useActiveCompany, useActiveBranch } from '@/lib/auth-client'
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CompanySelector } from './company-selector';
+import { WorkspaceSwitcher } from './workspace-switcher';
 import { BranchSelector } from './branch-selector';
 import { WarehouseSelector } from './warehouse-selector';
 import { PriceListSelector } from './price-list-selector';
@@ -42,6 +43,7 @@ export function Topbar({ userLabel, userEmail }: { userLabel: string; userEmail:
             </span>
             <span className="hidden sm:inline">Facturación</span>
           </Link>
+          <WorkspaceSwitcher />
           <nav
             aria-label="Modos de Facturación"
             className="flex items-center gap-1 text-sm text-muted-foreground"

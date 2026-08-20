@@ -3,14 +3,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Building2,
   Contact,
   FileClock,
   History,
   Home,
   Package,
   PanelsTopLeft,
-  Scale,
   ShieldCheck,
   ShoppingCart,
   SlidersHorizontal,
@@ -133,15 +131,6 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-sidebar-border px-4">
-        <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-          <Building2 className="size-4" />
-        </span>
-        <div className="leading-tight">
-          <span className="block text-sm font-semibold tracking-tight">Gestión</span>
-          <span className="block text-[0.6875rem] text-muted-foreground">Administración ERP</span>
-        </div>
-      </div>
       <nav aria-label="Navegación principal" className="flex-1 overflow-y-auto px-2.5 py-3">
         {sections.map((section, index) => {
           const items = section.items.filter((item) => item.visible);
@@ -163,12 +152,6 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </nav>
-      <div className="border-t border-sidebar-border px-4 py-3 text-[0.6875rem] text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <Scale className="size-3" />
-          Operación trazable y segura
-        </span>
-      </div>
     </div>
   );
 }
