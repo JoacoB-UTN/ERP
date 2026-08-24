@@ -8,10 +8,8 @@ import { usePermissions, useSales, useWarehouses } from '@/lib/auth-client';
 import { Select } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { PageHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
-import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
 const PAGE_SIZE = 25;
@@ -58,19 +56,25 @@ export default function VentasPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <PageHeader
-        title="Ventas"
-        description="Ventas internas y su impacto operativo sobre precios y stock."
-        actions={canCreate && (
-          <Link href="/ventas/nueva" className={buttonVariants()}>
+    <div className="flex flex-col gap-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-baseline gap-2.5">
+          <h1 className="text-lg leading-6 font-semibold tracking-tight">Ventas</h1>
+          {pagination && (
+            <span className="text-xs text-muted-foreground">
+              {pagination.total} {pagination.total === 1 ? 'venta' : 'ventas'}
+            </span>
+          )}
+        </div>
+        {canCreate && (
+          <Link href="/ventas/nueva" className={buttonVariants({ size: 'sm' })}>
             <Plus className="size-4" />
             Nueva venta
           </Link>
         )}
-      />
+      </div>
 
-      <Toolbar>
+      <div role="search" className="flex flex-wrap items-center gap-2">
         <Input
           value={search}
           onChange={(e) => {
@@ -78,7 +82,7 @@ export default function VentasPage() {
             setPage(1);
           }}
           placeholder="Buscar por número o cliente…"
-          className="max-w-64"
+          className="h-8 max-w-64 py-1 text-sm"
           aria-label="Buscar"
         />
         <Select
@@ -87,7 +91,7 @@ export default function VentasPage() {
             setWarehouseId(e.target.value);
             setPage(1);
           }}
-          className="max-w-48"
+          className="h-8 max-w-44 py-1 text-sm"
           aria-label="Depósito"
         >
           <option value="">Todos los depósitos</option>
@@ -103,7 +107,7 @@ export default function VentasPage() {
             setStatus(e.target.value);
             setPage(1);
           }}
-          className="max-w-40"
+          className="h-8 max-w-36 py-1 text-sm"
           aria-label="Estado"
         >
           <option value="">Todos los estados</option>
@@ -111,36 +115,36 @@ export default function VentasPage() {
           <option value="CONFIRMED">Confirmada</option>
           <option value="CANCELLED">Cancelada</option>
         </Select>
-      </Toolbar>
+      </div>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Número</th>
-              <th className="px-4 py-2">Fecha</th>
-              <th className="px-4 py-2">Cliente</th>
-              <th className="px-4 py-2">Depósito</th>
-              <th className="px-4 py-2">Lista</th>
-              <th className="px-4 py-2 text-right">Total</th>
-              <th className="px-4 py-2">Estado</th>
+              <th className="px-3 py-1.5">Número</th>
+              <th className="px-3 py-1.5">Fecha</th>
+              <th className="px-3 py-1.5">Cliente</th>
+              <th className="px-3 py-1.5">Depósito</th>
+              <th className="px-3 py-1.5">Lista</th>
+              <th className="px-3 py-1.5 text-right">Total</th>
+              <th className="px-3 py-1.5">Estado</th>
             </tr>
           </thead>
           <tbody>
             {salesQuery.isLoading && <TableRowsSkeleton columns={7} />}
             {items.map((s) => (
-              <tr key={s.id} className="border-t border-border">
-                <td className="px-4 py-2 whitespace-nowrap">
+              <tr key={s.id} className="border-t border-border hover:bg-muted/30">
+                <td className="px-3 py-1 whitespace-nowrap">
                   <Link href={`/ventas/${s.id}`} className="font-medium underline-offset-4 hover:underline">
                     {s.number}
                   </Link>
                 </td>
-                <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">{formatDate(s.occurredAt)}</td>
-                <td className="px-4 py-2">{s.customer.legalName}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{s.warehouse.name}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{s.priceList.name}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{formatMoney(s.total, s.currencyCode)}</td>
-                <td className="px-4 py-2">
+                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{formatDate(s.occurredAt)}</td>
+                <td className="px-3 py-1">{s.customer.legalName}</td>
+                <td className="px-3 py-1 whitespace-nowrap">{s.warehouse.name}</td>
+                <td className="px-3 py-1 whitespace-nowrap">{s.priceList.name}</td>
+                <td className="px-3 py-1 text-right tabular-nums">{formatMoney(s.total, s.currencyCode)}</td>
+                <td className="px-3 py-1">
                   <StatusBadge status={s.status}>{salesDocumentStatusLabel(s.status)}</StatusBadge>
                 </td>
               </tr>

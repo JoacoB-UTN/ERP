@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
+import { StatusBar } from './status-bar';
 
 /**
  * Application shell: sidebar + header + main content area. Responsive
@@ -21,7 +22,7 @@ export function AppShell({
   const [navigationOpen, setNavigationOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar mobileOpen={navigationOpen} onMobileOpenChange={setNavigationOpen} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header
@@ -29,9 +30,10 @@ export function AppShell({
           userEmail={userEmail}
           onOpenNavigation={() => setNavigationOpen(true)}
         />
-        <main data-gestion-workspace className="min-w-0 flex-1 px-5 py-5 md:px-6 md:py-6">
+        <main data-gestion-workspace className="min-w-0 flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-5">
           {children}
         </main>
+        <StatusBar userEmail={userEmail} />
       </div>
     </div>
   );
