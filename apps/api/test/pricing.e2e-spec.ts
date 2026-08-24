@@ -444,7 +444,7 @@ describe('Pricing (e2e)', () => {
       .post('/api/v1/pricing/lists')
       .set(COMPANY_ID_HEADER, companyAId)
       .send({
-        code: `FIX-${suffix}-${Math.random().toString(36).slice(2)}`,
+        code: `FIX-${suffix}-${Math.random().toString(36).slice(2, 10)}`,
         name: `Fixed List ${Math.random()}`,
         currencyId: currencyArsId,
         includesTax: false,
