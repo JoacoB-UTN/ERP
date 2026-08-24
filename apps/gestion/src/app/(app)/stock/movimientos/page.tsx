@@ -5,11 +5,10 @@ import Link from 'next/link';
 import { formatDecimalDisplay, MovementType, movementTypeLabel, type MovementListQuery } from '@erp/shared';
 import { usePermissions, useMovements, useWarehouses } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Unauthorized } from '@/components/layout/unauthorized';
-import { PageHeader } from '@/components/ui/page-header';
+import { ListHeader } from '@/components/ui/page-header';
 import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 
@@ -84,70 +83,82 @@ export default function MovimientosPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <PageHeader
+    <div className="flex flex-col gap-2.5">
+      <ListHeader
         title="Movimientos"
-        description="Historial completo e inmutable del inventario: cada entrada y salida con su origen."
+        meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'movimiento' : 'movimientos'}`}
       />
 
-      <Toolbar className="items-end">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="mDateFrom">Desde</Label>
-            <Input id="mDateFrom" type="date" value={dateFrom} onChange={(e) => resetPageAnd(setDateFrom)(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="mDateTo">Hasta</Label>
-            <Input id="mDateTo" type="date" value={dateTo} onChange={(e) => resetPageAnd(setDateTo)(e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="mWarehouse">Depósito</Label>
-            <Select
-              id="mWarehouse"
-              value={warehouseId}
-              onChange={(e) => resetPageAnd(setWarehouseId)(e.target.value)}
-            >
-              <option value="">Todos</option>
-              {warehousesQuery.data?.warehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="mType">Tipo</Label>
-            <Select id="mType" value={movementType} onChange={(e) => resetPageAnd(setMovementType)(e.target.value)}>
-              <option value="">Todos</option>
-              {Object.values(MovementType).map((value) => (
-                <option key={value} value={value}>
-                  {movementTypeLabel(value)}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="mSearch">Buscar</Label>
-            <Input
-              id="mSearch"
-              placeholder="Producto, SKU…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-            />
-          </div>
+      <Toolbar>
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="mDateFrom" className="text-xs text-muted-foreground">
+            Desde
+          </label>
+          <Input
+            id="mDateFrom"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => resetPageAnd(setDateFrom)(e.target.value)}
+            className="h-8 py-1 text-sm"
+          />
         </div>
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="mDateTo" className="text-xs text-muted-foreground">
+            Hasta
+          </label>
+          <Input
+            id="mDateTo"
+            type="date"
+            value={dateTo}
+            onChange={(e) => resetPageAnd(setDateTo)(e.target.value)}
+            className="h-8 py-1 text-sm"
+          />
+        </div>
+        <Select
+          value={warehouseId}
+          onChange={(e) => resetPageAnd(setWarehouseId)(e.target.value)}
+          className="h-8 max-w-44 py-1 text-sm"
+          aria-label="Depósito"
+        >
+          <option value="">Todos los depósitos</option>
+          {warehousesQuery.data?.warehouses.map((w) => (
+            <option key={w.id} value={w.id}>
+              {w.name}
+            </option>
+          ))}
+        </Select>
+        <Select
+          value={movementType}
+          onChange={(e) => resetPageAnd(setMovementType)(e.target.value)}
+          className="h-8 max-w-40 py-1 text-sm"
+          aria-label="Tipo de movimiento"
+        >
+          <option value="">Todos los tipos</option>
+          {Object.values(MovementType).map((value) => (
+            <option key={value} value={value}>
+              {movementTypeLabel(value)}
+            </option>
+          ))}
+        </Select>
+        <Input
+          placeholder="Producto, SKU…"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          className="h-8 max-w-48 py-1 text-sm"
+          aria-label="Buscar movimientos"
+        />
       </Toolbar>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Fecha</th>
-              <th className="px-4 py-2">Depósito</th>
-              <th className="px-4 py-2">Producto</th>
-              <th className="px-4 py-2">Tipo</th>
-              <th className="px-4 py-2 text-right">Cantidad</th>
-              <th className="px-4 py-2">Usuario</th>
+              <th className="px-3 py-1.5">Fecha</th>
+              <th className="px-3 py-1.5">Depósito</th>
+              <th className="px-3 py-1.5">Producto</th>
+              <th className="px-3 py-1.5">Tipo</th>
+              <th className="px-3 py-1.5 text-right">Cantidad</th>
+              <th className="px-3 py-1.5">Usuario</th>
             </tr>
           </thead>
           <tbody>
@@ -155,10 +166,10 @@ export default function MovimientosPage() {
             {items.map((m) => {
               const signed = Number(m.quantity);
               return (
-                <tr key={m.id} className="border-t border-border">
-                  <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">{formatDateTime(m.occurredAt)}</td>
-                  <td className="px-4 py-2 whitespace-nowrap">{m.warehouse.name}</td>
-                  <td className="px-4 py-2">
+                <tr key={m.id} className="border-t border-border hover:bg-muted/30">
+                  <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{formatDateTime(m.occurredAt)}</td>
+                  <td className="px-3 py-1 whitespace-nowrap">{m.warehouse.name}</td>
+                  <td className="px-3 py-1">
                     <Link href={`/stock/movimientos/${m.id}`} className="underline-offset-4 hover:underline">
                       {m.productName}
                     </Link>
@@ -170,14 +181,14 @@ export default function MovimientosPage() {
                       </p>
                     )}
                   </td>
-                  <td className="px-4 py-2 whitespace-nowrap">{movementTypeLabel(m.movementType)}</td>
+                  <td className="px-3 py-1 whitespace-nowrap">{movementTypeLabel(m.movementType)}</td>
                   <td
-                    className={`px-4 py-2 text-right tabular-nums ${signed < 0 ? 'text-red-600' : 'text-emerald-600'}`}
+                    className={`px-3 py-1 text-right tabular-nums ${signed < 0 ? 'text-red-600' : 'text-emerald-600'}`}
                   >
                     {signed > 0 ? '+' : ''}
                     {qty(m.quantity)}
                   </td>
-                  <td className="px-4 py-2 whitespace-nowrap">{m.createdBy?.name ?? 'Sistema'}</td>
+                  <td className="px-3 py-1 whitespace-nowrap">{m.createdBy?.name ?? 'Sistema'}</td>
                 </tr>
               );
             })}

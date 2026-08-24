@@ -15,7 +15,7 @@ import { usePermissions, useCustomers } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { PageHeader } from '@/components/ui/page-header';
+import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
@@ -74,12 +74,12 @@ export default function ClientesPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <PageHeader
+    <div className="flex flex-col gap-2.5">
+      <ListHeader
         title="Clientes"
-        description="Identidad, datos fiscales y contactos de los clientes de esta empresa."
+        meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'cliente' : 'clientes'}`}
         actions={canCreate && (
-          <Link href="/clientes/nuevo" className={buttonVariants()}>
+          <Link href="/clientes/nuevo" className={buttonVariants({ size: 'sm' })}>
             <Plus className="size-4" />
             Nuevo cliente
           </Link>
@@ -91,7 +91,7 @@ export default function ClientesPage() {
           placeholder="Buscar por nombre, código, CUIT, email…"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          className="max-w-sm"
+          className="h-8 max-w-sm py-1 text-sm"
           aria-label="Buscar clientes"
         />
         <Select
@@ -100,7 +100,7 @@ export default function ClientesPage() {
             setStatus(e.target.value);
             setPage(1);
           }}
-          className="max-w-40"
+          className="h-8 max-w-40 py-1 text-sm"
           aria-label="Estado"
         >
           <option value="">Todos los estados</option>
@@ -116,7 +116,7 @@ export default function ClientesPage() {
             setCustomerType(e.target.value);
             setPage(1);
           }}
-          className="max-w-44"
+          className="h-8 max-w-44 py-1 text-sm"
           aria-label="Tipo de cliente"
         >
           <option value="">Todos los tipos</option>
@@ -132,7 +132,7 @@ export default function ClientesPage() {
             setTaxCondition(e.target.value);
             setPage(1);
           }}
-          className="max-w-52"
+          className="h-8 max-w-52 py-1 text-sm"
           aria-label="Condición fiscal"
         >
           <option value="">Todas las condiciones</option>
@@ -144,24 +144,24 @@ export default function ClientesPage() {
         </Select>
       </Toolbar>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Código</th>
-              <th className="px-4 py-2">Cliente</th>
-              <th className="px-4 py-2">CUIT / Documento</th>
-              <th className="px-4 py-2">Condición fiscal</th>
-              <th className="px-4 py-2">Teléfono</th>
-              <th className="px-4 py-2">Estado</th>
+              <th className="px-3 py-1.5">Código</th>
+              <th className="px-3 py-1.5">Cliente</th>
+              <th className="px-3 py-1.5">CUIT / Documento</th>
+              <th className="px-3 py-1.5">Condición fiscal</th>
+              <th className="px-3 py-1.5">Teléfono</th>
+              <th className="px-3 py-1.5">Estado</th>
             </tr>
           </thead>
           <tbody>
             {customersQuery.isLoading && <TableRowsSkeleton columns={6} />}
             {items.map((customer) => (
-              <tr key={customer.id} className="border-t border-border">
-                <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">{customer.code}</td>
-                <td className="px-4 py-2">
+              <tr key={customer.id} className="border-t border-border hover:bg-muted/30">
+                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{customer.code}</td>
+                <td className="px-3 py-1">
                   <Link
                     href={`/clientes/${customer.id}`}
                     className="font-medium underline-offset-4 hover:underline"
@@ -172,12 +172,12 @@ export default function ClientesPage() {
                     <p className="text-xs text-muted-foreground">{customer.legalName}</p>
                   )}
                 </td>
-                <td className="px-4 py-2 whitespace-nowrap">{customer.taxIdFormatted ?? '—'}</td>
-                <td className="px-4 py-2">
+                <td className="px-3 py-1 whitespace-nowrap">{customer.taxIdFormatted ?? '—'}</td>
+                <td className="px-3 py-1">
                   {customer.taxCondition ? customerTaxConditionLabel(customer.taxCondition) : '—'}
                 </td>
-                <td className="px-4 py-2 whitespace-nowrap">{customer.phone ?? '—'}</td>
-                <td className="px-4 py-2">
+                <td className="px-3 py-1 whitespace-nowrap">{customer.phone ?? '—'}</td>
+                <td className="px-3 py-1">
                   <StatusBadge status={customer.status}>{customerStatusLabel(customer.status)}</StatusBadge>
                 </td>
               </tr>
