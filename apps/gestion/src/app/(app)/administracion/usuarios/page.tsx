@@ -12,7 +12,7 @@ import {
 } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { PageHeader } from '@/components/ui/page-header';
+import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
@@ -48,7 +48,7 @@ function RoleAssignmentPanel({ userId, userName }: { userId: string; userName: s
   }
 
   return (
-    <aside className="flex flex-col gap-3 rounded-md border border-border bg-card p-4" aria-label={`Roles de ${userName}`}>
+    <aside className="flex flex-col gap-3 rounded-md border border-border bg-card p-3" aria-label={`Roles de ${userName}`}>
       <p className="text-sm font-medium">
         Roles de <span className="font-semibold">{userName}</span>
       </p>
@@ -96,31 +96,28 @@ export default function UsersPage() {
   const selectedUser = users.find((u) => u.id === selectedUserId) ?? null;
 
   return (
-    <div className="flex flex-col gap-5">
-      <PageHeader
-        title="Usuarios"
-        description="Personas con acceso a esta empresa y los roles que tienen asignados."
-      />
+    <div className="flex flex-col gap-2.5">
+      <ListHeader title="Usuarios" meta={`${users.length} ${users.length === 1 ? 'usuario' : 'usuarios'}`} />
 
       <Toolbar>
         <Input
           placeholder="Buscar usuario…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="max-w-xs"
+          className="h-8 max-w-xs py-1 text-sm"
           aria-label="Buscar usuario"
         />
       </Toolbar>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="overflow-x-auto rounded-md border border-border">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
               <tr>
-                <th className="px-4 py-2">Nombre</th>
-                <th className="px-4 py-2">Email</th>
-                <th className="px-4 py-2">Estado</th>
-                <th className="px-4 py-2">Roles</th>
+                <th className="px-3 py-1.5">Nombre</th>
+                <th className="px-3 py-1.5">Email</th>
+                <th className="px-3 py-1.5">Estado</th>
+                <th className="px-3 py-1.5">Roles</th>
               </tr>
             </thead>
             <tbody>
@@ -129,11 +126,11 @@ export default function UsersPage() {
                 <tr
                   key={user.id}
                   className={cn(
-                    'border-t border-border',
+                    'border-t border-border hover:bg-muted/30',
                     selectedUserId === user.id && 'bg-muted/60',
                   )}
                 >
-                  <td className="px-4 py-2 font-medium">
+                  <td className="px-3 py-1 font-medium">
                     <button
                       type="button"
                       className="font-medium text-primary underline-offset-4 hover:underline"
@@ -143,11 +140,11 @@ export default function UsersPage() {
                       {user.firstName} {user.lastName}
                     </button>
                   </td>
-                  <td className="px-4 py-2 text-muted-foreground">{user.email}</td>
-                  <td className="px-4 py-2">
+                  <td className="px-3 py-1 text-muted-foreground">{user.email}</td>
+                  <td className="px-3 py-1">
                     <StatusBadge status={user.status}>{user.status === 'ACTIVE' ? 'Activo' : user.status}</StatusBadge>
                   </td>
-                  <td className="px-4 py-2 text-muted-foreground">
+                  <td className="px-3 py-1 text-muted-foreground">
                     {user.roles.length > 0 ? user.roles.map((r) => r.name).join(', ') : '—'}
                   </td>
                 </tr>

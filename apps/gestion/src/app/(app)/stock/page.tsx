@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { Button } from '@/components/ui/button';
-import { PageHeader } from '@/components/ui/page-header';
+import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
@@ -83,10 +83,10 @@ export default function ExistenciasPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <PageHeader
+    <div className="flex flex-col gap-2.5">
+      <ListHeader
         title="Existencias"
-        description="Físico, reservado y disponible por depósito, calculado desde el movimiento de inventario."
+        meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'fila' : 'filas'}`}
       />
 
       <Toolbar>
@@ -94,7 +94,7 @@ export default function ExistenciasPage() {
           placeholder="Buscar por nombre, código, SKU…"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          className="max-w-sm"
+          className="h-8 max-w-sm py-1 text-sm"
           aria-label="Buscar existencias"
         />
         <Select
@@ -103,7 +103,7 @@ export default function ExistenciasPage() {
             setWarehouseId(e.target.value);
             setPage(1);
           }}
-          className="max-w-48"
+          className="h-8 max-w-48 py-1 text-sm"
           aria-label="Depósito"
         >
           <option value="">Todos los depósitos</option>
@@ -119,7 +119,7 @@ export default function ExistenciasPage() {
             setCategoryId(e.target.value);
             setPage(1);
           }}
-          className="max-w-48"
+          className="h-8 max-w-48 py-1 text-sm"
           aria-label="Categoría"
         >
           <option value="">Todas las categorías</option>
@@ -135,7 +135,7 @@ export default function ExistenciasPage() {
             setBrandId(e.target.value);
             setPage(1);
           }}
-          className="max-w-44"
+          className="h-8 max-w-44 py-1 text-sm"
           aria-label="Marca"
         >
           <option value="">Todas las marcas</option>
@@ -151,14 +151,14 @@ export default function ExistenciasPage() {
             setStatus(e.target.value);
             setPage(1);
           }}
-          className="max-w-40"
+          className="h-8 max-w-40 py-1 text-sm"
           aria-label="Estado del producto"
         >
           <option value="">Todos los estados</option>
           <option value="ACTIVE">Activo</option>
           <option value="INACTIVE">Inactivo</option>
         </Select>
-        <label className="flex h-(--control-height) items-center gap-2 rounded-md border border-border bg-card px-3 text-sm text-muted-foreground">
+        <label className="flex h-8 items-center gap-2 rounded-md border border-input bg-card px-2.5 text-sm text-muted-foreground">
           <input
             type="checkbox"
             checked={belowMinimum}
@@ -172,16 +172,16 @@ export default function ExistenciasPage() {
         </label>
       </Toolbar>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Producto</th>
-              <th className="px-4 py-2">SKU</th>
-              <th className="px-4 py-2">Depósito</th>
-              <th className="px-4 py-2 text-right">Físico</th>
-              <th className="px-4 py-2 text-right">Reservado</th>
-              <th className="px-4 py-2 text-right">Disponible</th>
+              <th className="px-3 py-1.5">Producto</th>
+              <th className="px-3 py-1.5">SKU</th>
+              <th className="px-3 py-1.5">Depósito</th>
+              <th className="px-3 py-1.5 text-right">Físico</th>
+              <th className="px-3 py-1.5 text-right">Reservado</th>
+              <th className="px-3 py-1.5 text-right">Disponible</th>
             </tr>
           </thead>
           <tbody>
@@ -190,8 +190,8 @@ export default function ExistenciasPage() {
               const onHand = Number(row.onHand);
               const available = Number(row.available);
               return (
-                <tr key={`${row.variantId}-${row.warehouse.id}`} className="border-t border-border">
-                  <td className="px-4 py-2">
+                <tr key={`${row.variantId}-${row.warehouse.id}`} className="border-t border-border hover:bg-muted/30">
+                  <td className="px-3 py-1">
                     <Link
                       href={`/productos/${row.productId}`}
                       className="font-medium underline-offset-4 hover:underline"
@@ -200,13 +200,13 @@ export default function ExistenciasPage() {
                     </Link>
                     {row.variantName && <p className="text-xs text-muted-foreground">{row.variantName}</p>}
                   </td>
-                  <td className="px-4 py-2 whitespace-nowrap">{row.sku ?? '—'}</td>
-                  <td className="px-4 py-2 whitespace-nowrap">{row.warehouse.name}</td>
-                  <td className={`px-4 py-2 text-right tabular-nums ${onHand < 0 ? 'text-red-600' : ''}`}>
+                  <td className="px-3 py-1 whitespace-nowrap">{row.sku ?? '—'}</td>
+                  <td className="px-3 py-1 whitespace-nowrap">{row.warehouse.name}</td>
+                  <td className={`px-3 py-1 text-right tabular-nums ${onHand < 0 ? 'text-red-600' : ''}`}>
                     {qty(row.onHand)}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">{qty(row.reserved)}</td>
-                  <td className={`px-4 py-2 text-right tabular-nums ${available < 0 ? 'text-red-600' : ''}`}>
+                  <td className="px-3 py-1 text-right tabular-nums">{qty(row.reserved)}</td>
+                  <td className={`px-3 py-1 text-right tabular-nums ${available < 0 ? 'text-red-600' : ''}`}>
                     <span>{qty(row.available)}</span>
                     {row.belowMinimum && (
                       <StatusBadge tone="warning" className="ml-2 normal-case">

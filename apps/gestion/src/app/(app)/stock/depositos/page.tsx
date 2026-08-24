@@ -12,7 +12,7 @@ import {
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { stockErrorMessage } from '@/components/stock/stock-errors';
-import { PageHeader } from '@/components/ui/page-header';
+import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 
@@ -59,12 +59,12 @@ export default function DepositosPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <PageHeader
+    <div className="flex flex-col gap-2.5">
+      <ListHeader
         title="Depósitos"
-        description="Ubicaciones físicas y reglas operativas para controlar existencias."
+        meta={`${warehouses.length} ${warehouses.length === 1 ? 'depósito' : 'depósitos'}`}
         actions={canCreate && (
-          <Link href="/stock/depositos/nuevo" className={buttonVariants()}>
+          <Link href="/stock/depositos/nuevo" className={buttonVariants({ size: 'sm' })}>
             <Plus className="size-4" />
             Nuevo depósito
           </Link>
@@ -73,41 +73,41 @@ export default function DepositosPage() {
 
       {error && <p role="alert" className="rounded-md border border-destructive/25 bg-destructive-muted px-3 py-2 text-sm text-destructive">{error}</p>}
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Código</th>
-              <th className="px-4 py-2">Nombre</th>
-              <th className="px-4 py-2">Sucursal</th>
-              <th className="px-4 py-2">Ventas</th>
-              <th className="px-4 py-2">Compras</th>
-              <th className="px-4 py-2">Stock negativo</th>
-              <th className="px-4 py-2">Estado</th>
-              {(canUpdate || canDeactivate) && <th className="px-4 py-2" />}
+              <th className="px-3 py-1.5">Código</th>
+              <th className="px-3 py-1.5">Nombre</th>
+              <th className="px-3 py-1.5">Sucursal</th>
+              <th className="px-3 py-1.5">Ventas</th>
+              <th className="px-3 py-1.5">Compras</th>
+              <th className="px-3 py-1.5">Stock negativo</th>
+              <th className="px-3 py-1.5">Estado</th>
+              {(canUpdate || canDeactivate) && <th className="px-3 py-1.5" />}
             </tr>
           </thead>
           <tbody>
             {warehousesQuery.isLoading && <TableRowsSkeleton columns={canUpdate || canDeactivate ? 8 : 7} />}
             {warehouses.map((w) => (
-              <tr key={w.id} className="border-t border-border">
-                <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">{w.code}</td>
-                <td className="px-4 py-2 font-medium">{w.name}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{w.branchName ?? '—'}</td>
-                <td className="px-4 py-2">
+              <tr key={w.id} className="border-t border-border hover:bg-muted/30">
+                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{w.code}</td>
+                <td className="px-3 py-1 font-medium">{w.name}</td>
+                <td className="px-3 py-1 whitespace-nowrap">{w.branchName ?? '—'}</td>
+                <td className="px-3 py-1">
                   <BoolCell value={w.allowsSales} />
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-3 py-1">
                   <BoolCell value={w.allowsPurchases} />
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-3 py-1">
                   <BoolCell value={w.allowNegativeStock} />
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-3 py-1">
                   <StatusBadge status={w.status}>{w.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}</StatusBadge>
                 </td>
                 {(canUpdate || canDeactivate) && (
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-3 py-1 text-right">
                     <div className="flex justify-end gap-2">
                       {canUpdate && (
                         <Link

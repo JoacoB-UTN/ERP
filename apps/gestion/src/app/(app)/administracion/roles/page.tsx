@@ -6,7 +6,7 @@ import { Plus } from 'lucide-react';
 import { usePermissions, useRoles } from '@/lib/auth-client';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { PageHeader } from '@/components/ui/page-header';
+import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
@@ -30,12 +30,12 @@ export default function RolesPage() {
   const canCreate = can('administration.roles.create');
 
   return (
-    <div className="flex flex-col gap-5">
-      <PageHeader
+    <div className="flex flex-col gap-2.5">
+      <ListHeader
         title="Roles y permisos"
-        description="Definí capacidades por rol y asignalas a los usuarios de la empresa."
+        meta={`${roles.length} ${roles.length === 1 ? 'rol' : 'roles'}`}
         actions={canCreate && (
-          <Link href="/administracion/roles/nuevo" className={buttonVariants()}>
+          <Link href="/administracion/roles/nuevo" className={buttonVariants({ size: 'sm' })}>
             <Plus className="size-4" />
             Nuevo rol
           </Link>
@@ -47,26 +47,26 @@ export default function RolesPage() {
           placeholder="Buscar rol…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="max-w-xs"
+          className="h-8 max-w-xs py-1 text-sm"
           aria-label="Buscar rol"
         />
       </Toolbar>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Nombre</th>
-              <th className="px-4 py-2">Descripción</th>
-              <th className="px-4 py-2">Tipo</th>
-              <th className="px-4 py-2">Estado</th>
+              <th className="px-3 py-1.5">Nombre</th>
+              <th className="px-3 py-1.5">Descripción</th>
+              <th className="px-3 py-1.5">Tipo</th>
+              <th className="px-3 py-1.5">Estado</th>
             </tr>
           </thead>
           <tbody>
             {rolesQuery.isLoading && <TableRowsSkeleton columns={4} />}
             {roles.map((role) => (
-              <tr key={role.id} className="border-t border-border">
-                <td className="px-4 py-2">
+              <tr key={role.id} className="border-t border-border hover:bg-muted/30">
+                <td className="px-3 py-1">
                   <Link
                     href={`/administracion/roles/${role.id}`}
                     className="font-medium underline-offset-4 hover:underline"
@@ -74,13 +74,13 @@ export default function RolesPage() {
                     {role.name}
                   </Link>
                 </td>
-                <td className="px-4 py-2 text-muted-foreground">{role.description ?? '—'}</td>
-                <td className="px-4 py-2">
+                <td className="px-3 py-1 text-muted-foreground">{role.description ?? '—'}</td>
+                <td className="px-3 py-1">
                   {role.isSystem && (
                     <StatusBadge tone="info">Sistema</StatusBadge>
                   )}
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-3 py-1">
                   <StatusBadge status={role.active ? 'ACTIVE' : 'INACTIVE'}>
                     {role.active ? 'Activo' : 'Inactivo'}
                   </StatusBadge>

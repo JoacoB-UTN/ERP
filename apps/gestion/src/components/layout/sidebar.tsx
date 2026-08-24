@@ -137,9 +137,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           if (items.length === 0) return null;
 
           return (
-            <div key={section.label ?? 'inicio'} className={cn(index > 0 && 'mt-4')}>
+            <div key={section.label ?? 'inicio'} className={cn(index > 0 && 'mt-3.5')}>
               {section.label && (
-                <p className="mb-1 px-2.5 text-[0.625rem] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                <p className="mb-1 px-2.5 text-[0.6875rem] font-semibold text-muted-foreground/80">
                   {section.label}
                 </p>
               )}

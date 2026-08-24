@@ -38,10 +38,40 @@ export function PageHeader({
             {eyebrow}
           </div>
         )}
-        <h1 className="text-2xl leading-8 font-semibold tracking-tight text-balance">{title}</h1>
+        <h1 className="text-xl leading-7 font-semibold tracking-tight text-balance">{title}</h1>
         {description && <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
     </header>
+  );
+}
+
+/**
+ * Compact heading for list/index pages — the Gestión → Ventas pattern (see
+ * docs/desktop-ui-direction.md): a small operational title, an optional
+ * inline count, and the primary action, with no explanatory subtitle. Use
+ * this instead of `PageHeader` for routine list screens (Clientes,
+ * Productos, Stock, etc.); `PageHeader` remains for detail/create/edit
+ * pages, which still benefit from a back link or genuinely useful context.
+ */
+export function ListHeader({
+  title,
+  meta,
+  actions,
+  className,
+}: {
+  title: ReactNode;
+  meta?: ReactNode;
+  actions?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex flex-wrap items-center justify-between gap-3', className)}>
+      <div className="flex items-baseline gap-2.5">
+        <h1 className="text-lg leading-6 font-semibold tracking-tight">{title}</h1>
+        {meta && <span className="text-xs text-muted-foreground">{meta}</span>}
+      </div>
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+    </div>
   );
 }

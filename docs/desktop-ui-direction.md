@@ -1,12 +1,17 @@
 # Desktop UI direction (target visual grammar)
 
-**Status: PROPOSED, prototyped in limited scope.** This document is the
-visual-direction companion to
+**Status: APPROVED and propagated across Gestión's main operational
+surfaces.** This document is the visual-direction companion to
 [desktop-lan-architecture.md](desktop-lan-architecture.md). Prompt #17
-prototyped this direction on Gestión's shell + `/ventas` and
-Facturación's shell/home only — see implementation-status.md for exactly
-what shipped versus what this document merely proposes for the rest of
-the app.
+prototyped this direction on Gestión's shell + `/ventas` only; Prompt #18
+propagated it to Gestión's other primary routes (Inicio, Clientes,
+Productos, Stock/Existencias, Movimientos, Ajustes, Depósitos, Listas de
+precios, Usuarios, Roles, Auditoría) using `/ventas` as the visual source
+of truth — see "Propagated standards" below for the exact rules that
+came out of doing that, and implementation-status.md for what shipped.
+Facturación/POS and Gestión's secondary detail/create/edit routes were
+deliberately left outside this propagation pass — see that section for
+why.
 
 See also [product-ui-principles.md](product-ui-principles.md) (the
 Gestión/Facturación product boundary this document must not violate —
@@ -198,6 +203,81 @@ prototype's concept) carrying company / branch / server connection /
 user identity — see "Connection status concept" in the final report.
 Compact, factual, never a second header competing for attention with
 the real page content above it.
+
+## Propagated standards (from Prompt #18)
+
+Concrete, load-bearing numbers discovered/finalized while propagating
+`/ventas`'s direction to the rest of Gestión — treat these as the actual
+standard for any *new* Gestión list/index route, not just guidance:
+
+- **List-page heading**: use `ListHeader`
+  (`apps/gestion/src/components/ui/page-header.tsx`) — `text-lg`/`leading-6`
+  title, an optional inline `meta` string (usually a row count, e.g. "19
+  ventas"), primary action(s) on the right, **no description**. This is
+  distinct from `PageHeader` (now `text-xl`, down from the original
+  `text-2xl`), which remains for detail/create/edit routes that
+  genuinely want a back link or real contextual copy — don't use
+  `PageHeader` for a routine list screen, and don't invent a third
+  heading pattern.
+- **Subtitles are allowed only when they convey something the title
+  can't** — a routine module name ("Clientes", "Productos",
+  "Movimientos", "Usuarios") never needs one; a screen with a real
+  domain caveat (why a number won't match, an irreversibility warning)
+  still can, in the destination detail/confirmation UI, not on the list
+  that leads to it.
+- **Control height**: `--control-height` (2.25rem / 36px, already the
+  app-wide `Input`/`Select`/`Button` default) is the baseline; toolbar
+  filter controls specifically use `h-8` (32px, via `className="h-8 …
+  py-1 text-sm"` on each `Input`/`Select`) to match `/ventas` exactly —
+  both are within the approved 32–36px range, but pick one per context
+  and stay consistent (toolbars: 32px; standalone form fields:
+  default 36px).
+- **Toolbar**: `Toolbar` (`apps/gestion/src/components/ui/toolbar.tsx`)
+  is now a plain `flex flex-wrap items-center gap-2` row — no card band,
+  no `bg-card`/`border-y`. A stacked `Label` above every filter field
+  (the old Movimientos/Auditoría pattern) is replaced by either a bare
+  `aria-label` (dropdowns, search boxes) or a small inline `text-xs
+  text-muted-foreground` label immediately left of the field (date
+  ranges: "Desde"/"Hasta") — never a label on its own row.
+- **Table row density**: header cells `px-3 py-1.5`, data cells `px-3
+  py-1`, `hover:bg-muted/30` on `<tr>`. The wrapping
+  `overflow-x-auto rounded-md border border-border` container never
+  carries `bg-card` — the border and header row are enough structure
+  (see "Cards" above).
+- **Page-level vertical rhythm**: the outer page container is
+  `flex flex-col gap-2.5` (down from `gap-5`/`gap-6`) — heading,
+  toolbar, table, and pagination sit close together as one working
+  surface, not as separately-framed sections.
+- **When cards are still allowed**: a genuinely separable block that
+  isn't the page's main work surface — e.g. Usuarios' role-assignment
+  side panel (`RoleAssignmentPanel`, a real "selected user's roles"
+  sub-unit next to the main table) stayed a bordered `<aside>`, just
+  with tighter padding (`p-3`, down from `p-4`). If in doubt, ask "is
+  this the table/form the user came here for, or a secondary companion
+  to it" — only the latter gets a card.
+- **Sidebar section labels**: dropped the uppercase + `tracking-[0.08em]`
+  treatment (a SaaS design-system tic) in favor of plain sentence case
+  at `text-[0.6875rem] font-semibold text-muted-foreground/80` — still
+  visually distinct from nav items, without reading as a marketing
+  eyebrow label. Grouping itself (Operación/Maestros/Inventario y
+  precios/Administración) is unchanged.
+- **Dashboard (Inicio)**: the KPI stat-card grid became one compact,
+  bordered inline strip (`flex flex-wrap items-center gap-x-5 … text-sm`,
+  "value label" pairs like "2 ventas confirmadas hoy · ARS 28.900,00
+  total operado · 1 borrador abierto …", each a link where the old card
+  was) — same underlying `useDashboardSummary()` fields and null-checks,
+  no calculation changed. "Acciones rápidas" dropped its
+  `border-y bg-card/60` band and uppercase eyebrow label; it's now a
+  bare `flex flex-wrap gap-2` row of outline buttons directly under the
+  KPI strip. Ventas recientes' own heading shrank to match (`text-sm`,
+  muted) since it's a secondary section on this page, not the page's own
+  title.
+- **Left deliberately untouched in this pass**: Facturación/POS (a
+  different operational role — see "Gestión vs Facturación" below), and
+  Gestión's secondary nested routes (customer/product detail pages,
+  create/edit forms, categorías/marcas/unidades) beyond what they
+  inherited automatically from `PageHeader`'s smaller title — propagating
+  into those is future work, not assumed to be finished by this pass.
 
 ## Gestión vs Facturación
 

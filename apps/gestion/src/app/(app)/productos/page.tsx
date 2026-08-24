@@ -12,7 +12,7 @@ import { usePermissions, useProducts, useProductCategories } from '@/lib/auth-cl
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { PageHeader } from '@/components/ui/page-header';
+import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
@@ -73,13 +73,13 @@ export default function ProductosPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-2.5">
       <ProductosSubNav />
-      <PageHeader
+      <ListHeader
         title="Productos"
-        description="Catálogo de productos, servicios, variantes y códigos comerciales."
+        meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'producto' : 'productos'}`}
         actions={canCreate && (
-          <Link href="/productos/nuevo" className={buttonVariants()}>
+          <Link href="/productos/nuevo" className={buttonVariants({ size: 'sm' })}>
             <Plus className="size-4" />
             Nuevo producto
           </Link>
@@ -91,7 +91,7 @@ export default function ProductosPage() {
           placeholder="Buscar por nombre, código, SKU, código de barras…"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          className="max-w-sm"
+          className="h-8 max-w-sm py-1 text-sm"
           aria-label="Buscar productos"
         />
         <Select
@@ -100,7 +100,7 @@ export default function ProductosPage() {
             setStatus(e.target.value);
             setPage(1);
           }}
-          className="max-w-40"
+          className="h-8 max-w-40 py-1 text-sm"
           aria-label="Estado"
         >
           <option value="">Todos los estados</option>
@@ -113,7 +113,7 @@ export default function ProductosPage() {
             setProductType(e.target.value);
             setPage(1);
           }}
-          className="max-w-44"
+          className="h-8 max-w-44 py-1 text-sm"
           aria-label="Tipo"
         >
           <option value="">Todos los tipos</option>
@@ -129,7 +129,7 @@ export default function ProductosPage() {
             setCategoryId(e.target.value);
             setPage(1);
           }}
-          className="max-w-52"
+          className="h-8 max-w-52 py-1 text-sm"
           aria-label="Categoría"
         >
           <option value="">Todas las categorías</option>
@@ -141,25 +141,25 @@ export default function ProductosPage() {
         </Select>
       </Toolbar>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Código</th>
-              <th className="px-4 py-2">Producto</th>
-              <th className="px-4 py-2">SKU</th>
-              <th className="px-4 py-2">Código de barras</th>
-              <th className="px-4 py-2">Categoría</th>
-              <th className="px-4 py-2">Tipo</th>
-              <th className="px-4 py-2">Estado</th>
+              <th className="px-3 py-1.5">Código</th>
+              <th className="px-3 py-1.5">Producto</th>
+              <th className="px-3 py-1.5">SKU</th>
+              <th className="px-3 py-1.5">Código de barras</th>
+              <th className="px-3 py-1.5">Categoría</th>
+              <th className="px-3 py-1.5">Tipo</th>
+              <th className="px-3 py-1.5">Estado</th>
             </tr>
           </thead>
           <tbody>
             {productsQuery.isLoading && <TableRowsSkeleton columns={7} />}
             {items.map((product) => (
-              <tr key={product.id} className="border-t border-border">
-                <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">{product.code}</td>
-                <td className="px-4 py-2">
+              <tr key={product.id} className="border-t border-border hover:bg-muted/30">
+                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{product.code}</td>
+                <td className="px-3 py-1">
                   <Link
                     href={`/productos/${product.id}`}
                     className="font-medium underline-offset-4 hover:underline"
@@ -172,11 +172,11 @@ export default function ProductosPage() {
                     </p>
                   )}
                 </td>
-                <td className="px-4 py-2 whitespace-nowrap">{product.primarySku ?? '—'}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{product.primaryBarcode ?? '—'}</td>
-                <td className="px-4 py-2">{product.categoryName ?? '—'}</td>
-                <td className="px-4 py-2">{productTypeLabel(product.productType)}</td>
-                <td className="px-4 py-2">
+                <td className="px-3 py-1 whitespace-nowrap">{product.primarySku ?? '—'}</td>
+                <td className="px-3 py-1 whitespace-nowrap">{product.primaryBarcode ?? '—'}</td>
+                <td className="px-3 py-1">{product.categoryName ?? '—'}</td>
+                <td className="px-3 py-1">{productTypeLabel(product.productType)}</td>
+                <td className="px-3 py-1">
                   <StatusBadge status={product.status}>
                     {product.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}
                   </StatusBadge>

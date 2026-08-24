@@ -11,10 +11,9 @@ import {
 } from '@erp/shared';
 import { usePermissions, useAuditLog, useCompanyUsers } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
-import { PageHeader } from '@/components/ui/page-header';
+import { ListHeader } from '@/components/ui/page-header';
 import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
@@ -90,111 +89,94 @@ export default function AuditoriaPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <PageHeader
+    <div className="flex flex-col gap-2.5">
+      <ListHeader
         title="Auditoría"
-        description="Historial trazable de cambios administrativos, operativos y de seguridad."
+        meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'evento' : 'eventos'}`}
       />
 
-      <Toolbar className="flex-col items-stretch">
-        <div className="grid gap-3 sm:grid-cols-3 lg:max-w-3xl">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="dateFrom">Desde</Label>
+      <div className="flex flex-col gap-2">
+        <Toolbar>
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="dateFrom" className="text-xs text-muted-foreground">
+              Desde
+            </label>
             <Input
               id="dateFrom"
               type="date"
               value={dateFrom}
               onChange={(e) => onDateFrom(e.target.value)}
+              className="h-8 py-1 text-sm"
             />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="dateTo">Hasta</Label>
-            <Input id="dateTo" type="date" value={dateTo} onChange={(e) => onDateTo(e.target.value)} />
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="dateTo" className="text-xs text-muted-foreground">
+              Hasta
+            </label>
+            <Input id="dateTo" type="date" value={dateTo} onChange={(e) => onDateTo(e.target.value)} className="h-8 py-1 text-sm" />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="action">Acción</Label>
-            <Select
-              id="action"
-              value={action}
-              onChange={(e) => onAction(e.target.value)}
-            >
-              <option value="">Todas</option>
-              {Object.values(AuditAction).map((value) => (
-                <option key={value} value={value}>
-                  {auditActionLabel(value)}
+          <Select value={action} onChange={(e) => onAction(e.target.value)} className="h-8 max-w-44 py-1 text-sm" aria-label="Acción">
+            <option value="">Todas las acciones</option>
+            {Object.values(AuditAction).map((value) => (
+              <option key={value} value={value}>
+                {auditActionLabel(value)}
+              </option>
+            ))}
+          </Select>
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setShowMoreFilters((v) => !v)}
+          >
+            {showMoreFilters ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            Más filtros
+          </button>
+        </Toolbar>
+
+        {showMoreFilters && (
+          <Toolbar>
+            <Select value={userId} onChange={(e) => onUserId(e.target.value)} className="h-8 max-w-48 py-1 text-sm" aria-label="Usuario">
+              <option value="">Todos los usuarios</option>
+              {(usersQuery.data?.users ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.firstName} {u.lastName}
                 </option>
               ))}
             </Select>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          onClick={() => setShowMoreFilters((v) => !v)}
-        >
-          {showMoreFilters ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-          Más filtros
-        </button>
-
-        {showMoreFilters && (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="userId">Usuario</Label>
-              <Select
-                id="userId"
-                value={userId}
-                onChange={(e) => onUserId(e.target.value)}
-              >
-                <option value="">Todos</option>
-                {(usersQuery.data?.users ?? []).map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.firstName} {u.lastName}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="entityType">Tipo de entidad</Label>
-              <Select
-                id="entityType"
-                value={entityType}
-                onChange={(e) => onEntityType(e.target.value)}
-              >
-                <option value="">Todas</option>
-                {AUDITABLE_ENTITY_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {auditEntityLabel(type)}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
+            <Select value={entityType} onChange={(e) => onEntityType(e.target.value)} className="h-8 max-w-48 py-1 text-sm" aria-label="Tipo de entidad">
+              <option value="">Todas las entidades</option>
+              {AUDITABLE_ENTITY_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {auditEntityLabel(type)}
+                </option>
+              ))}
+            </Select>
+          </Toolbar>
         )}
-      </Toolbar>
+      </div>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Fecha y hora</th>
-              <th className="px-4 py-2">Usuario</th>
-              <th className="px-4 py-2">Acción</th>
-              <th className="px-4 py-2">Entidad</th>
-              <th className="px-4 py-2">Detalle breve</th>
+              <th className="px-3 py-1.5">Fecha y hora</th>
+              <th className="px-3 py-1.5">Usuario</th>
+              <th className="px-3 py-1.5">Acción</th>
+              <th className="px-3 py-1.5">Entidad</th>
+              <th className="px-3 py-1.5">Detalle breve</th>
             </tr>
           </thead>
           <tbody>
             {auditQuery.isLoading && <TableRowsSkeleton columns={5} />}
             {items.map((entry) => (
-              <tr key={entry.id} className="border-t border-border">
-                <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">
+              <tr key={entry.id} className="border-t border-border hover:bg-muted/30">
+                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">
                   {formatDateTime(entry.occurredAt)}
                 </td>
-                <td className="px-4 py-2">{entry.user?.name ?? 'Sistema'}</td>
-                <td className="px-4 py-2">{auditActionLabel(entry.action)}</td>
-                <td className="px-4 py-2">{auditEntityLabel(entry.entityType)}</td>
-                <td className="px-4 py-2">
+                <td className="px-3 py-1">{entry.user?.name ?? 'Sistema'}</td>
+                <td className="px-3 py-1">{auditActionLabel(entry.action)}</td>
+                <td className="px-3 py-1">{auditEntityLabel(entry.entityType)}</td>
+                <td className="px-3 py-1">
                   <Link
                     href={`/administracion/auditoria/${entry.id}`}
                     className="underline-offset-4 hover:underline"
