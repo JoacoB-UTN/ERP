@@ -1,16 +1,20 @@
 'use client';
 
 import { useActiveCompany } from '@/lib/auth-client';
-import { useServerHealth } from '@/lib/use-server-health';
+import { useServerHealth, type ServerHealthStatus } from '@/lib/use-server-health';
 import { cn } from '@/lib/utils';
 
-const STATUS_COPY: Record<'connected' | 'degraded' | 'disconnected', string> = {
+const STATUS_COPY: Record<ServerHealthStatus, string> = {
+  checking: 'Comprobando servidor…',
   connected: 'Conectado',
   degraded: 'Degradado',
   disconnected: 'Sin conexión',
 };
 
-const STATUS_DOT: Record<'connected' | 'degraded' | 'disconnected', string> = {
+const STATUS_DOT: Record<ServerHealthStatus, string> = {
+  // Neutral/low-emphasis on purpose — 'checking' is a normal transient
+  // startup state, never rendered as if something were already wrong.
+  checking: 'bg-muted-foreground/40',
   connected: 'bg-success',
   degraded: 'bg-warning',
   disconnected: 'bg-destructive',
