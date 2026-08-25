@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMe, useActiveCompany, usePermissions } from '@/lib/auth-client';
+import { useMe, useActiveCompany, usePermissions, useRealtimeSync } from '@/lib/auth-client';
 import { AppShell } from '@/components/layout/app-shell';
 import { NoCompanies } from '@/components/layout/no-companies';
 import { SelectCompanyPrompt } from '@/components/layout/select-company-prompt';
@@ -32,6 +32,11 @@ export default function AuthenticatedLayout({ children }: { children: React.Reac
   const { data, isLoading, isError } = useMe();
   const companyCtx = useActiveCompany();
   const permissions = usePermissions();
+
+  // Cross-workstation live updates (see docs/desktop-lan-architecture.md)
+  // — only once authenticated with a resolved active company; REST stays
+  // fully usable on its own regardless of whether this connects.
+  useRealtimeSync({ enabled: !isLoading && !isError && !!data && !!companyCtx.activeCompanyId });
 
   useEffect(() => {
     if (isError) {
