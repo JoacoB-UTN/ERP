@@ -29,6 +29,7 @@ import {
   StockAdjustmentNotDraftException,
 } from './inventory.exceptions';
 import { InventoryService } from './inventory.service';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 
 type LineWithVariant = StockAdjustmentLine & {
   variant: ProductVariant & { product: Product };
@@ -101,6 +102,7 @@ export class StockAdjustmentsService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly inventoryService: InventoryService,
+    private readonly realtimePublisher: RealtimePublisher,
   ) {}
 
   async list(
@@ -267,16 +269,26 @@ export class StockAdjustmentsService {
     if (existing.status !== 'DRAFT')
       throw new StockAdjustmentNotDraftException();
 
+    const stockChanges: { warehouseId: string; productVariantId: string }[] =
+      [];
     await this.prisma.$transaction(async (tx) => {
       for (const line of existing.lines) {
-        await this.inventoryService.applyAdjustmentLine(tx, ctx, {
-          warehouse: existing.warehouse,
-          productVariantId: line.productVariantId,
-          quantityDelta: line.quantityDelta.toString(),
-          reason: line.reason ?? undefined,
-          referenceType: 'StockAdjustment',
-          referenceId: existing.id,
-          occurredAt: existing.occurredAt,
+        const movement = await this.inventoryService.applyAdjustmentLine(
+          tx,
+          ctx,
+          {
+            warehouse: existing.warehouse,
+            productVariantId: line.productVariantId,
+            quantityDelta: line.quantityDelta.toString(),
+            reason: line.reason ?? undefined,
+            referenceType: 'StockAdjustment',
+            referenceId: existing.id,
+            occurredAt: existing.occurredAt,
+          },
+        );
+        stockChanges.push({
+          warehouseId: movement.warehouseId,
+          productVariantId: movement.productVariantId,
         });
       }
 
@@ -309,6 +321,17 @@ export class StockAdjustmentsService {
         tx,
       );
     });
+
+    // Only reached after the transaction above has committed — see
+    // SalesService.confirm() for the same pattern/rationale.
+    for (const change of stockChanges) {
+      this.realtimePublisher.stockChanged(
+        ctx.companyId,
+        change.warehouseId,
+        change.productVariantId,
+      );
+    }
+
     return this.getById(ctx.companyId, id);
   }
 

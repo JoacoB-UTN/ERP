@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import { Logger } from 'nestjs-pino';
 import type { Env } from '@erp/config';
 import { AppModule } from './app.module';
+import { RealtimeIoAdapter } from './realtime/realtime.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -32,6 +33,10 @@ async function bootstrap() {
     .map((origin) => origin.trim())
     .filter(Boolean);
   app.enableCors({ origin: allowedOrigins, credentials: true });
+
+  // Same CORS allow-list as the HTTP API above, applied to the realtime
+  // (Socket.IO) transport too — see realtime.adapter.ts.
+  app.useWebSocketAdapter(new RealtimeIoAdapter(app));
 
   app.setGlobalPrefix('api/v1');
 

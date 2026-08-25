@@ -25,6 +25,7 @@ import type {
 } from '@erp/shared';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import type { RequestContext } from '../company-context/types';
 import { ProductVariantNotFoundException } from '../products/products.exceptions';
 import {
@@ -138,6 +139,7 @@ export class PricingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly realtimePublisher: RealtimePublisher,
   ) {}
 
   // ---------- Scoped loaders (also reused by PriceListsService) ----------
@@ -436,7 +438,7 @@ export class PricingService {
 
     const effectiveFrom = startOfDay(input.effectiveFrom ?? new Date());
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const created = await this.applyPriceChange(
         tx,
         ctx,
@@ -470,6 +472,13 @@ export class PricingService {
         effectiveFrom: created.effectiveFrom.toISOString().slice(0, 10),
       };
     });
+
+    this.realtimePublisher.priceChanged(
+      ctx.companyId,
+      list.id,
+      productVariantId,
+    );
+    return result;
   }
 
   async setPrices(
@@ -486,7 +495,7 @@ export class PricingService {
     }
     const effectiveFrom = startOfDay(input.effectiveFrom ?? new Date());
 
-    return this.prisma.$transaction(async (tx) => {
+    const batchResults = await this.prisma.$transaction(async (tx) => {
       const results: PriceSetResultDto[] = [];
       for (const line of input.items) {
         const created = await this.applyPriceChange(
@@ -523,6 +532,13 @@ export class PricingService {
       );
       return results;
     });
+
+    // One event for the whole batch (no productVariantId) rather than one
+    // per line — keeps a multi-item batch from bursting many events for a
+    // single logical price update (see docs/desktop-lan-architecture.md's
+    // "Event burst / duplicate refetch control").
+    this.realtimePublisher.priceChanged(ctx.companyId, list.id);
+    return batchResults;
   }
 
   // ---------- Bulk adjustment (FIXED lists only) ----------
@@ -648,6 +664,7 @@ export class PricingService {
       );
     });
 
+    this.realtimePublisher.priceChanged(ctx.companyId, list.id);
     return { affectedCount: lines.length };
   }
 

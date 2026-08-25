@@ -31,6 +31,7 @@ import { ProductVariantNotFoundException } from '../products/products.exceptions
 import { InvalidQuantityPrecisionException } from '../inventory/inventory.exceptions';
 import { InventoryService } from '../inventory/inventory.service';
 import { PricingService } from '../pricing/pricing.service';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import {
   SaleNotFoundException,
   SaleNotEditableException,
@@ -243,6 +244,7 @@ export class SalesService {
     private readonly auditService: AuditService,
     private readonly inventoryService: InventoryService,
     private readonly pricingService: PricingService,
+    private readonly realtimePublisher: RealtimePublisher,
   ) {}
 
   async list(
@@ -557,6 +559,8 @@ export class SalesService {
       }
     }
 
+    const stockChanges: { warehouseId: string; productVariantId: string }[] =
+      [];
     await this.prisma.$transaction(async (tx) => {
       const guarded = await tx.salesDocument.updateMany({
         where: { id, status: 'DRAFT' },
@@ -569,7 +573,7 @@ export class SalesService {
       if (guarded.count === 0) throw new SaleAlreadyConfirmedException();
 
       for (const line of existing.lines) {
-        await this.inventoryService.applySaleLine(tx, ctx, {
+        const movement = await this.inventoryService.applySaleLine(tx, ctx, {
           warehouse: existing.warehouse,
           productVariantId: line.productVariantId,
           quantity: line.quantity.toString(),
@@ -577,6 +581,14 @@ export class SalesService {
           referenceId: existing.id,
           occurredAt: existing.occurredAt,
         });
+        // null for a non-inventory-tracked (e.g. SERVICE) line — never
+        // advertise a stock change that didn't actually happen.
+        if (movement) {
+          stockChanges.push({
+            warehouseId: movement.warehouseId,
+            productVariantId: movement.productVariantId,
+          });
+        }
       }
 
       if (tender) {
@@ -617,6 +629,21 @@ export class SalesService {
         tx,
       );
     });
+
+    // Only reachable once the transaction above has actually committed —
+    // a thrown exception inside it (insufficient stock, an already-
+    // confirmed race, ...) rejects the awaited promise and this code
+    // never runs, so a failed confirm emits nothing (see
+    // docs/desktop-lan-architecture.md's "Realtime architecture").
+    this.realtimePublisher.saleConfirmed(ctx.companyId, id);
+    for (const change of stockChanges) {
+      this.realtimePublisher.stockChanged(
+        ctx.companyId,
+        change.warehouseId,
+        change.productVariantId,
+      );
+    }
+
     return this.getById(ctx.companyId, id);
   }
 
@@ -653,6 +680,11 @@ export class SalesService {
         tx,
       );
     });
+
+    // DRAFT cancel has no inventory effect (see docs/sales.md) — no
+    // stock.changed, only sale.cancelled.
+    this.realtimePublisher.saleCancelled(ctx.companyId, id);
+
     return this.getById(ctx.companyId, id);
   }
 

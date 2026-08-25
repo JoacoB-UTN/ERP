@@ -21,6 +21,7 @@ import {
 } from '@erp/shared';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import type { RequestContext } from '../company-context/types';
 import {
   CustomerNotFoundException,
@@ -196,6 +197,7 @@ export class CustomersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly realtimePublisher: RealtimePublisher,
   ) {}
 
   async list(
@@ -391,6 +393,7 @@ export class CustomersService {
       return customer;
     });
 
+    this.realtimePublisher.customerUpdated(ctx.companyId, created.id);
     return this.getById(ctx.companyId, created.id);
   }
 
@@ -517,6 +520,7 @@ export class CustomersService {
       }
     });
 
+    this.realtimePublisher.customerUpdated(ctx.companyId, id);
     return this.getById(ctx.companyId, id);
   }
 
@@ -542,6 +546,7 @@ export class CustomersService {
         tx,
       );
     });
+    this.realtimePublisher.customerUpdated(ctx.companyId, id);
     return this.getById(ctx.companyId, id);
   }
 
@@ -575,6 +580,7 @@ export class CustomersService {
         tx,
       );
     });
+    this.realtimePublisher.customerUpdated(ctx.companyId, id);
     return this.getById(ctx.companyId, id);
   }
 

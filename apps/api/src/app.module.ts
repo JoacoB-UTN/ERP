@@ -20,6 +20,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { PricingModule } from './pricing/pricing.module';
 import { SalesModule } from './sales/sales.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 @Module({
@@ -68,6 +69,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
     PricingModule,
     SalesModule,
     DashboardModule,
+    RealtimeModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

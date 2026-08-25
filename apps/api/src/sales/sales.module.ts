@@ -5,6 +5,7 @@ import { AuthorizationModule } from '../authorization/authorization.module';
 import { AuditModule } from '../audit/audit.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { PricingModule } from '../pricing/pricing.module';
+import { RealtimeModule } from '../realtime/realtime.module';
 import { SalesController } from './sales.controller';
 import { SalesService } from './sales.service';
 
@@ -16,6 +17,7 @@ import { SalesService } from './sales.service';
     AuditModule,
     InventoryModule,
     PricingModule,
+    RealtimeModule,
   ],
   controllers: [SalesController],
   providers: [SalesService],
