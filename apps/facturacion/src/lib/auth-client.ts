@@ -43,4 +43,5 @@ export const {
   useUpdateSale,
   useConfirmSale,
   useCancelSale,
+  useRealtimeSync,
 } = authClient;

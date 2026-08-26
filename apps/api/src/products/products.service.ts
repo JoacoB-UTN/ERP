@@ -21,6 +21,7 @@ import type {
 } from '@erp/shared';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import type { RequestContext } from '../company-context/types';
 import {
   ProductNotFoundException,
@@ -233,6 +234,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly realtimePublisher: RealtimePublisher,
   ) {}
 
   async list(
@@ -515,6 +517,7 @@ export class ProductsService {
       return product;
     });
 
+    this.realtimePublisher.productUpdated(ctx.companyId, created.id);
     return this.getById(ctx.companyId, created.id);
   }
 
@@ -645,6 +648,7 @@ export class ProductsService {
       }
     });
 
+    this.realtimePublisher.productUpdated(ctx.companyId, id);
     return this.getById(ctx.companyId, id);
   }
 
@@ -668,6 +672,7 @@ export class ProductsService {
         tx,
       );
     });
+    this.realtimePublisher.productUpdated(ctx.companyId, id);
     return this.getById(ctx.companyId, id);
   }
 
@@ -691,6 +696,7 @@ export class ProductsService {
         tx,
       );
     });
+    this.realtimePublisher.productUpdated(ctx.companyId, id);
     return this.getById(ctx.companyId, id);
   }
 
@@ -745,6 +751,7 @@ export class ProductsService {
       );
       return variant;
     });
+    this.realtimePublisher.productUpdated(ctx.companyId, productId);
     return this.getVariantDto(created.id);
   }
 
@@ -792,6 +799,7 @@ export class ProductsService {
       );
       return variant;
     });
+    this.realtimePublisher.productUpdated(ctx.companyId, productId);
     return this.getVariantDto(updated.id);
   }
 

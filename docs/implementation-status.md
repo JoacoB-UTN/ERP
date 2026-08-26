@@ -279,6 +279,56 @@ placeholders" long after real navigation/modes existed). No schema
 change, no new business logic — see dashboard.md for why the one new
 aggregate endpoint was justified.
 
+### Realtime (LAN notification foundation)
+**Status: DONE for the transport and the events listed below; most
+company data is still not wired to a realtime event.** A company-scoped
+Socket.IO layer (`apps/api/src/realtime/`) notifies other connected
+sessions when business data changes, so a second open workstation can
+refetch without a manual reload — see
+[desktop-lan-architecture.md](desktop-lan-architecture.md)'s "Realtime
+architecture" section for the full design, including the exact
+"IMPLEMENTED NOW vs STILL FUTURE" split. Summary:
+
+- Sockets authenticate with the same session cookie the REST API
+  already trusts (no second credential); company-room subscription is
+  independently re-validated server-side via `CompanyContextService`
+  (no client-supplied `companyId` is ever trusted).
+- Six events are wired, each emitted only after its mutation's
+  transaction has committed: `sale.confirmed`/`sale.cancelled`
+  (`SalesService`), `stock.changed` (`SalesService`,
+  `StockAdjustmentsService`, `InventoryService.createInitialBalance`),
+  `customer.updated` (`CustomersService`), `product.updated`
+  (`ProductsService`), `price.changed` (`PricingService`). Deliberately
+  **not** wired yet: product category/brand/unit-of-measure master
+  data, and product variant deactivate/reactivate.
+  **This does not mean "all ERP data is realtime"** — only the flows
+  above push a live invalidation hint; every other read is still only
+  as fresh as its next manual refetch/navigation, same as before this
+  milestone.
+- Events are pure invalidation hints (ids + companyId only, never
+  authoritative data) — the client always refetches through the normal
+  permission-checked REST endpoint. `apps/gestion` and
+  `apps/facturacion` both consume one shared client
+  (`packages/auth-client/src/realtime-client.ts`'s `useRealtimeSync()`),
+  one socket per app session, with a small debounce/coalescing batcher
+  and one broad current-company invalidation on reconnect.
+- No durable event log/outbox and no Redis adapter — a single
+  `apps/api` process only, and a client disconnected when an event
+  fires simply recovers via the reconnect-triggered broad invalidation,
+  not a replay. See the architecture doc for why this is a deliberate
+  limitation, not an oversight.
+- Backend: `apps/api/test/realtime.e2e-spec.ts` (real sockets/Postgres;
+  unauthenticated rejection, authenticated connect, server-validated
+  subscription, cross-company isolation, transaction-safety). Frontend:
+  `apps/facturacion/src/lib/realtime-invalidation.test.ts` +
+  `realtime-sync.test.tsx` (event→invalidation mapping, reconnect
+  recovery, company-switch isolation). Manually verified with two
+  browsers: a Facturación sale confirmation updated an already-open
+  Gestión dashboard/stock/ventas view with no reload, a customer
+  created in one Gestión session updated another session's Clientes
+  list with no reload, and stopping/restarting the API produced an
+  automatic reconnect and refetch with no reload.
+
 ## Foundation-only (deliberately incomplete)
 
 ### Gestión (as a product)

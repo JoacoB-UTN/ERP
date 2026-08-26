@@ -13,3 +13,4 @@ export * from './inventory';
 export * from './pricing';
 export * from './sales';
 export * from './dashboard';
+export * from './realtime';

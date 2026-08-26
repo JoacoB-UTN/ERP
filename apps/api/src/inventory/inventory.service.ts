@@ -28,6 +28,7 @@ import type {
 import { exceedsDecimalPrecision } from '@erp/shared';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import type { RequestContext } from '../company-context/types';
 import { WarehouseNotFoundException } from '../warehouses/warehouses.exceptions';
 import { ProductVariantNotFoundException } from '../products/products.exceptions';
@@ -100,6 +101,7 @@ export class InventoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly realtimePublisher: RealtimePublisher,
   ) {}
 
   // ---------- Reads ----------
@@ -633,6 +635,15 @@ export class InventoryService {
       );
       return created;
     });
+
+    // Only reached once the transaction above has committed.
+    for (const movement of movements) {
+      this.realtimePublisher.stockChanged(
+        ctx.companyId,
+        movement.warehouseId,
+        movement.productVariantId,
+      );
+    }
 
     return {
       movements: movements.map((m) =>

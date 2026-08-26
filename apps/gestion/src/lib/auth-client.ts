@@ -128,4 +128,5 @@ export const {
   useConfirmSale,
   useCancelSale,
   useDashboardSummary,
+  useRealtimeSync,
 } = authClient;

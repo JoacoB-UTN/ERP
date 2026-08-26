@@ -1,13 +1,15 @@
 # Desktop / LAN architecture (target direction)
 
-**Status: PROPOSED, not implemented.** This document establishes the
+**Status: PROPOSED, partially implemented.** This document establishes the
 target architecture for moving from "two browser-based apps" to "a
 desktop ERP client connected to a local ERP server." Prompt #17
-prototypes a limited slice of the visual direction on top of this
-document's model; it does not implement desktop packaging, realtime
-transport, or LAN discovery — see
-[implementation-status.md](implementation-status.md) for what actually
-exists in code today.
+prototyped a limited slice of the visual direction on top of this
+document's model; Prompt #19 implemented the realtime transport
+described in "Realtime architecture" below (Socket.IO notifications,
+company-scoped rooms, TanStack Query invalidation) — everything else
+(desktop packaging, LAN discovery, TLS deployment) is still not
+implemented — see [implementation-status.md](implementation-status.md)
+for what actually exists in code today.
 
 See also [architecture.md](architecture.md) (current stack/structure),
 [desktop-ui-direction.md](desktop-ui-direction.md) (the companion visual
@@ -48,7 +50,7 @@ PostgreSQL                              Thin shell only:
 NestJS API                                - local server configuration
 Gestión frontend  (Next.js process)       - server health/connect screen
 Facturación frontend (Next.js process)    - workspace selection (Gestión/
-future Socket.IO                            Facturación) — a BrowserWindow
+Socket.IO notifications              Facturación) — a BrowserWindow
                                               navigating to the ERP
                                               Server's own URL for that
                                               workspace, not a locally
@@ -84,7 +86,7 @@ is expected to be much slower than the server-hosted UI's.
 │                     │              │  └───────────┘ └─────────┘ │
 │                     │  + realtime  │   own origin    own origin │
 │                     │  transport   │   (own port —   (own port — │
-│                     │  (proposed,  │   see "Origins, │ see below)│
+│                     │  (Socket.IO, │   see "Origins, │ see below)│
 │                     │  §Realtime)  │   cookies, CORS"│           │
 │                     └──────┬───────┘   below)                   │
 └────────────────────────────┼─────────────────────────────────────┘
@@ -120,8 +122,9 @@ is expected to be much slower than the server-hosted UI's.
   reachable only from the API process.
 - **API** — unchanged business logic (`apps/api/src/*`), the only
   process allowed to read or write the database.
-- **Realtime transport** — proposed, not implemented — see "Realtime
-  architecture" below.
+- **Realtime transport** — implemented as of Prompt #19 (Socket.IO
+  notifications, invalidation hints only) — see "Realtime architecture"
+  below for exactly what does and does not exist yet.
 - **LAN clients** — any PC on the same local network as the server,
   running the thin ERP client pointed at the server's address.
 
@@ -418,10 +421,12 @@ desktop-ui-direction.md for exactly what was and wasn't built.
 
 ## Realtime architecture
 
-**Not implemented in this prompt.** Documented here so the desktop
-chrome prototype's connection-status placeholder and the eventual
-"data changes on one till show up on another" requirement have a
-concrete target to grow into.
+**Implemented as of Prompt #19** — Socket.IO notifications,
+company-scoped rooms, and TanStack Query invalidation, exactly as
+described below. See "IMPLEMENTED NOW vs STILL FUTURE" at the end of
+this section for the precise line between what exists in code today and
+what remains a target for later work (durable delivery, multi-instance
+scale-out, Electron/LAN discovery/TLS deployment).
 
 ### Model
 
@@ -458,29 +463,83 @@ a full serialized model. This keeps the event shape stable even as the
 underlying DTOs evolve, and means the WebSocket layer never has to
 reimplement the REST layer's field-level permission gating — the client
 still has to go fetch the data through the normal authorized path to
-actually see it, so there's nothing sensitive in the event itself.
+actually see it, so there's nothing sensitive in the event itself. The
+contract lives in `packages/shared/src/realtime.ts`, shared by both the
+API (which imports it as the payload type for `RealtimePublisher`,
+`apps/api/src/realtime/realtime.publisher.ts`) and the frontend (which
+imports it for `invalidationKeysFor()`,
+`packages/auth-client/src/realtime-client.ts`), so a payload shape
+change is a single-source-of-truth TypeScript change, not two
+independently-maintained shapes.
+
+Every event is emitted by `RealtimePublisher`, and only ever called
+**after** the mutation's own `prisma.$transaction(...)` has resolved —
+never inside the transaction callback, and never on a path that throws
+or rolls back. Current producers:
+
+| Event | Emitted by |
+| --- | --- |
+| `sale.confirmed` | `SalesService.confirm()` |
+| `sale.cancelled` | `SalesService.cancel()` |
+| `stock.changed` | `SalesService.confirm()` (per line with a stock effect), `StockAdjustmentsService.confirm()`, `InventoryService.createInitialBalance()` |
+| `customer.updated` | `CustomersService.create()` / `.update()` / `.deactivate()` / `.reactivate()` |
+| `product.updated` | `ProductsService.create()` / `.update()` / `.deactivate()` / `.reactivate()` / `.addVariant()` / `.updateVariant()` |
+| `price.changed` | `PricingService.setPrice()` / `.setPrices()` (one event for the whole batch, not one per line) / `.confirmBulkAdjust()` |
+
+Deliberately **not** wired to an event in this milestone: category/
+brand/unit-of-measure master data, and `deactivateVariant`/
+`reactivateVariant` on products — scoped out to avoid event-name
+proliferation for lower-traffic master data; REST remains correct for
+these, they simply don't push a live invalidation hint yet.
 
 ### Tenant/company isolation
 
 The socket handshake authenticates with the same session the REST API
-already trusts (the same cookie — Socket.IO's handshake carries it the
-same way any same-site request does, per "Origins, cookies, and CORS"
-above; the socket server would need the same CORS-origin allow-list
-treatment as `apps/api/src/main.ts`'s HTTP CORS config). The server
-resolves `companyId` from that authenticated context — never
-from a client-supplied value — and joins the socket to a
-company-scoped room (`company:{companyId}`) at connect time. Switching
+already trusts — the same `access_token` httpOnly cookie `JwtAuthGuard`
+verifies, read via Socket.IO connection **middleware**
+(`RealtimeGateway.afterInit` → `server.use(...)`, not `handleConnection`,
+specifically so authentication always finishes before the client's own
+`'connect'` event fires — see the doc comment on
+`apps/api/src/realtime/realtime.gateway.ts` for why a middleware vs.
+`handleConnection` distinction matters here). The socket server shares
+the exact same CORS-origin allow-list as the HTTP API
+(`apps/api/src/realtime/realtime.adapter.ts`'s `RealtimeIoAdapter`,
+reading the same `CORS_ORIGIN` config `apps/api/src/main.ts` uses) —
+never a wildcard, since this is a credentialed connection.
+
+Unlike this section's original proposal, the company room is **not**
+joined automatically at connect time. The client explicitly emits a
+`company:subscribe` message with the id of its currently active
+company; the server independently re-validates that id through
+`CompanyContextService.validateCompanyAccess()` — the exact same
+membership check `CompanyContextGuard` uses on every REST request —
+before joining the socket to `company:{companyId}`
+(`companyRealtimeRoom()` in `packages/shared/src/realtime.ts`). A
+client can never subscribe to another company's room by guessing its
+UUID; a denied subscription returns `{ ok: false, error:
+'COMPANY_ACCESS_DENIED' }` rather than silently doing nothing. Switching
 the active company in the UI leaves the old room and joins the new one,
 mirroring how TanStack Query cache keys already re-scope by company
 (`['company', companyId, ...]`, see CLAUDE.md's cache-isolation rule).
+Proven by `apps/api/test/realtime.e2e-spec.ts`'s isolation test: two
+real sockets, two real companies, an event published into one room is
+received by the member of that company and never by the other.
 
 ### Reconnect behavior
 
-Rely on the transport's built-in reconnect/backoff (see "Realtime
-technology assessment" below) rather than hand-rolling one. On a
-successful reconnect, the client performs one broad invalidation of
-its currently-mounted queries rather than trying to replay whatever was
-missed — see "Missed-event recovery."
+Relies entirely on `socket.io-client`'s built-in reconnect/backoff (see
+"Realtime technology assessment" below) — nothing hand-rolled. On a
+successful reconnect (including the very first connect), the client
+resubscribes to the currently active company's room; on every reconnect
+*after* the first, it also performs one broad invalidation of that
+company's currently-mounted queries (`queryClient.invalidateQueries({
+queryKey: ['company', companyId] })`) rather than trying to replay
+whatever was missed — see "Missed-event recovery." This is implemented
+in `packages/auth-client/src/realtime-client.ts`'s `useRealtimeSync`
+and was verified manually end-to-end: stopping and restarting the API
+while a Gestión tab sat on an already-mounted page (no reload) produced
+an automatic Socket.IO reconnect, a fresh `company:subscribe`, and an
+automatic refetch of that page's visible data.
 
 ### Missed-event recovery
 
@@ -548,18 +607,76 @@ Evaluated against this repository specifically:
   a handful of concurrently connected tills is a trivial load for
   Socket.IO; this is not a decision under internet-scale constraints.
 
-**Current state**: no realtime infrastructure exists in `apps/api`
-today — `@nestjs/websockets` appears only as a transitive lockfile
-entry, not an actual dependency of `apps/api` or any source file
-(verified: not in `apps/api/package.json`, not imported anywhere under
-`apps/api/src`). There is nothing to document as "already reusable" —
-this would be new infrastructure when it's eventually built.
+**Current state**: implemented in `apps/api/src/realtime/`
+(`realtime.gateway.ts`, `realtime.publisher.ts`, `realtime.module.ts`,
+`realtime.adapter.ts`) using `@nestjs/websockets` +
+`@nestjs/platform-socket.io` + `socket.io` as real, direct dependencies
+of `apps/api` (not transitive), with `socket.io-client` as the frontend
+transport (`packages/auth-client/src/realtime-client.ts`, consumed by
+both `apps/gestion` and `apps/facturacion` through their shared
+`useRealtimeSync()` hook). Backend coverage:
+`apps/api/test/realtime.e2e-spec.ts` (real sockets, real Postgres,
+7 tests: unauthenticated rejection, authenticated connect,
+server-validated company subscription, cross-company isolation,
+transaction-safety). Frontend coverage:
+`apps/facturacion/src/lib/realtime-invalidation.test.ts` (event →
+query-key mapping) and `realtime-sync.test.tsx` (connect/reconnect/
+company-switch behavior against a fake socket).
+
+### IMPLEMENTED NOW vs STILL FUTURE
+
+**Implemented now** (Prompt #19):
+
+- Socket.IO server reusing the existing session cookie for
+  authentication — no second credential, no client-supplied identity
+  trusted.
+- Company-scoped rooms, joined only after independent server-side
+  membership re-validation (`CompanyContextService`) — never a
+  client-supplied `companyId` trusted directly.
+- The six-event vocabulary above, emitted strictly after each
+  mutation's transaction commits; a failed/rolled-back mutation emits
+  nothing (proven by an automated test, not just asserted).
+- A shared, singleton frontend client (one socket per app session) with
+  a centralized event → TanStack Query invalidation mapping, a
+  50ms debounce/coalescing batcher for event bursts, and one broad
+  current-company invalidation on reconnect.
+- Automatic reconnect/backoff (via `socket.io-client` defaults) —
+  verified manually: stopping and restarting the API while a page sat
+  mounted produced an automatic reconnect and refetch with zero manual
+  reload.
+
+**Still future / explicitly not implemented**:
+
+- **Guaranteed delivery.** There is no outbox, sequence numbers, or
+  event log. An event published while a client is disconnected is lost
+  for that client; the reconnect-triggered broad invalidation is the
+  only recovery mechanism, and it recovers *current state*, not the
+  missed event itself. This is a deliberate simplification (see
+  "Missed-event recovery" above), not an oversight — never describe
+  this system as providing guaranteed or at-least-once delivery.
+- **Multi-instance / multi-process realtime.** No Redis adapter (or
+  any other cross-process broker) is wired up. `RealtimeGateway`'s
+  in-memory Socket.IO server only reaches clients connected to that
+  *same* Node process. Running more than one `apps/api` instance behind
+  a load balancer would silently split clients across rooms that can no
+  longer see each other's events. Fine for this milestone's single
+  ERP-Server-per-LAN target; would need `@socket.io/redis-adapter` (or
+  equivalent) before any horizontal scale-out of the API process.
+- **Electron thin client, LAN discovery, TLS deployment, runtime server
+  configuration.** Unchanged from this document's original scope split
+  — none of that is part of the realtime transport itself.
+- **Offline write queueing.** A disconnected client's own mutations
+  still fail visibly (no fake success, nothing queued for silent later
+  retry) — unchanged from "Failure behavior" above.
 
 ## Explicitly not part of this phase
 
 Per Prompt #17's scope: no Electron/Tauri dependency added, no
 installer, no auto-update, no Windows service, no Docker architecture
-change, no WebSocket dependency added, no LAN discovery implementation.
-This document exists to establish the target so those can be built
-against a decided shape later — see the final report's "Recommendation
-for next step."
+change, no LAN discovery implementation. Per Prompt #19's scope (which
+did add the realtime transport itself): no Redis adapter or other
+durable/cross-process event broker, no durable outbox or event replay,
+no offline write queue, no Electron runtime server configuration. This
+document exists to establish the target so those can be built against a
+decided shape later — see the final report's "Recommendation for next
+step."
