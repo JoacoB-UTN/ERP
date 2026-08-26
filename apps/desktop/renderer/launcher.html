@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      Strict CSP — Prompt #20 §10. The launcher never fetches anything
+      itself (connect-src 'none'): network/health checks are performed by
+      the MAIN PROCESS via the narrow preload IPC bridge, never by
+      granting this page its own network powers. No inline script, no
+      eval, no remote script/style/image/font source, no framing.
+
+      `frame-ancestors` is deliberately NOT included here: it can only be
+      enforced when CSP is delivered as a real HTTP response header, and
+      browsers/Electron ignore it outright when set via a <meta> element
+      (this page is local `file://` content with no HTTP server behind
+      it, and this milestone doesn't stand one up just for this one
+      directive) — including it produced a console warning without ever
+      actually doing anything. `frame-src 'none'` (this page embedding
+      something) is the directive that *does* work via meta and is kept
+      below; framing protection for *this* page comes from the Electron
+      security model instead: the launcher's own BrowserWindow denies
+      all navigation/window-open attempts (see `createLauncherWindow` in
+      main.ts), remote workspace windows are never given a preload or
+      any privileged bridge, and their own navigation/popups are
+      likewise restricted to the configured server's two origins (see
+      `navigation-policy.ts`) — none of that depends on this meta tag.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';"
+    />
+    <title>ERP</title>
+    <link rel="stylesheet" href="launcher.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="brand">
+        <span class="brand-mark" aria-hidden="true">ERP</span>
+      </header>
+
+      <div id="load-error-banner" class="banner banner-error" hidden>
+        <p class="banner-title">No se pudo abrir <span id="load-error-workspace"></span></p>
+        <p class="banner-detail">Servidor: <span id="load-error-host"></span></p>
+        <div class="banner-actions">
+          <button id="load-error-retry" type="button" class="btn btn-primary">Reintentar</button>
+          <button id="load-error-home" type="button" class="btn">Volver al inicio</button>
+          <button id="load-error-configure" type="button" class="btn">Configurar servidor</button>
+        </div>
+      </div>
+
+      <section id="config-screen" class="screen" hidden>
+        <h1 class="screen-title">Conectar al servidor ERP</h1>
+        <p class="screen-hint">
+          Ingresá la dirección del servidor ERP en esta red (IP o nombre de host).
+        </p>
+        <label class="field">
+          <span class="field-label">Servidor</span>
+          <input
+            id="server-input"
+            type="text"
+            inputmode="url"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="192.168.1.50"
+          />
+        </label>
+        <p id="config-error" class="field-error" hidden></p>
+        <div id="test-result" class="test-result" hidden>
+          <p class="test-overall">
+            <span id="test-overall-dot" class="status-dot"></span>
+            <span id="test-overall-label"></span>
+          </p>
+          <ul class="test-rows">
+            <li>API <span id="test-row-api" class="test-row-value"></span></li>
+            <li>Gestión <span id="test-row-gestion" class="test-row-value"></span></li>
+            <li>Facturación <span id="test-row-facturacion" class="test-row-value"></span></li>
+          </ul>
+          <p id="tls-warning" class="tls-warning" hidden>Conexión local sin cifrado.</p>
+        </div>
+        <div class="actions">
+          <button id="test-connection" type="button" class="btn btn-primary">Probar conexión</button>
+          <button id="save-server" type="button" class="btn" disabled>Guardar</button>
+          <button id="cancel-config" type="button" class="btn" hidden>Cancelar</button>
+        </div>
+      </section>
+
+      <section id="home-screen" class="screen" hidden>
+        <p class="server-label">Servidor</p>
+        <p class="server-host" id="home-host"></p>
+        <p class="server-status">
+          <span id="home-status-dot" class="status-dot"></span>
+          <span id="home-status-label"></span>
+        </p>
+        <p id="home-tls-warning" class="tls-warning" hidden>Conexión local sin cifrado.</p>
+
+        <div class="workspace-actions">
+          <button id="open-gestion" type="button" class="btn btn-workspace">Gestión</button>
+          <button id="open-facturacion" type="button" class="btn btn-workspace">Facturación</button>
+        </div>
+
+        <p id="home-open-error" class="field-error" hidden></p>
+
+        <div class="actions actions-secondary">
+          <button id="reconfigure-server" type="button" class="btn btn-link">Configurar servidor</button>
+          <button id="create-shortcuts" type="button" class="btn btn-link" hidden>
+            Crear accesos directos
+          </button>
+        </div>
+        <p id="shortcuts-result" class="hint" hidden></p>
+      </section>
+
+      <footer class="app-footer">
+        <span id="app-version"></span>
+      </footer>
+    </main>
+
+    <script src="launcher.js"></script>
+  </body>
+</html>

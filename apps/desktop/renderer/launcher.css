@@ -1,0 +1,276 @@
+:root {
+  color-scheme: light;
+  --bg: #f7f7f8;
+  --panel: #ffffff;
+  --border: #e2e2e6;
+  --text: #1c1c1f;
+  --muted: #6b6b73;
+  --primary: #2f5fd0;
+  --primary-fg: #ffffff;
+  --ok: #1f9254;
+  --warn: #b8860b;
+  --error: #c53030;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.shell {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 28px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.brand {
+  margin-bottom: 20px;
+}
+
+.brand-mark {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.screen {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.screen-title {
+  font-size: 17px;
+  margin: 0 0 6px;
+}
+
+.screen-hint {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+input[type='text'] {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+input[type='text']:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+}
+
+.field-error {
+  font-size: 12px;
+  color: var(--error);
+  margin: 4px 0 10px;
+}
+
+.test-result {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.test-overall {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.test-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.test-rows li {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+}
+
+.test-row-value {
+  font-weight: 600;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--muted);
+  display: inline-block;
+}
+
+.status-dot.ok {
+  background: var(--ok);
+}
+.status-dot.warn {
+  background: var(--warn);
+}
+.status-dot.error {
+  background: var(--error);
+}
+
+.tls-warning {
+  font-size: 11.5px;
+  color: var(--warn);
+  margin: 8px 0 0;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.actions-secondary {
+  margin-top: 18px;
+  justify-content: space-between;
+}
+
+.btn {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-fg);
+  font-weight: 600;
+}
+
+.btn-link {
+  border: none;
+  background: none;
+  color: var(--primary);
+  padding: 0;
+  height: auto;
+  font-size: 12.5px;
+}
+
+.server-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 2px;
+}
+
+.server-host {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.server-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin: 0 0 4px;
+}
+
+.workspace-actions {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0 4px;
+}
+
+.btn-workspace {
+  flex: 1;
+  height: 52px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.banner {
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.banner-error {
+  background: #fdecec;
+  border: 1px solid #f3b9b9;
+  color: var(--error);
+}
+
+.banner-title {
+  font-weight: 700;
+  margin: 0 0 2px;
+}
+
+.banner-detail {
+  margin: 0 0 8px;
+  color: var(--text);
+}
+
+.banner-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+
+.app-footer {
+  margin-top: auto;
+  padding-top: 20px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}

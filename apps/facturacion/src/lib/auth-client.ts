@@ -1,8 +1,21 @@
 'use client';
 
 import { createAuthClient } from '@erp/auth-client';
+import { DEFAULT_RUNTIME_PORTS, getBrowserOrigin, resolveServiceUrl } from '@erp/shared';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
+/**
+ * Resolved at runtime from the current page's own host — see
+ * docs/desktop-lan-architecture.md's "Runtime LAN addressing". Loading
+ * Facturación from `192.168.1.50:3002` resolves this to
+ * `192.168.1.50:3001` with zero rebuild; set `NEXT_PUBLIC_API_URL` to
+ * override explicitly (dev/test only).
+ */
+const API_URL = resolveServiceUrl({
+  explicitOverride: process.env.NEXT_PUBLIC_API_URL,
+  port: DEFAULT_RUNTIME_PORTS.api,
+  path: '/api/v1',
+  currentOrigin: getBrowserOrigin(),
+});
 
 export const authClient = createAuthClient({
   baseUrl: API_URL,

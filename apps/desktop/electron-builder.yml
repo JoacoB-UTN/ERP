@@ -1,0 +1,25 @@
+# Windows-first thin-client packaging — see docs/desktop-lan-architecture.md
+# "Windows package". Product name stays a neutral "ERP" — no branding/logo
+# work is in scope for this milestone (Prompt #20 §44).
+appId: com.erp-platform.desktop
+productName: ERP
+directories:
+  output: release
+files:
+  - dist/**/*
+  - renderer/**/*
+  - package.json
+asar: true
+publish: null
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  artifactName: ${productName}-${version}-win-x64-setup.${ext}

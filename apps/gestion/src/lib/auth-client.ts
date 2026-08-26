@@ -1,8 +1,7 @@
 'use client';
 
 import { createAuthClient } from '@erp/auth-client';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
+import { API_URL } from './api';
 
 export const authClient = createAuthClient({
   baseUrl: API_URL,
