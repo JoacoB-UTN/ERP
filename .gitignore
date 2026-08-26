@@ -17,6 +17,9 @@ out/
 *.tsbuildinfo
 apps/api/src/generated/
 
+# electron-builder output (apps/desktop) — never commit installer binaries
+apps/desktop/release/
+
 # Coverage
 coverage/
 .nyc_output/
