@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { app, BrowserWindow, Menu, ipcMain, session, shell as electronShell } from 'electron';
-import type { MenuItemConstructorOptions } from 'electron';
 import { IPC } from './ipc-channels';
 import {
   buildConfig,
@@ -15,6 +14,7 @@ import { parseStartupArgs } from './startup-args';
 import { isAllowedNavigationTarget } from './navigation-policy';
 import { workspaceUrl, type Workspace } from './urls';
 import { createWorkspaceShortcuts } from './shortcuts';
+import { buildAppMenuTemplate } from './menu';
 import { logger } from './logger';
 
 function isDev(): boolean {
@@ -270,34 +270,20 @@ function registerIpcHandlers(): void {
 }
 
 function buildAppMenu(): Menu {
-  const devItems: MenuItemConstructorOptions[] = isDev()
-    ? [{ type: 'separator' }, { label: 'Herramientas de desarrollo', role: 'toggleDevTools' }]
-    : [];
-
-  const template: MenuItemConstructorOptions[] = [
+  const template = buildAppMenuTemplate(
     {
-      label: 'ERP',
-      submenu: [
-        { label: 'Inicio', click: () => createLauncherWindow().show() },
-        { label: 'Gestión', click: () => void openWorkspace('gestion') },
-        { label: 'Facturación', click: () => void openWorkspace('facturacion') },
-        { type: 'separator' },
-        {
-          label: 'Configurar servidor',
-          click: () => {
-            const win = createLauncherWindow();
-            win.show();
-            win.focus();
-            win.webContents.send(IPC.SHOW_CONFIG_SCREEN);
-          },
-        },
-        { label: 'Recargar', role: 'reload' },
-        ...devItems,
-        { type: 'separator' },
-        { label: 'Salir', role: 'quit' },
-      ],
+      onInicio: () => createLauncherWindow().show(),
+      onGestion: () => void openWorkspace('gestion'),
+      onFacturacion: () => void openWorkspace('facturacion'),
+      onConfigurarServidor: () => {
+        const win = createLauncherWindow();
+        win.show();
+        win.focus();
+        win.webContents.send(IPC.SHOW_CONFIG_SCREEN);
+      },
     },
-  ];
+    isDev(),
+  );
   return Menu.buildFromTemplate(template);
 }
 

@@ -8,10 +8,26 @@
       the MAIN PROCESS via the narrow preload IPC bridge, never by
       granting this page its own network powers. No inline script, no
       eval, no remote script/style/image/font source, no framing.
+
+      `frame-ancestors` is deliberately NOT included here: it can only be
+      enforced when CSP is delivered as a real HTTP response header, and
+      browsers/Electron ignore it outright when set via a <meta> element
+      (this page is local `file://` content with no HTTP server behind
+      it, and this milestone doesn't stand one up just for this one
+      directive) — including it produced a console warning without ever
+      actually doing anything. `frame-src 'none'` (this page embedding
+      something) is the directive that *does* work via meta and is kept
+      below; framing protection for *this* page comes from the Electron
+      security model instead: the launcher's own BrowserWindow denies
+      all navigation/window-open attempts (see `createLauncherWindow` in
+      main.ts), remote workspace windows are never given a preload or
+      any privileged bridge, and their own navigation/popups are
+      likewise restricted to the configured server's two origins (see
+      `navigation-policy.ts`) — none of that depends on this meta tag.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none';"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';"
     />
     <title>ERP</title>
     <link rel="stylesheet" href="launcher.css" />
