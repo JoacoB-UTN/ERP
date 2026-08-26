@@ -23,11 +23,19 @@ export type OverallStatus = 'connected' | 'degraded' | 'unreachable';
  * §35: an Electron main-process fetch is not subject to browser CORS, so
  * "the API responded" here never proves "Gestión's own browser-context
  * requests will succeed." This checks whether the API's CORS layer
- * reflects the configured Gestión/Facturación origins in
- * `Access-Control-Allow-Origin` — a real signal, but not a full
+ * reflects BOTH configured workspace origins (Gestión and Facturación)
+ * in `Access-Control-Allow-Origin` — a real signal, but not a full
  * credentialed-request simulation (no preflight, no browser enforcement
- * involved). `'unknown'` means the check itself couldn't run (e.g. the
- * API was unreachable) — never presented as a pass.
+ * involved).
+ *
+ * `'ok'` requires an EXACT reflected origin for both workspaces. The ERP
+ * uses credentialed requests (cookies, `credentials: 'include'`) —
+ * `Access-Control-Allow-Origin: *` is invalid for credentialed requests
+ * (browsers reject it outright) and must never count as a pass here,
+ * even though a plain non-credentialed request would accept it.
+ *
+ * `'unknown'` means the check itself couldn't run (e.g. the API was
+ * unreachable) — never presented as a pass.
  */
 export type CorsAdvisory = 'ok' | 'missing' | 'unknown';
 
@@ -69,23 +77,11 @@ function describeNetworkError(err: unknown): string {
  * (`ok`/`degraded`/`error`), not just the HTTP status code: the API
  * intentionally returns HTTP 200 for both `ok` and `degraded` (Redis
  * down is not fatal), and only 503 when Postgres itself is unreachable
- * — see apps/api/src/health/health.controller.ts. Also captures whether
- * the response's CORS headers reflect the configured workspace origins
- * (best-effort, see `CorsAdvisory` above) in the same round trip.
+ * — see apps/api/src/health/health.controller.ts.
  */
-async function checkApiHealth(
-  config: DesktopConfig,
-  timeoutMs: number,
-): Promise<{ result: ServiceCheckResult; corsAdvisory: CorsAdvisory }> {
-  const gestionOrigin = new URL(gestionUrl(config)).origin;
+async function checkApiHealth(config: DesktopConfig, timeoutMs: number): Promise<ServiceCheckResult> {
   try {
-    const res = await fetchWithTimeout(
-      apiHealthUrl(config),
-      { headers: { Origin: gestionOrigin } },
-      timeoutMs,
-    );
-    const acao = res.headers.get('access-control-allow-origin');
-    const corsAdvisory: CorsAdvisory = acao === gestionOrigin || acao === '*' ? 'ok' : 'missing';
+    const res = await fetchWithTimeout(apiHealthUrl(config), {}, timeoutMs);
 
     let body: ApiHealthBody | undefined;
     try {
@@ -94,20 +90,45 @@ async function checkApiHealth(
       body = undefined;
     }
 
-    if (body?.status === 'ok') return { result: { status: 'ok' }, corsAdvisory };
-    if (body?.status === 'degraded') {
-      return { result: { status: 'degraded', detail: 'Redis no disponible.' }, corsAdvisory };
-    }
-    if (body?.status === 'error') {
-      return { result: { status: 'error', detail: 'Base de datos no disponible.' }, corsAdvisory };
-    }
-    return { result: { status: 'error', detail: `Respuesta inesperada (HTTP ${res.status}).` }, corsAdvisory };
+    if (body?.status === 'ok') return { status: 'ok' };
+    if (body?.status === 'degraded') return { status: 'degraded', detail: 'Redis no disponible.' };
+    if (body?.status === 'error') return { status: 'error', detail: 'Base de datos no disponible.' };
+    return { status: 'error', detail: `Respuesta inesperada (HTTP ${res.status}).` };
   } catch (err) {
-    return {
-      result: { status: 'unreachable', detail: describeNetworkError(err) },
-      corsAdvisory: 'unknown',
-    };
+    return { status: 'unreachable', detail: describeNetworkError(err) };
   }
+}
+
+/**
+ * One origin's reflection outcome — `'unknown'` means the request itself
+ * failed (network error), never presented as either a pass or a fail.
+ */
+type OriginReflection = boolean | 'unknown';
+
+/**
+ * Sends the API a request with the given `Origin` header and checks
+ * whether `Access-Control-Allow-Origin` reflects it EXACTLY. A wildcard
+ * (`*`) or any other value is `false` — see `CorsAdvisory`'s doc comment
+ * for why a wildcard must never count as a pass for this credentialed
+ * application.
+ */
+async function checkOriginReflected(
+  url: string,
+  origin: string,
+  timeoutMs: number,
+): Promise<OriginReflection> {
+  try {
+    const res = await fetchWithTimeout(url, { headers: { Origin: origin } }, timeoutMs);
+    return res.headers.get('access-control-allow-origin') === origin;
+  } catch {
+    return 'unknown';
+  }
+}
+
+/** `'ok'` only when BOTH workspace origins were exactly reflected; `'unknown'` if either check couldn't run at all. */
+function computeCorsAdvisory(gestion: OriginReflection, facturacion: OriginReflection): CorsAdvisory {
+  if (gestion === 'unknown' || facturacion === 'unknown') return 'unknown';
+  return gestion && facturacion ? 'ok' : 'missing';
 }
 
 /**
@@ -145,10 +166,16 @@ export async function testConnection(
   config: DesktopConfig,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<ConnectionResult> {
-  const [{ result: api, corsAdvisory }, gestion, facturacion] = await Promise.all([
+  const healthUrl = apiHealthUrl(config);
+  const gestionOrigin = new URL(gestionUrl(config)).origin;
+  const facturacionOrigin = new URL(facturacionUrl(config)).origin;
+
+  const [api, gestion, facturacion, gestionReflected, facturacionReflected] = await Promise.all([
     checkApiHealth(config, timeoutMs),
     checkFrontend(gestionUrl(config), timeoutMs),
     checkFrontend(facturacionUrl(config), timeoutMs),
+    checkOriginReflected(healthUrl, gestionOrigin, timeoutMs),
+    checkOriginReflected(healthUrl, facturacionOrigin, timeoutMs),
   ]);
 
   return {
@@ -156,7 +183,7 @@ export async function testConnection(
     api,
     gestion,
     facturacion,
-    corsAdvisory,
+    corsAdvisory: computeCorsAdvisory(gestionReflected, facturacionReflected),
     checkedAt: new Date().toISOString(),
   };
 }
