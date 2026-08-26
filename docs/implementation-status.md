@@ -329,6 +329,52 @@ architecture" section for the full design, including the exact
   list with no reload, and stopping/restarting the API produced an
   automatic reconnect and refetch with no reload.
 
+### Desktop client (Electron thin shell)
+**Status: DONE — a real, usable thin client; not yet an ERP Server
+installer.** `apps/desktop`, one installed Electron application (never
+two separate binaries) that never bundles Gestión, Facturación,
+`apps/api`, or PostgreSQL — see
+[desktop-lan-architecture.md](desktop-lan-architecture.md)'s "Desktop
+client (Electron thin shell)" for the full design.
+
+- A launcher window (local packaged content only, strict CSP, the app's
+  only privileged preload surface) lets an operator configure the ERP
+  Server's host, run a real connection diagnostic (API health +
+  Gestión/Facturación reachability, with a best-effort CORS advisory),
+  and open a workspace. A workspace window loads the server's own
+  Gestión/Facturación URL with **no preload at all** — sandboxed,
+  context-isolated, no Node integration — and only ever navigates within
+  that server's own two workspace origins.
+- `--workspace=gestion`/`--workspace=facturacion` launch straight into a
+  workspace when a reachable server is already configured (the mechanism
+  behind future "ERP Gestión"/"ERP Facturación" Windows shortcuts, which
+  the launcher can also create on Windows); a single-instance lock means
+  a second launch brings the existing app forward instead of spawning a
+  duplicate.
+- **Fixed the historical build-time host assumption** this milestone
+  depended on: Gestión and Facturación now resolve the API's URL (and
+  each other's URL) at runtime from the page's own host
+  (`packages/shared/src/runtime-url.ts`), not a baked-in
+  `NEXT_PUBLIC_API_URL`. Verified with zero rebuild between `localhost`,
+  `127.0.0.1`, and (via server access logs showing the real Electron
+  browser's own client-side fetches, correct CORS headers included) a
+  reconfigured host.
+- Tests: 67 desktop unit tests (`apps/desktop/test/`: server-input
+  validation/normalization, URL derivation, navigation allow-list,
+  startup-arg parsing, shortcut spec building, connection diagnostic
+  logic) + 9 frontend runtime-host-resolution tests
+  (`apps/facturacion/src/lib/runtime-url.test.ts`). Manually verified:
+  real Electron process launch, single-instance lock, direct
+  `--workspace=` startup against real dev servers, the 127.0.0.1
+  acceptance scenario (proven via server access logs, not screenshots —
+  this session had no screen-recording/accessibility permission for
+  native macOS UI automation), and the unreachable-server safe-fallback
+  path (launcher shown, never a blank remote window).
+- **Not yet implemented**: an ERP Server installer/service, TLS/
+  certificate provisioning, LAN auto-discovery, offline writes, branded
+  installer/icon, printer/fiscal hardware integration — see the
+  architecture doc's "Explicitly not part of this phase".
+
 ## Foundation-only (deliberately incomplete)
 
 ### Gestión (as a product)

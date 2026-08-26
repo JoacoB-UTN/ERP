@@ -6,10 +6,13 @@ desktop ERP client connected to a local ERP server." Prompt #17
 prototyped a limited slice of the visual direction on top of this
 document's model; Prompt #19 implemented the realtime transport
 described in "Realtime architecture" below (Socket.IO notifications,
-company-scoped rooms, TanStack Query invalidation) — everything else
-(desktop packaging, LAN discovery, TLS deployment) is still not
-implemented — see [implementation-status.md](implementation-status.md)
-for what actually exists in code today.
+company-scoped rooms, TanStack Query invalidation); Prompt #20
+implemented the actual Electron thin client and the runtime LAN-host
+resolution it depends on — see "Desktop client (Electron thin shell)"
+and "Runtime LAN addressing" below. Still not implemented: an ERP Server
+installer/service, LAN auto-discovery, and TLS deployment — see
+[implementation-status.md](implementation-status.md) for what actually
+exists in code today.
 
 See also [architecture.md](architecture.md) (current stack/structure),
 [desktop-ui-direction.md](desktop-ui-direction.md) (the companion visual
@@ -193,71 +196,126 @@ deployment can reassign them; what matters is that they remain three
 distinct origins unless the future reverse-proxy option below is
 adopted.
 
-## Connection configuration
+## Desktop client (Electron thin shell)
 
-**No LAN IP is ever hardcoded into the client build.** The client holds
-a small, locally persisted "server connection" setting — conceptually
-just the server's host, not a specific app's port, since the shell
-needs to reach all three server-hosted processes (API, Gestión,
-Facturación):
+**Implemented as of Prompt #20** — `apps/desktop`, a small Electron
+application. It is a **thin shell only**: it never bundles Gestión,
+Facturación, `apps/api`, or PostgreSQL — a workspace window simply
+navigates to the ERP Server's own server-hosted Gestión/Facturación URL,
+exactly as a regular browser would. One installed executable serves
+both workspaces (`ERP.exe --workspace=gestion` /
+`--workspace=facturacion`, or the plain launcher) — never two separate
+installers/binaries.
 
+### Two window types (security-critical)
+
+- **Launcher window** — loads only local packaged content
+  (`apps/desktop/renderer/launcher.html`, a strict CSP: no remote
+  script/style, no inline eval, `connect-src 'none'`). Has the *only*
+  privileged surface in the app: a narrow preload bridge
+  (`apps/desktop/src/preload.ts`) exposing a fixed, small set of methods
+  (`getDesktopConfig`, `testServer`, `saveServer`, `openWorkspace`,
+  `createWorkspaceShortcuts`, `getAppInfo`) — no generic
+  `invoke(channel, payload)`, no `fs`, no `child_process`, no
+  `shell.openExternal`.
+- **Workspace window** — loads remote, untrusted ERP-Server content
+  (Gestión or Facturación). **No preload at all** —
+  `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`,
+  `webSecurity: true`, `webviewTag: false`. A compromised or
+  misconfigured remote server can never reach the filesystem or any
+  Electron IPC channel through this window. Top-level navigation and
+  `window.open()` are policed by `navigation-policy.ts`'s allow-list
+  (only the configured server's own Gestión/Facturación origins — see
+  "Navigation security" below); all popups are denied outright.
+
+These two window types are never merged — a workspace window is never
+given the launcher's preload, and the launcher window never navigates to
+remote content.
+
+### Server configuration
+
+**No LAN IP is ever hardcoded into the client build.** The client
+persists a small, versioned JSON config under Electron's
+`app.getPath('userData')` (`apps/desktop/src/config.ts`) — deliberately
+outside the web apps' own `localStorage`, since changing the server
+effectively changes origin for every embedded page:
+
+```json
+{
+  "version": 1,
+  "scheme": "http",
+  "host": "192.168.1.50",
+  "ports": { "gestion": 3000, "api": 3001, "facturacion": 3002 }
+}
 ```
-{ "serverHost": "192.168.1.50" }
-```
 
-or
+- **First run**: "Conectar al servidor ERP" — a single "Servidor" field,
+  a "Probar conexión" action, and Guardar only enabled once a connection
+  test has run. Nothing silently defaults to `localhost` in a packaged
+  build.
+- **Input validation** (`normalizeServerInput`): accepts a bare host
+  (`192.168.1.50`, `erp-server.local`) or one with an explicit
+  `http`/`https` scheme; rejects embedded credentials, a port, a path, a
+  query string, a fragment, or any non-http(s) scheme (`javascript:`,
+  `file:`, `data:`, ...) outright — untrusted input is never silently
+  reinterpreted into something plausible.
+- **Persistence**: atomic (write to a temp file, then rename over the
+  real path) — a crash mid-write can never leave a half-written config.
+- **Changing servers later**: "Configurar servidor" from the launcher's
+  home screen or the native app menu.
+- **Discovery**: still out of scope — manual entry of an IP or hostname
+  remains the baseline (mDNS/`.local` auto-discovery is still a future
+  option, unchanged from the original assessment below).
 
-```
-{ "serverHost": "erp-servidor.local" }
-```
+### Connection diagnostic
 
-- **First run**: the client shows a "Conectar al servidor ERP" screen —
-  a single URL field, a "Probar conexión" action that calls the
-  server's existing `GET /health` (see `apps/api/src/health`, already
-  implemented, zero changes needed) before saving anything, and a clear
-  error if the health check fails or times out. Nothing is assumed;
-  nothing silently defaults to `localhost`.
-- **Storage**: this setting lives outside the web app's own
-  `localStorage` (which is per-origin and would need to be re-entered
-  every time the configured server changes, since changing `serverUrl`
-  effectively changes origin). It belongs in the desktop shell's own
-  local config store (e.g., an Electron `userData` JSON file), read
-  once at startup before the embedded frontend ever issues a request.
-- **Changing servers later**: an explicit "Configuración de conexión"
-  screen in the client shell (not a hidden dev setting) lets an admin
-  repoint the client — e.g., after replacing the server machine.
-- **Discovery**: out of scope for this phase. mDNS/Bonjour-style
-  `.local` auto-discovery is a plausible future addition (Windows
-  support for `.local` resolution is inconsistent without Bonjour
-  installed — a real caveat, not assumed away), but is not implemented
-  now; manual entry of an IP or hostname is the baseline that always
-  works.
+The launcher's "Probar conexión" runs entirely in the **main process**
+(`apps/desktop/src/health.ts`) — the renderer has no network access at
+all (its CSP forbids it) and asks main via IPC. Checks, with a 4s
+timeout each: the API's `GET /health` (parses the JSON body's
+`ok`/`degraded`/`error`, not just the HTTP status — the API returns 200
+for both `ok` and `degraded`, 503 only when Postgres itself is down);
+and that the Gestión/Facturación Next.js processes answer at all (any
+HTTP response, including an unauthenticated redirect, counts — auth
+state is not availability). Result: `connected` / `degraded` /
+`unreachable`, with a per-service breakdown, never a fabricated state.
 
-### Runtime server configuration (future Electron shell, not built yet)
+**An Electron main-process health check is not subject to browser
+CORS** — a real, deliberate distinction (Prompt #20 §35): "the API
+responded" does not by itself prove "Gestión's own browser-context
+requests will succeed." The diagnostic additionally inspects whether the
+API's CORS layer reflects the configured Gestión origin in
+`Access-Control-Allow-Origin` (`corsAdvisory: 'ok' | 'missing' |
+'unknown'`) — genuinely useful, but explicitly best-effort/informational
+only, not a full credentialed-request simulation.
 
-This PR's prototype workspace switcher (`apps/gestion/src/components/layout/workspace-switcher.tsx`,
-`apps/facturacion/.../workspace-switcher.tsx`) links to the other app
-via a **build-time** environment variable —
-`NEXT_PUBLIC_FACTURACION_URL`/`NEXT_PUBLIC_GESTION_URL`, falling back to
-the dev ports. **This is explicitly prototype/dev behavior, not the
-target LAN configuration mechanism** — it requires rebuilding the app
-to point at a different address, which is exactly what the target
-architecture must avoid: one customer's install must never require a
-different build than another's.
+### Runtime LAN addressing
 
-The target: the future Electron shell reads its persisted `serverHost`
-(above) at startup and **derives** each workspace's URL from it at
-runtime — e.g. `http://{serverHost}:3000` for Gestión,
-`http://{serverHost}:3002` for Facturación, `http://{serverHost}:3001`
-for the API — the same three-port shape "Origins, cookies, and CORS"
-below documents, just parameterized by the one value the operator
-entered on the connect screen instead of baked into the bundle. If the
-future reverse-proxy option (see below) is adopted instead, the shell
-would derive path-based URLs under one origin the same way. Neither is
-implemented in this PR — the prototype's `NEXT_PUBLIC_*` variables
-remain acceptable for local dev and for demoing the visual direction,
-and should be replaced by this runtime mechanism when the actual
-Electron shell is built.
+This is the fix for the historical build-time assumption flagged below.
+**Gestión and Facturación now resolve the API's URL — and each other's
+URL — at runtime, from whatever host the page was actually loaded from**
+(`packages/shared/src/runtime-url.ts`'s `resolveServiceUrl`, consumed by
+`apps/gestion/src/lib/api.ts`, `apps/facturacion/src/lib/auth-client.ts`,
+and both apps' `workspace-urls.ts`/`api.ts`). Loading Gestión from
+`http://192.168.1.50:3000` resolves its API calls and its Socket.IO
+connection (Prompt #19) to `http://192.168.1.50:3001` — and its
+Facturación workspace-switcher link to `http://192.168.1.50:3002` — with
+**zero rebuild**. `NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_GESTION_URL`/
+`NEXT_PUBLIC_FACTURACION_URL` remain available as an explicit override
+(dev/test only) — set, they win outright; unset (the default, and now
+also the default local-dev `.env.local` state), the runtime-derived
+value is used. See `apps/facturacion/src/lib/runtime-url.test.ts` for
+the unit tests proving this, and the final report's "Runtime LAN
+addressing" for the manually-verified `localhost`/`127.0.0.1`/LAN-IP
+scenarios.
+
+Electron's own workspace-URL derivation (`apps/desktop/src/urls.ts` —
+`gestionUrl`/`apiUrl`/`facturacionUrl`, from the persisted config above)
+is a separate, smaller concern: it only decides which URL to `loadURL()`
+into a workspace `BrowserWindow` and what the navigation allow-list is.
+Once that page loads, the runtime-host logic above takes over for every
+REST/Socket.IO call the page itself makes — Electron does not need its
+own bridge for that.
 
 ### Origins, cookies, and CORS (corrected terminology)
 
@@ -671,12 +729,16 @@ company-switch behavior against a fake socket).
 
 ## Explicitly not part of this phase
 
-Per Prompt #17's scope: no Electron/Tauri dependency added, no
-installer, no auto-update, no Windows service, no Docker architecture
-change, no LAN discovery implementation. Per Prompt #19's scope (which
-did add the realtime transport itself): no Redis adapter or other
+Per Prompt #17's scope: no installer, no auto-update, no Windows
+service, no Docker architecture change, no LAN discovery implementation
+(all still true — see "Desktop client" above for exactly what Prompt #20
+*did* add: the Electron shell itself). Per Prompt #19's scope (which did
+add the realtime transport itself): no Redis adapter or other
 durable/cross-process event broker, no durable outbox or event replay,
-no offline write queue, no Electron runtime server configuration. This
-document exists to establish the target so those can be built against a
-decided shape later — see the final report's "Recommendation for next
-step."
+no offline write queue. Per Prompt #20's scope (which did add the
+Electron thin client and runtime LAN addressing): no ERP Server
+installer/service, no TLS/certificate provisioning, no branded
+installer/icon, no printer/fiscal hardware integration, no offline write
+queueing in the desktop shell either. This document exists to establish
+the target so those can be built against a decided shape later — see the
+final report's "Recommendation for next step."
