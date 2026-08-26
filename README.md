@@ -39,7 +39,7 @@ and what must never be duplicated between the two frontends:
 ```bash
 npm install
 cp .env.example apps/api/.env             # then edit apps/api/.env if needed
-cp .env.example apps/gestion/.env.local    # only NEXT_PUBLIC_API_URL is used here
+cp .env.example apps/gestion/.env.local    # NEXT_PUBLIC_* overrides only — see .env.example
 cp .env.example apps/facturacion/.env.local # same
 ```
 
@@ -96,8 +96,12 @@ start if these are missing or malformed.
 | `AUTH_RATE_LIMIT_TTL_SECONDS` / `AUTH_RATE_LIMIT_MAX` | no            | `60` / `10`                                   | rate limiting on login/forgot-password/reset-password/refresh                                        |
 | `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`            | prod: **yes** | dev-only default                              | only read by `npm run db:seed`, never by the running API                                             |
 
-`apps/gestion` and `apps/facturacion` only read `NEXT_PUBLIC_API_URL`
-(defaults to `http://localhost:3001/api/v1`).
+`apps/gestion` and `apps/facturacion` resolve the API's URL (and each
+other's URL) at **runtime** from whatever host the page was loaded from
+(see docs/desktop-lan-architecture.md's "Runtime LAN addressing") — no
+env var is required for normal dev. `NEXT_PUBLIC_API_URL` /
+`NEXT_PUBLIC_GESTION_URL` / `NEXT_PUBLIC_FACTURACION_URL` remain
+available as explicit dev/test overrides only.
 
 ## Database
 

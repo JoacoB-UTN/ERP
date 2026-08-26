@@ -11,7 +11,7 @@ git clone <repo-url>
 cd erp-platform
 npm install
 cp .env.example apps/api/.env              # then edit apps/api/.env if needed
-cp .env.example apps/gestion/.env.local     # only NEXT_PUBLIC_API_URL is used here
+cp .env.example apps/gestion/.env.local     # NEXT_PUBLIC_* overrides only — see .env.example
 cp .env.example apps/facturacion/.env.local # same
 
 docker compose up -d    # starts Postgres (:5433) and Redis (:6380)
