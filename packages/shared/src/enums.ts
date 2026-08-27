@@ -215,3 +215,26 @@ export const SalesTenderMethod = {
   OTHER: 'OTHER',
 } as const;
 export type SalesTenderMethod = (typeof SalesTenderMethod)[keyof typeof SalesTenderMethod];
+
+/** See docs/purchases.md. Never physically deleted — deactivate/reactivate flip this instead, same pattern as CustomerStatus. */
+export const SupplierStatus = {
+  ACTIVE: 'ACTIVE',
+  INACTIVE: 'INACTIVE',
+} as const;
+export type SupplierStatus = (typeof SupplierStatus)[keyof typeof SupplierStatus];
+
+/** See docs/purchases.md — CONFIRMED and CANCELLED are both terminal. A confirmed PurchaseOrder never generates a StockMovement. */
+export const PurchaseOrderStatus = {
+  DRAFT: 'DRAFT',
+  CONFIRMED: 'CONFIRMED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type PurchaseOrderStatus = (typeof PurchaseOrderStatus)[keyof typeof PurchaseOrderStatus];
+
+/** See docs/purchases.md — identical shape to PurchaseOrderStatus. Confirming is the only Purchases action that creates a StockMovement. */
+export const PurchaseReceiptStatus = {
+  DRAFT: 'DRAFT',
+  CONFIRMED: 'CONFIRMED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type PurchaseReceiptStatus = (typeof PurchaseReceiptStatus)[keyof typeof PurchaseReceiptStatus];

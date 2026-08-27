@@ -65,6 +65,34 @@ export class RealtimePublisher {
     });
   }
 
+  purchaseOrderConfirmed(companyId: string, purchaseOrderId: string): void {
+    this.publish(companyId, 'purchase-order.confirmed', {
+      companyId,
+      purchaseOrderId,
+    });
+  }
+
+  purchaseOrderCancelled(companyId: string, purchaseOrderId: string): void {
+    this.publish(companyId, 'purchase-order.cancelled', {
+      companyId,
+      purchaseOrderId,
+    });
+  }
+
+  purchaseReceiptConfirmed(companyId: string, purchaseReceiptId: string): void {
+    this.publish(companyId, 'purchase-receipt.confirmed', {
+      companyId,
+      purchaseReceiptId,
+    });
+  }
+
+  purchaseReceiptCancelled(companyId: string, purchaseReceiptId: string): void {
+    this.publish(companyId, 'purchase-receipt.cancelled', {
+      companyId,
+      purchaseReceiptId,
+    });
+  }
+
   private publish<E extends RealtimeEventName>(
     companyId: string,
     event: E,

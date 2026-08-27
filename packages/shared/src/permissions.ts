@@ -434,6 +434,42 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   },
   { code: 'sales.costs.read', module: 'sales', resource: 'costs', action: 'read', description: 'Ver costos' },
 
+  // ---- Purchases (suppliers, purchase orders, goods receipts — see
+  // docs/purchases.md, Prompt #21). The confirm action on a PurchaseOrder
+  // reuses the pre-existing `purchases.orders.approve` code (reserved
+  // before this module existed) rather than adding a redundant
+  // `purchases.orders.confirm` — see docs/purchases.md's documented naming
+  // deviation. Goods receipts use resource "goods-receipts", not "receipts"
+  // — that word is already RESOURCE_LABELS-mapped to "Cobros" for
+  // treasury.receipts.create and must not collide.
+  {
+    code: 'purchases.suppliers.read',
+    module: 'purchases',
+    resource: 'suppliers',
+    action: 'read',
+    description: 'Ver proveedores',
+  },
+  {
+    code: 'purchases.suppliers.create',
+    module: 'purchases',
+    resource: 'suppliers',
+    action: 'create',
+    description: 'Crear proveedores',
+  },
+  {
+    code: 'purchases.suppliers.update',
+    module: 'purchases',
+    resource: 'suppliers',
+    action: 'update',
+    description: 'Modificar proveedores',
+  },
+  {
+    code: 'purchases.suppliers.deactivate',
+    module: 'purchases',
+    resource: 'suppliers',
+    action: 'deactivate',
+    description: 'Desactivar/reactivar proveedores',
+  },
   {
     code: 'purchases.orders.read',
     module: 'purchases',
@@ -449,11 +485,53 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     description: 'Crear órdenes de compra',
   },
   {
+    code: 'purchases.orders.update',
+    module: 'purchases',
+    resource: 'orders',
+    action: 'update',
+    description: 'Modificar órdenes de compra en borrador',
+  },
+  {
     code: 'purchases.orders.approve',
     module: 'purchases',
     resource: 'orders',
     action: 'approve',
-    description: 'Aprobar órdenes de compra',
+    description: 'Confirmar órdenes de compra',
+  },
+  {
+    code: 'purchases.orders.cancel',
+    module: 'purchases',
+    resource: 'orders',
+    action: 'cancel',
+    description: 'Anular órdenes de compra',
+  },
+  {
+    code: 'purchases.goods-receipts.read',
+    module: 'purchases',
+    resource: 'goods-receipts',
+    action: 'read',
+    description: 'Ver recepciones de mercadería',
+  },
+  {
+    code: 'purchases.goods-receipts.create',
+    module: 'purchases',
+    resource: 'goods-receipts',
+    action: 'create',
+    description: 'Crear recepciones de mercadería',
+  },
+  {
+    code: 'purchases.goods-receipts.confirm',
+    module: 'purchases',
+    resource: 'goods-receipts',
+    action: 'confirm',
+    description: 'Confirmar recepciones de mercadería',
+  },
+  {
+    code: 'purchases.goods-receipts.cancel',
+    module: 'purchases',
+    resource: 'goods-receipts',
+    action: 'cancel',
+    description: 'Anular recepciones de mercadería',
   },
 
   {
@@ -556,6 +634,8 @@ export const RESOURCE_LABELS: Record<string, string> = {
   invoices: 'Facturas',
   prices: 'Precios',
   costs: 'Costos',
+  suppliers: 'Proveedores',
+  'goods-receipts': 'Recepciones',
   receipts: 'Cobros',
   payments: 'Pagos',
   entries: 'Asientos',

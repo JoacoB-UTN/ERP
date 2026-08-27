@@ -17,6 +17,10 @@ export const REALTIME_EVENTS = [
   'customer.updated',
   'product.updated',
   'price.changed',
+  'purchase-order.confirmed',
+  'purchase-order.cancelled',
+  'purchase-receipt.confirmed',
+  'purchase-receipt.cancelled',
 ] as const;
 
 export type RealtimeEventName = (typeof REALTIME_EVENTS)[number];
@@ -54,6 +58,26 @@ export interface PriceChangedEvent {
   productVariantId?: string;
 }
 
+export interface PurchaseOrderConfirmedEvent {
+  companyId: string;
+  purchaseOrderId: string;
+}
+
+export interface PurchaseOrderCancelledEvent {
+  companyId: string;
+  purchaseOrderId: string;
+}
+
+export interface PurchaseReceiptConfirmedEvent {
+  companyId: string;
+  purchaseReceiptId: string;
+}
+
+export interface PurchaseReceiptCancelledEvent {
+  companyId: string;
+  purchaseReceiptId: string;
+}
+
 /** Maps each event name to its exact payload shape — used by both the API publisher and the frontend listener so neither side can drift. */
 export interface RealtimeEventPayloads {
   'sale.confirmed': SaleConfirmedEvent;
@@ -62,6 +86,10 @@ export interface RealtimeEventPayloads {
   'customer.updated': CustomerUpdatedEvent;
   'product.updated': ProductUpdatedEvent;
   'price.changed': PriceChangedEvent;
+  'purchase-order.confirmed': PurchaseOrderConfirmedEvent;
+  'purchase-order.cancelled': PurchaseOrderCancelledEvent;
+  'purchase-receipt.confirmed': PurchaseReceiptConfirmedEvent;
+  'purchase-receipt.cancelled': PurchaseReceiptCancelledEvent;
 }
 
 /**

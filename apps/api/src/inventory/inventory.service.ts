@@ -952,6 +952,8 @@ export class InventoryService {
       variant: VariantWithProduct;
       movementType: MovementType;
       quantity: string;
+      unitCost?: string;
+      currencyId?: string;
       referenceType?: string;
       referenceId?: string;
       reason?: string;
@@ -968,6 +970,8 @@ export class InventoryService {
         productVariantId: params.variant.id,
         movementType: params.movementType,
         quantity: params.quantity,
+        unitCost: params.unitCost ?? null,
+        currencyId: params.currencyId ?? null,
         referenceType: params.referenceType ?? null,
         referenceId: params.referenceId ?? null,
         reason: params.reason ?? null,
@@ -1133,6 +1137,109 @@ export class InventoryService {
       variant,
       movementType: 'SALE',
       quantity: outboundQuantity,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      occurredAt: params.occurredAt,
+    });
+  }
+
+  /**
+   * Exposed for PurchaseReceiptsService — see purchase-receipts.service.ts
+   * and docs/purchases.md. Always an IN movement (`movementType:
+   * 'PURCHASE'`), and — unlike applySaleLine's silent no-op for a
+   * non-tracked product — throws `ProductDoesNotTrackInventoryException`
+   * instead: there is no such thing as a physical goods receipt for a
+   * SERVICE product, so a receipt line referencing one is a caller error,
+   * not a legitimate no-op. Carries the line's cost/currency snapshot onto
+   * the StockMovement itself (`unitCost`/`currencyId` — see
+   * docs/inventory.md), unlike a sale movement, which is never priced.
+   */
+  async applyPurchaseReceiptLine(
+    tx: Prisma.TransactionClient,
+    ctx: RequestContext,
+    params: {
+      warehouse: Warehouse;
+      productVariantId: string;
+      quantity: string;
+      unitCost: string;
+      currencyId: string;
+      referenceType: string;
+      referenceId: string;
+      occurredAt: Date;
+    },
+  ): Promise<StockMovement> {
+    const variant = await this.loadVariantContext(
+      ctx.companyId,
+      params.productVariantId,
+    );
+    if (!variant.product.trackInventory) {
+      throw new ProductDoesNotTrackInventoryException();
+    }
+    if (
+      exceedsDecimalPrecision(
+        params.quantity,
+        variant.product.baseUnit.decimalPlaces,
+      )
+    ) {
+      throw new InvalidQuantityPrecisionException(
+        variant.product.baseUnit.name,
+        variant.product.baseUnit.decimalPlaces,
+      );
+    }
+    return this.applyMovement(tx, ctx, {
+      warehouse: params.warehouse,
+      variant,
+      movementType: 'PURCHASE',
+      quantity: params.quantity,
+      unitCost: params.unitCost,
+      currencyId: params.currencyId,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      occurredAt: params.occurredAt,
+    });
+  }
+
+  /**
+   * Reversal for cancelling a CONFIRMED receipt — see docs/purchases.md.
+   * Creates a NEW compensating `PURCHASE_RETURN` movement (the negative of
+   * the original quantity); the original `PURCHASE` movement is never
+   * edited or deleted, matching the immutable-ledger rule already used for
+   * every other confirmed movement. Reuses the receipt line's own cost/
+   * currency snapshot so the ledger keeps a coherent cost trail. Subject to
+   * the SAME negative-stock policy as every other movement (via
+   * applyMovement) — if the received goods were already consumed downstream
+   * and reversing would drive `onHand` negative, this throws
+   * `InsufficientStockException` exactly like any other movement would,
+   * rather than special-casing returns to bypass the check.
+   */
+  async reversePurchaseReceiptLine(
+    tx: Prisma.TransactionClient,
+    ctx: RequestContext,
+    params: {
+      warehouse: Warehouse;
+      productVariantId: string;
+      quantity: string;
+      unitCost: string;
+      currencyId: string;
+      referenceType: string;
+      referenceId: string;
+      occurredAt: Date;
+    },
+  ): Promise<StockMovement> {
+    const variant = await this.loadVariantContext(
+      ctx.companyId,
+      params.productVariantId,
+    );
+    const reversedQuantity = new Prisma.Decimal(params.quantity)
+      .neg()
+      .toString();
+    return this.applyMovement(tx, ctx, {
+      warehouse: params.warehouse,
+      variant,
+      movementType: 'PURCHASE_RETURN',
+      quantity: reversedQuantity,
+      unitCost: params.unitCost,
+      currencyId: params.currencyId,
       referenceType: params.referenceType,
       referenceId: params.referenceId,
       occurredAt: params.occurredAt,
