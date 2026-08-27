@@ -123,7 +123,8 @@ Accounts Receivable
   Customer balances (ledger-derived — never a stored column), collections
 
 Purchases
-  Suppliers, purchase orders, goods receipts
+  Suppliers, purchase orders, goods receipts — DONE, see docs/purchases.md.
+  Remaining: fiscal purchase invoices, ARCA purchase integration.
 
 Accounts Payable
   Supplier balances, payment scheduling

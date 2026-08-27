@@ -74,6 +74,7 @@ import list):
 | Inventory | `src/inventory` | Stock ledger, adjustments, reservations |
 | Pricing | `src/pricing` | Price lists, resolution, price history |
 | Sales | `src/sales` | `SalesDocument` (internal sale, not a fiscal invoice), draft/confirm/cancel, `SalesTender` |
+| Purchases | `src/purchases` | `Supplier`, `PurchaseOrder` (commercial intent, no stock effect), `PurchaseReceipt` (the only Purchases document that moves inventory) |
 
 `src/modules/*` is a **stale leftover** from the original foundation
 commit — one README-only placeholder folder per originally-planned domain

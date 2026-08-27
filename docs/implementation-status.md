@@ -133,6 +133,31 @@ delivery notes, sales quotes/orders, tax calculation, POS UI, or
 reversing a confirmed sale — see sales.md's "Deferred" section for the
 full list.
 
+### Purchases (Suppliers, Purchase Orders, Goods Receipts)
+**Status: DONE — see [purchases.md](purchases.md) for the exact scope.**
+`apps/api/src/purchases`. `Supplier` (mirrors `Customer`'s shape/tax-id
+handling, smaller surface); `PurchaseOrder`/`PurchaseOrderLine` — pure
+commercial intent, DRAFT/CONFIRMED/CANCELLED, confirming never touches
+stock; `PurchaseReceipt`/`PurchaseReceiptLine` — the only Purchases
+document that moves inventory, via two new `InventoryService` methods
+(`applyPurchaseReceiptLine`/`reversePurchaseReceiptLine`), supporting
+partial receiving (received/pending quantity always derived from
+confirmed receipt-line history, never a stored counter) and, uniquely in
+this codebase, a `CONFIRMED -> CANCELLED` reversal path. Over-receipt is
+prevented both as an advisory check and, authoritatively, via
+`SELECT ... FOR UPDATE` row locking inside `confirm()` — proven safe
+under genuine concurrent requests. ARS/USD (at least) supported as
+document currencies; no FX conversion. Gestión: `/compras/proveedores`,
+`/compras/ordenes`, `/compras/recepciones`. Covered by
+`purchases.e2e-spec.ts` (company isolation, PO/receipt state machines,
+partial receipts, over-receipt rejection under genuine concurrency,
+permissions, audit, currency validation, realtime-after-commit).
+
+Explicitly NOT implemented as part of this: supplier current-account/
+accounts payable, fiscal purchase invoices/ARCA, accounting entries, FX
+conversion, lots/batches, AI document ingestion, imports — see
+purchases.md's "Deferred"/"Extension points" sections for the full list.
+
 ### Facturación MVP
 **Status: DONE — MVP scope only, see [facturacion.md](facturacion.md) for
 the exact scope.** `apps/facturacion/src/app/(app)/ventas/*` +
@@ -393,10 +418,6 @@ but no `SalesOrder`/`SalesQuote`/fiscal `Invoice`/`CreditNote`/`DebitNote`/
 [roadmap.md](roadmap.md) for what comes next (end-to-end hardening)
 before any of these.
 
-### Purchases
-**Status: NOT IMPLEMENTED.** No `Supplier`/`PurchaseOrder`/`GoodsReceipt`
-model or module exists.
-
 ### Treasury
 **Status: NOT IMPLEMENTED.** No payments, bank accounts, checks, or cash
 management.
@@ -421,15 +442,18 @@ widgets.
 
 - **`apps/api/src/modules/*` is stale.** One README-only placeholder
   folder per originally-planned domain (customers, products, sales,
-  purchases, accounting, treasury, tax, ...) was created in the very
-  first foundation commit and never removed. Several of these domains
-  (customers, products, inventory, pricing, auth, audit) are now
-  implemented for real under `apps/api/src/<module>` — a *different*
-  path from the stale placeholder. `src/modules/*` should eventually be
-  deleted for the domains that now have a real implementation elsewhere,
-  and kept (or removed and re-created when the domain is actually
-  started) for the domains that are still genuinely unimplemented. Not
-  cleaned up as part of Prompt #9.5 (organizational task, no code
+  accounting, treasury, tax, ...) was created in the very first
+  foundation commit and never removed. Several of these domains
+  (customers, products, inventory, pricing, auth, audit, sales,
+  purchases/suppliers) are now implemented for real under
+  `apps/api/src/<module>` — a *different* path from the stale
+  placeholder; the `purchases`/`suppliers` placeholder folders were
+  deleted as part of this task since a real implementation now exists.
+  `src/modules/*` should eventually be deleted for the remaining domains
+  that now have a real implementation elsewhere, and kept (or removed and
+  re-created when the domain is actually started) for the domains that
+  are still genuinely unimplemented. Not cleaned up as part of Prompt #9.5
+  (organizational task, no code
   changes).
 - **`Product.lookup` is still unused.** `Customer.lookup` is now consumed
   by Facturación's `CustomerPicker`; `Product.lookup` remains uncalled by

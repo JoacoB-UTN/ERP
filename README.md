@@ -4,8 +4,9 @@ A multi-tenant, multi-company ERP platform with two frontend products —
 **Gestión** (backoffice) and **Facturación** (fast operational sales,
 including a POS mode) — sharing one backend, one database, and one
 domain layer. Authentication, multi-company context, RBAC, audit,
-Customers, Products, Inventory, Pricing, and a demo Sales core (with
-Facturación/POS sales UIs) are implemented; fiscal invoicing, Purchases,
+Customers, Products, Inventory, Pricing, a demo Sales core (with
+Facturación/POS sales UIs), and Purchases (Suppliers, Purchase Orders,
+Goods Receipts) are implemented; fiscal invoicing, Accounts Payable,
 Treasury, Tax/Fiscal, Accounting, and Reporting are not yet — see
 [docs/implementation-status.md](docs/implementation-status.md) for the
 verified, current state of every module.

@@ -71,6 +71,12 @@ shared rules, then come back here for detail.
   `GET /dashboard/summary` aggregate, permission-based per-field
   omission, currency-safe sales-today aggregation, and how the frontend
   renders it (loading/empty/error states, company isolation).
+- [purchases.md](purchases.md) — Suppliers, Purchase Orders (commercial
+  intent, never touches stock), and Goods Receipts (the only Purchases
+  document that moves inventory), partial receiving and its lock-based
+  concurrency guarantee against over-receipt, ARS/USD currency support,
+  permissions, audit, Gestión's `/compras`, and what's deferred (accounts
+  payable, fiscal purchase invoices, ...).
 
 ## Product direction
 
