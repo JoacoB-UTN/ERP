@@ -65,7 +65,9 @@ const SYSTEM_ROLES: {
       'sales.documents.update',
       'sales.documents.confirm',
       'sales.documents.cancel',
+      'purchases.suppliers.read',
       'purchases.orders.read',
+      'purchases.goods-receipts.read',
       'treasury.read',
       'accounting.read',
       'reports.read',
@@ -113,7 +115,7 @@ const SYSTEM_ROLES: {
   },
   {
     name: 'Compras',
-    description: 'Gestiona órdenes de compra.',
+    description: 'Gestiona proveedores, órdenes de compra y recepciones.',
     permissionCodes: [
       'apps.gestion.access',
       'products.read',
@@ -123,9 +125,19 @@ const SYSTEM_ROLES: {
       'inventory.stock.read',
       'pricing.lists.read',
       'pricing.prices.read',
+      'purchases.suppliers.read',
+      'purchases.suppliers.create',
+      'purchases.suppliers.update',
+      'purchases.suppliers.deactivate',
       'purchases.orders.read',
       'purchases.orders.create',
+      'purchases.orders.update',
       'purchases.orders.approve',
+      'purchases.orders.cancel',
+      'purchases.goods-receipts.read',
+      'purchases.goods-receipts.create',
+      'purchases.goods-receipts.confirm',
+      'purchases.goods-receipts.cancel',
     ],
   },
   {
@@ -170,7 +182,9 @@ const SYSTEM_ROLES: {
       'sales.orders.read',
       'sales.invoices.read',
       'sales.documents.read',
+      'purchases.suppliers.read',
       'purchases.orders.read',
+      'purchases.goods-receipts.read',
       'treasury.read',
       'accounting.read',
       'reports.read',
@@ -2062,6 +2076,553 @@ async function seedDemoSales(
 }
 
 /**
+ * A realistic supplier roster for the demo company (see docs/purchases.md)
+ * — same upsert-by-companyId+code idempotency as seedDemoCustomers. 4
+ * ACTIVE suppliers (a wholesale distributor, an importer, an individual
+ * monotributista, an office-supplies vendor) + 1 INACTIVE, for the same
+ * data-quality-variety reason as Customer code 000016 above — never used
+ * in any seeded purchase order/receipt below.
+ */
+async function seedDemoSuppliers(
+  tenantId: string,
+  companyId: string,
+): Promise<Map<string, string>> {
+  const idByCode = new Map<string, string>();
+
+  async function upsertSupplier(params: {
+    code: string;
+    legalName: string;
+    tradeName?: string;
+    documentType?: 'CUIT' | 'DNI';
+    taxId?: string;
+    taxCondition: 'RESPONSABLE_INSCRIPTO' | 'MONOTRIBUTO' | 'EXENTO';
+    email?: string;
+    phone?: string;
+    city?: string;
+    province?: string;
+    status?: 'ACTIVE' | 'INACTIVE';
+  }) {
+    const supplier = await prisma.supplier.upsert({
+      where: { companyId_code: { companyId, code: params.code } },
+      update: {
+        legalName: params.legalName,
+        tradeName: params.tradeName,
+        documentType: params.documentType,
+        taxId: params.taxId,
+        taxCondition: params.taxCondition,
+        status: params.status ?? 'ACTIVE',
+      },
+      create: {
+        tenantId,
+        companyId,
+        code: params.code,
+        legalName: params.legalName,
+        tradeName: params.tradeName,
+        documentType: params.documentType,
+        taxId: params.taxId,
+        taxCondition: params.taxCondition,
+        email: params.email,
+        phone: params.phone,
+        city: params.city,
+        province: params.province,
+        status: params.status ?? 'ACTIVE',
+      },
+    });
+    idByCode.set(params.code, supplier.id);
+    return supplier;
+  }
+
+  await upsertSupplier({
+    code: '000001',
+    legalName: 'Distribuidora Mayorista del Plata S.A.',
+    tradeName: 'Mayorista del Plata',
+    documentType: 'CUIT',
+    taxId: '30711223440',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    email: 'ventas@mayoristadelplata.example',
+    phone: '011-4555-2200',
+    city: 'Ciudad Autónoma de Buenos Aires',
+    province: 'Ciudad Autónoma de Buenos Aires',
+  });
+
+  await upsertSupplier({
+    code: '000002',
+    legalName: 'Importadora Andina S.R.L.',
+    tradeName: 'Importadora Andina',
+    documentType: 'CUIT',
+    taxId: '30713344223',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    email: 'compras@importadoraandina.example',
+    phone: '011-4555-3300',
+    city: 'Ciudad Autónoma de Buenos Aires',
+    province: 'Ciudad Autónoma de Buenos Aires',
+  });
+
+  await upsertSupplier({
+    code: '000003',
+    legalName: 'Juan Pablo Fernández',
+    tradeName: 'Insumos Fernández',
+    documentType: 'DNI',
+    taxId: '27987654',
+    taxCondition: 'MONOTRIBUTO',
+    phone: '0291-456-7788',
+    city: 'Bahía Blanca',
+    province: 'Buenos Aires',
+  });
+
+  await upsertSupplier({
+    code: '000004',
+    legalName: 'Papelera del Sur S.A.',
+    tradeName: 'Papelera del Sur',
+    documentType: 'CUIT',
+    taxId: '30714455009',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    email: 'pedidos@papeleradelsur.example',
+    phone: '0291-456-9911',
+    city: 'Bahía Blanca',
+    province: 'Buenos Aires',
+  });
+
+  // Deliberately INACTIVE — a discontinued vendor, for data-quality
+  // variety (docs/demo-guide.md never selects this one).
+  await upsertSupplier({
+    code: '000005',
+    legalName: 'Proveedor Discontinuado S.R.L.',
+    documentType: 'CUIT',
+    taxId: '30715566003',
+    taxCondition: 'RESPONSABLE_INSCRIPTO',
+    status: 'INACTIVE',
+  });
+
+  // Same collision-prevention fix as CustomerCodeSequence/ProductCodeSequence
+  // above — these suppliers use manual codes, bypassing SupplierCodeSequence,
+  // so the counter must be advanced past them. Only raises the counter,
+  // never lowers it.
+  const SEEDED_SUPPLIER_COUNT = 5;
+  const currentSequence = await prisma.supplierCodeSequence.findUnique({
+    where: { companyId },
+  });
+  if (!currentSequence) {
+    await prisma.supplierCodeSequence.create({
+      data: { companyId, lastValue: SEEDED_SUPPLIER_COUNT },
+    });
+  } else if (currentSequence.lastValue < SEEDED_SUPPLIER_COUNT) {
+    await prisma.supplierCodeSequence.update({
+      where: { companyId },
+      data: { lastValue: SEEDED_SUPPLIER_COUNT },
+    });
+  }
+
+  return idByCode;
+}
+
+/**
+ * Illustrative purchase orders + goods receipts for Demo Company (see
+ * docs/purchases.md) — built directly with Prisma rather than through
+ * PurchaseOrdersService/PurchaseReceiptsService, for the same reason
+ * seedDemoSales mirrors SalesService's transaction logic directly (see
+ * that function's own doc comment above): seed.ts runs outside Nest's DI
+ * container. Every invariant those services enforce is still respected by
+ * construction: atomic per-company sequence numbering (PurchaseOrderSequence/
+ * PurchaseReceiptSequence), a real PURCHASE StockMovement + atomic
+ * InventoryBalance increment per confirmed receipt line (never a
+ * fabricated balance), and receivedQuantity/pendingQuantity that are
+ * genuinely derivable from that ledger (never a stored counter).
+ *
+ * Idempotent: skips entirely if the company already has any PurchaseOrder
+ * — this function's whole output is one coherent batch (unlike
+ * ensureInitialBalance/ensureInitialPrice's per-row idempotency above,
+ * there's no incremental-append use case here).
+ *
+ * Deliberately demonstrates:
+ *  - a CONFIRMED order received across two PARTIAL receipts (Café 1 kg:
+ *    100 ordered, 40 then 35 received, 25 still pending) — the exact
+ *    numbers used in the Prompt #21 spec's own partial-receipt example;
+ *  - the same order's second line (Yerba mate) partially received by a
+ *    DIFFERENT amount (80 ordered, 50 then 20 received, 10 pending);
+ *  - a CONFIRMED order fully received in a single receipt (Resma A4 +
+ *    Cuaderno);
+ *  - a DRAFT order priced in USD, with zero stock effect;
+ *  - a DRAFT -> CANCELLED order;
+ *  - a direct receipt with no purchaseOrderId at all (Cable USB-C, into
+ *    Depósito Sucursal Norte).
+ */
+async function seedDemoPurchases(
+  tenantId: string,
+  companyId: string,
+  branchMainId: string,
+  branchSecondaryId: string,
+  warehouses: { central: { id: string }; sucursalNorte: { id: string } },
+  supplierIdByCode: Map<string, string>,
+): Promise<{ orderCount: number; receiptCount: number }> {
+  const alreadySeeded = await prisma.purchaseOrder.count({ where: { companyId } });
+  if (alreadySeeded > 0) {
+    const [orderCount, receiptCount] = await Promise.all([
+      prisma.purchaseOrder.count({ where: { companyId } }),
+      prisma.purchaseReceipt.count({ where: { companyId } }),
+    ]);
+    return { orderCount, receiptCount };
+  }
+
+  const ars = await prisma.currency.findUniqueOrThrow({ where: { code: 'ARS' } });
+  const usd = await prisma.currency.findUniqueOrThrow({ where: { code: 'USD' } });
+
+  async function firstVariantId(productCode: string): Promise<string> {
+    const product = await prisma.product.findUniqueOrThrow({
+      where: { companyId_code: { companyId, code: productCode } },
+    });
+    const variant = await prisma.productVariant.findFirstOrThrow({
+      where: { productId: product.id, name: null },
+    });
+    return variant.id;
+  }
+
+  const cafeId = await firstVariantId('000003'); // Café 1 kg
+  const yerbaId = await firstVariantId('000004'); // Yerba mate 1 kg
+  const resmaId = await firstVariantId('000005'); // Resma A4
+  const cuadernoId = await firstVariantId('000006'); // Cuaderno
+  const cableId = await firstVariantId('000011'); // Cable USB-C
+  const mouseId = await firstVariantId('000012'); // Mouse inalámbrico
+  const tecladoId = await firstVariantId('000013'); // Teclado
+
+  async function nextPoNumber(): Promise<string> {
+    const seq = await prisma.purchaseOrderSequence.upsert({
+      where: { companyId },
+      create: { companyId, lastValue: 1 },
+      update: { lastValue: { increment: 1 } },
+    });
+    return `OC-${String(seq.lastValue).padStart(6, '0')}`;
+  }
+
+  function lineTotal(quantity: string, unitCost: string): string {
+    return new Prisma.Decimal(quantity)
+      .mul(unitCost)
+      .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP)
+      .toString();
+  }
+  function sumLineTotals(
+    lines: { quantity: string; unitCost: string }[],
+  ): string {
+    return lines
+      .reduce(
+        (sum, l) => sum.add(lineTotal(l.quantity, l.unitCost)),
+        new Prisma.Decimal(0),
+      )
+      .toString();
+  }
+
+  /** Mirrors PurchaseReceiptsService.confirm's core transaction: one PurchaseReceipt (created straight into CONFIRMED) + one real PURCHASE StockMovement + atomic InventoryBalance increment per line. */
+  async function confirmedReceipt(params: {
+    supplierId: string;
+    warehouseId: string;
+    branchId: string;
+    purchaseOrderId?: string;
+    currencyId: string;
+    receiptDate: Date;
+    notes?: string;
+    lines: {
+      productVariantId: string;
+      quantity: string;
+      unitCostSnapshot: string;
+      purchaseOrderLineId?: string;
+    }[];
+  }) {
+    return prisma.$transaction(async (tx) => {
+      const seq = await tx.purchaseReceiptSequence.upsert({
+        where: { companyId },
+        create: { companyId, lastValue: 1 },
+        update: { lastValue: { increment: 1 } },
+      });
+      const number = `RC-${String(seq.lastValue).padStart(6, '0')}`;
+      const created = await tx.purchaseReceipt.create({
+        data: {
+          tenantId,
+          companyId,
+          branchId: params.branchId,
+          number,
+          supplierId: params.supplierId,
+          warehouseId: params.warehouseId,
+          purchaseOrderId: params.purchaseOrderId ?? null,
+          receiptDate: params.receiptDate,
+          currencyId: params.currencyId,
+          status: 'CONFIRMED',
+          confirmedAt: params.receiptDate,
+          notes: params.notes ?? null,
+          lines: {
+            create: params.lines.map((l) => ({
+              productVariantId: l.productVariantId,
+              quantity: l.quantity,
+              unitCostSnapshot: l.unitCostSnapshot,
+              purchaseOrderLineId: l.purchaseOrderLineId ?? null,
+            })),
+          },
+        },
+      });
+      for (const line of params.lines) {
+        await tx.stockMovement.create({
+          data: {
+            tenantId,
+            companyId,
+            warehouseId: params.warehouseId,
+            productVariantId: line.productVariantId,
+            movementType: 'PURCHASE',
+            quantity: line.quantity,
+            unitCost: line.unitCostSnapshot,
+            currencyId: params.currencyId,
+            referenceType: 'PurchaseReceipt',
+            referenceId: created.id,
+            occurredAt: params.receiptDate,
+          },
+        });
+        await tx.inventoryBalance.upsert({
+          where: {
+            companyId_warehouseId_productVariantId: {
+              companyId,
+              warehouseId: params.warehouseId,
+              productVariantId: line.productVariantId,
+            },
+          },
+          create: {
+            companyId,
+            warehouseId: params.warehouseId,
+            productVariantId: line.productVariantId,
+            onHand: line.quantity,
+            reserved: 0,
+            incoming: 0,
+          },
+          update: { onHand: { increment: line.quantity } },
+        });
+      }
+      return created;
+    });
+  }
+
+  const mayoristaSupplierId = supplierIdByCode.get('000001')!;
+  const andinaSupplierId = supplierIdByCode.get('000002')!;
+  const fernandezSupplierId = supplierIdByCode.get('000003')!;
+  const papeleraSupplierId = supplierIdByCode.get('000004')!;
+
+  const now = new Date();
+  function daysAgo(n: number): Date {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() - n);
+    return d;
+  }
+
+  // ---------- PO-1: CONFIRMED, partially received across two receipts ----------
+  const po1Lines = [
+    { productVariantId: cafeId, quantity: '100', unitCost: '12000' },
+    { productVariantId: yerbaId, quantity: '80', unitCost: '5000' },
+  ];
+  const po1 = await prisma.purchaseOrder.create({
+    data: {
+      tenantId,
+      companyId,
+      branchId: branchMainId,
+      number: await nextPoNumber(),
+      supplierId: mayoristaSupplierId,
+      orderDate: daysAgo(10),
+      currencyId: ars.id,
+      status: 'CONFIRMED',
+      confirmedAt: daysAgo(10),
+      total: sumLineTotals(po1Lines),
+      notes: 'Pedido mensual de café y yerba.',
+      lines: {
+        create: po1Lines.map((l) => ({
+          productVariantId: l.productVariantId,
+          quantity: l.quantity,
+          unitCost: l.unitCost,
+          lineTotal: lineTotal(l.quantity, l.unitCost),
+        })),
+      },
+    },
+    include: { lines: true },
+  });
+  const po1Cafe = po1.lines.find((l) => l.productVariantId === cafeId)!;
+  const po1Yerba = po1.lines.find((l) => l.productVariantId === yerbaId)!;
+
+  await confirmedReceipt({
+    supplierId: mayoristaSupplierId,
+    warehouseId: warehouses.central.id,
+    branchId: branchMainId,
+    purchaseOrderId: po1.id,
+    currencyId: ars.id,
+    receiptDate: daysAgo(8),
+    notes: 'Recepción parcial 1/2.',
+    lines: [
+      {
+        productVariantId: cafeId,
+        quantity: '40',
+        unitCostSnapshot: '12000',
+        purchaseOrderLineId: po1Cafe.id,
+      },
+      {
+        productVariantId: yerbaId,
+        quantity: '50',
+        unitCostSnapshot: '5000',
+        purchaseOrderLineId: po1Yerba.id,
+      },
+    ],
+  });
+  await confirmedReceipt({
+    supplierId: mayoristaSupplierId,
+    warehouseId: warehouses.central.id,
+    branchId: branchMainId,
+    purchaseOrderId: po1.id,
+    currencyId: ars.id,
+    receiptDate: daysAgo(3),
+    notes:
+      'Recepción parcial 2/2 — quedan pendientes 25 u. de café y 10 u. de yerba.',
+    lines: [
+      {
+        productVariantId: cafeId,
+        quantity: '35',
+        unitCostSnapshot: '12000',
+        purchaseOrderLineId: po1Cafe.id,
+      },
+      {
+        productVariantId: yerbaId,
+        quantity: '20',
+        unitCostSnapshot: '5000',
+        purchaseOrderLineId: po1Yerba.id,
+      },
+    ],
+  });
+
+  // ---------- PO-2: DRAFT, USD, zero stock effect ----------
+  const po2Lines = [
+    { productVariantId: mouseId, quantity: '15', unitCost: '25' },
+    { productVariantId: tecladoId, quantity: '10', unitCost: '40' },
+  ];
+  await prisma.purchaseOrder.create({
+    data: {
+      tenantId,
+      companyId,
+      branchId: branchMainId,
+      number: await nextPoNumber(),
+      supplierId: andinaSupplierId,
+      orderDate: daysAgo(1),
+      currencyId: usd.id,
+      status: 'DRAFT',
+      total: sumLineTotals(po2Lines),
+      notes: 'Cotización en dólares — pendiente de confirmar.',
+      lines: {
+        create: po2Lines.map((l) => ({
+          productVariantId: l.productVariantId,
+          quantity: l.quantity,
+          unitCost: l.unitCost,
+          lineTotal: lineTotal(l.quantity, l.unitCost),
+        })),
+      },
+    },
+  });
+
+  // ---------- PO-3: CONFIRMED, fully received in one receipt ----------
+  const po3Lines = [
+    { productVariantId: resmaId, quantity: '50', unitCost: '3000' },
+    { productVariantId: cuadernoId, quantity: '40', unitCost: '1200' },
+  ];
+  const po3 = await prisma.purchaseOrder.create({
+    data: {
+      tenantId,
+      companyId,
+      branchId: branchMainId,
+      number: await nextPoNumber(),
+      supplierId: papeleraSupplierId,
+      orderDate: daysAgo(6),
+      currencyId: ars.id,
+      status: 'CONFIRMED',
+      confirmedAt: daysAgo(6),
+      total: sumLineTotals(po3Lines),
+      notes: 'Insumos de librería — recibido completo.',
+      lines: {
+        create: po3Lines.map((l) => ({
+          productVariantId: l.productVariantId,
+          quantity: l.quantity,
+          unitCost: l.unitCost,
+          lineTotal: lineTotal(l.quantity, l.unitCost),
+        })),
+      },
+    },
+    include: { lines: true },
+  });
+  const po3Resma = po3.lines.find((l) => l.productVariantId === resmaId)!;
+  const po3Cuaderno = po3.lines.find(
+    (l) => l.productVariantId === cuadernoId,
+  )!;
+  await confirmedReceipt({
+    supplierId: papeleraSupplierId,
+    warehouseId: warehouses.central.id,
+    branchId: branchMainId,
+    purchaseOrderId: po3.id,
+    currencyId: ars.id,
+    receiptDate: daysAgo(5),
+    notes: 'Recepción completa.',
+    lines: [
+      {
+        productVariantId: resmaId,
+        quantity: '50',
+        unitCostSnapshot: '3000',
+        purchaseOrderLineId: po3Resma.id,
+      },
+      {
+        productVariantId: cuadernoId,
+        quantity: '40',
+        unitCostSnapshot: '1200',
+        purchaseOrderLineId: po3Cuaderno.id,
+      },
+    ],
+  });
+
+  // ---------- PO-4: DRAFT -> CANCELLED ----------
+  const po4Lines = [
+    { productVariantId: cafeId, quantity: '20', unitCost: '12500' },
+  ];
+  await prisma.purchaseOrder.create({
+    data: {
+      tenantId,
+      companyId,
+      branchId: branchMainId,
+      number: await nextPoNumber(),
+      supplierId: mayoristaSupplierId,
+      orderDate: daysAgo(15),
+      currencyId: ars.id,
+      status: 'CANCELLED',
+      cancelledAt: daysAgo(14),
+      total: sumLineTotals(po4Lines),
+      notes: 'Pedido anulado — proveedor sin stock.',
+      lines: {
+        create: po4Lines.map((l) => ({
+          productVariantId: l.productVariantId,
+          quantity: l.quantity,
+          unitCost: l.unitCost,
+          lineTotal: lineTotal(l.quantity, l.unitCost),
+        })),
+      },
+    },
+  });
+
+  // ---------- Direct receipt, no PurchaseOrder ----------
+  await confirmedReceipt({
+    supplierId: fernandezSupplierId,
+    warehouseId: warehouses.sucursalNorte.id,
+    branchId: branchSecondaryId,
+    currencyId: ars.id,
+    receiptDate: daysAgo(2),
+    notes: 'Recepción directa sin orden de compra.',
+    lines: [
+      { productVariantId: cableId, quantity: '20', unitCostSnapshot: '2000' },
+    ],
+  });
+
+  const [orderCount, receiptCount] = await Promise.all([
+    prisma.purchaseOrder.count({ where: { companyId } }),
+    prisma.purchaseReceipt.count({ where: { companyId } }),
+  ]);
+  return { orderCount, receiptCount };
+}
+
+/**
  * Development seed: a demo tenant with two companies (so multi-company
  * selection is actually testable locally) and a real, usable admin
  * account with access to both. Also seeds a second tenant/company the
@@ -2247,6 +2808,9 @@ async function main() {
   // Illustrative customers for Demo Company only — see docs/customers.md.
   await seedDemoCustomers(tenant.id, company.id);
 
+  // Illustrative suppliers for Demo Company only — see docs/purchases.md.
+  const supplierIdByCode = await seedDemoSuppliers(tenant.id, company.id);
+
   // Standard units for every seeded company (see docs/products.md);
   // illustrative products for Demo Company only.
   await seedProductUnits(tenant.id, secondCompany.id);
@@ -2277,6 +2841,18 @@ async function main() {
     branchMain.id,
     branchSecondary.id,
     warehouses,
+  );
+
+  // Illustrative purchase orders + goods receipts — see docs/purchases.md.
+  // Must run after suppliers/products/warehouses/pricing (currencies)
+  // above (it reads all of them).
+  const purchasesSummary = await seedDemoPurchases(
+    tenant.id,
+    company.id,
+    branchMain.id,
+    branchSecondary.id,
+    warehouses,
+    supplierIdByCode,
   );
 
   const passwordHash = await argon2.hash(resolvedPassword, {
@@ -2383,6 +2959,12 @@ async function main() {
   );
   console.log(
     '  Pricing:     3 currencies (ARS, USD, EUR) + 3 price lists (Minorista fija/predeterminada, Mayorista -10%, Distribuidor -15%) + initial prices via real PriceListItem rows in Distribuidora Horizonte',
+  );
+  console.log(
+    '  Suppliers:   5 demo suppliers (incl. 1 individual monotributista, 1 INACTIVE) in Distribuidora Horizonte',
+  );
+  console.log(
+    `  Purchases:   ${purchasesSummary.orderCount} purchase orders (DRAFT/CONFIRMED/CANCELLED, incl. 1 partially received across 2 receipts) + ${purchasesSummary.receiptCount} goods receipts (incl. 1 direct receipt with no PO) in Distribuidora Horizonte`,
   );
   console.log(
     `  Sales:       ${salesSummary.confirmedCount} confirmed sales across ${salesSummary.distinctDays} days (${salesSummary.tenderCounts}) + ${salesSummary.draftCount} draft in Distribuidora Horizonte`,
