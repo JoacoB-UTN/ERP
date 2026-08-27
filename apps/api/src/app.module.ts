@@ -19,6 +19,7 @@ import { WarehousesModule } from './warehouses/warehouses.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PricingModule } from './pricing/pricing.module';
 import { SalesModule } from './sales/sales.module';
+import { PurchasesModule } from './purchases/purchases.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -68,6 +69,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
     InventoryModule,
     PricingModule,
     SalesModule,
+    PurchasesModule,
     DashboardModule,
     RealtimeModule,
   ],
