@@ -67,6 +67,22 @@ export function invalidationKeysFor<E extends RealtimeEventName>(
       // same. Covers lists, lookup/batch (Facturación/POS cart pricing),
       // and per-product/variant history in one shot.
       return [['company', companyId, 'pricing']];
+    case 'purchase-order.confirmed':
+    case 'purchase-order.cancelled':
+      // No inventory key here — confirming/cancelling a PO never touches
+      // stock (see docs/purchases.md).
+      return [['company', companyId, 'purchase-orders']];
+    case 'purchase-receipt.confirmed':
+    case 'purchase-receipt.cancelled':
+      // stock.changed (published alongside these, see
+      // purchase-receipts.service.ts) already invalidates 'inventory' —
+      // this key only needs to cover the receipts/orders lists themselves
+      // (a receipt's confirm/cancel also changes its order's received/
+      // pending quantities).
+      return [
+        ['company', companyId, 'purchase-receipts'],
+        ['company', companyId, 'purchase-orders'],
+      ];
     default:
       return [];
   }

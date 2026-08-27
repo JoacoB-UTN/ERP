@@ -188,25 +188,31 @@ its POS mode): customers,
 product catalog (with variants, barcodes, services), multi-warehouse
 inventory on an auditable ledger, multi-list pricing (fixed and
 derived), a real internal sales workflow (draft → confirm, with
-inventory and pricing snapshotted atomically), and point-of-sale
-checkout with cash/card/transfer/other tenders. All company-scoped and
-permission-gated (RBAC + audit trail underneath, even though this demo
-doesn't dwell on them).
+inventory and pricing snapshotted atomically), point-of-sale checkout
+with cash/card/transfer/other tenders, and — in Gestión only —
+Purchases: suppliers, purchase orders (commercial intent, no stock
+effect until received), and goods receipts (the only Purchases document
+that moves inventory, including partial receiving across multiple
+receipts against one order). All company-scoped and permission-gated
+(RBAC + audit trail underneath, even though this demo doesn't dwell on
+them).
 
 **Not yet built — by design, not oversight:** fiscal invoicing / ARCA
-integration, purchases/suppliers, treasury (bank/cash reconciliation),
-accounting (chart of accounts, journal entries), and BI-style reporting.
-The current `SalesDocument` is an internal transaction record, not a
-fiscal invoice — say this plainly if asked. See
-[implementation-status.md](implementation-status.md) for the exact,
-up-to-date boundary; don't improvise beyond what it says.
+integration, supplier current account / accounts payable, treasury
+(bank/cash reconciliation), accounting (chart of accounts, journal
+entries), and BI-style reporting. The current `SalesDocument` is an
+internal transaction record, not a fiscal invoice — say this plainly if
+asked. See [implementation-status.md](implementation-status.md) for the
+exact, up-to-date boundary; don't improvise beyond what it says.
 
 ## Data notes (for whoever runs this demo)
 
 - **Company:** Distribuidora Horizonte S.R.L. (CUIT `30-71876543-5`),
-  branches Casa Central and Sucursal Norte. All seeded CUITs (company and
-  customers) are fictional but carry a valid Argentine check digit —
-  they're generated, never copied from a real entity.
+  branches Casa Central and Sucursal Norte. All seeded CUITs (company,
+  customers, and suppliers) are fictional but carry a valid Argentine
+  check digit — they're generated, never copied from a real entity (see
+  `suppliers-seed-data.spec.ts` for the regression test guarding this for
+  suppliers specifically).
 - **Determinism:** all seeded data is deterministic except sale dates,
   which are computed relative to seed-run time (`Date.now() - N days`)
   so "today's" sales are always genuinely dated today, however long ago

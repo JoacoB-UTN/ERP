@@ -55,6 +55,9 @@ model Tenant {
   priceListItems     PriceListItem[]
   priceHistory       PriceHistory[]
   salesDocuments     SalesDocument[]
+  suppliers          Supplier[]
+  purchaseOrders     PurchaseOrder[]
+  purchaseReceipts   PurchaseReceipt[]
 
   @@map("tenants")
 }
@@ -102,6 +105,12 @@ model Company {
   priceHistory            PriceHistory[]
   salesDocuments          SalesDocument[]
   salesDocumentSequence   SalesDocumentSequence?
+  suppliers               Supplier[]
+  supplierCodeSequence    SupplierCodeSequence?
+  purchaseOrders          PurchaseOrder[]
+  purchaseOrderSequence   PurchaseOrderSequence?
+  purchaseReceipts        PurchaseReceipt[]
+  purchaseReceiptSequence PurchaseReceiptSequence?
 
   // A given tax id should not be registered twice within the same tenant.
   @@unique([tenantId, taxId])
@@ -132,6 +141,8 @@ model Branch {
   stockMovements   StockMovement[]
   stockAdjustments StockAdjustment[]
   salesDocuments   SalesDocument[]
+  purchaseOrders   PurchaseOrder[]
+  purchaseReceipts PurchaseReceipt[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -755,13 +766,15 @@ model ProductVariant {
   product Product       @relation(fields: [productId], references: [id])
   codes   ProductCode[]
 
-  stockMovements    StockMovement[]
-  stockReservations StockReservation[]
-  inventoryBalances InventoryBalance[]
-  adjustmentLines   StockAdjustmentLine[]
-  priceListItems    PriceListItem[]
-  priceHistory      PriceHistory[]
-  salesDocumentLines SalesDocumentLine[]
+  stockMovements       StockMovement[]
+  stockReservations    StockReservation[]
+  inventoryBalances    InventoryBalance[]
+  adjustmentLines      StockAdjustmentLine[]
+  priceListItems       PriceListItem[]
+  priceHistory         PriceHistory[]
+  salesDocumentLines   SalesDocumentLine[]
+  purchaseOrderLines   PurchaseOrderLine[]
+  purchaseReceiptLines PurchaseReceiptLine[]
 
   @@index([productId, sku])
   @@index([sku])
@@ -975,6 +988,7 @@ model Warehouse {
   inventoryBalances InventoryBalance[]
   stockAdjustments  StockAdjustment[]
   salesDocuments    SalesDocument[]
+  purchaseReceipts  PurchaseReceipt[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -1194,8 +1208,10 @@ model Currency {
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
 
-  priceLists     PriceList[]
-  salesDocuments SalesDocument[]
+  priceLists       PriceList[]
+  salesDocuments   SalesDocument[]
+  purchaseOrders   PurchaseOrder[]
+  purchaseReceipts PurchaseReceipt[]
 
   @@map("currencies")
 }
@@ -1247,11 +1263,11 @@ model PriceList {
   /// Must belong to the same company and currency as this list
   /// (PRICE_LIST_CURRENCY_MISMATCH otherwise); cycles are rejected in
   /// PriceListsService (PRICE_LIST_CYCLE).
-  basePriceListId String? @db.Uuid
+  basePriceListId String?         @db.Uuid
   adjustmentType  AdjustmentType?
   /// Percentage points (0-100 scale, e.g. 10 = 10%) for PERCENTAGE_*, or a
   /// money amount for FIXED_AMOUNT_* — see docs/pricing.md.
-  adjustmentValue Decimal? @db.Decimal(9, 6)
+  adjustmentValue Decimal?        @db.Decimal(9, 6)
 
   /// At most one default active list per company — enforced
   /// transactionally in PriceListsService, same pattern as
@@ -1416,7 +1432,7 @@ model SalesDocument {
   documentType SalesDocumentType @default(SALE)
   /// Company-scoped sequence via SalesDocumentSequence — e.g. VTA-000001.
   /// Never MAX(number)+1 (see docs/sales.md).
-  number String
+  number       String
 
   warehouseId String @db.Uuid
   customerId  String @db.Uuid
@@ -1430,16 +1446,16 @@ model SalesDocument {
 
   /// Sum of line netAmount — see docs/sales.md's documented totals
   /// convention (subtotal is NET of line discounts, not gross).
-  subtotal Decimal @default(0) @db.Decimal(19, 4)
+  subtotal      Decimal @default(0) @db.Decimal(19, 4)
   /// Sum of line discountAmount.
   discountTotal Decimal @default(0) @db.Decimal(19, 4)
   /// Always 0 in this task — no tax engine exists yet (see docs/sales.md
   /// and CLAUDE.md). Stored, not computed, so a future tax engine has
   /// somewhere to write to without a schema change.
-  taxTotal Decimal @default(0) @db.Decimal(19, 4)
+  taxTotal      Decimal @default(0) @db.Decimal(19, 4)
   /// subtotal + taxTotal (taxTotal always 0 today) — the final payable
   /// amount.
-  total Decimal @default(0) @db.Decimal(19, 4)
+  total         Decimal @default(0) @db.Decimal(19, 4)
 
   notes String?
 
@@ -1491,7 +1507,7 @@ model SalesDocumentLine {
 
   /// NUMERIC(19,6) — same precision as StockMovement.quantity, supports
   /// fractional units without floating-point arithmetic. Always > 0.
-  quantity Decimal @db.Decimal(19, 6)
+  quantity  Decimal @db.Decimal(19, 6)
   /// Snapshot of the price PricingService resolved when this line was
   /// added — never re-resolved from the current PriceList, including
   /// after confirmation.
@@ -1503,9 +1519,9 @@ model SalesDocumentLine {
   discountAmount     Decimal @default(0) @db.Decimal(19, 4)
 
   /// (quantity * unitPrice) - discountAmount.
-  netAmount Decimal @default(0) @db.Decimal(19, 4)
+  netAmount   Decimal @default(0) @db.Decimal(19, 4)
   /// Always 0 in this task — see SalesDocument.taxTotal.
-  taxAmount Decimal @default(0) @db.Decimal(19, 4)
+  taxAmount   Decimal @default(0) @db.Decimal(19, 4)
   /// netAmount + taxAmount (taxAmount always 0 today).
   totalAmount Decimal @default(0) @db.Decimal(19, 4)
 
@@ -1538,7 +1554,7 @@ model SalesTender {
   /// Amount actually applied to the sale — always equals
   /// SalesDocument.total at confirmation time (full payment only, no
   /// partial/split payments in this MVP).
-  amountApplied Decimal @db.Decimal(19, 4)
+  amountApplied  Decimal  @db.Decimal(19, 4)
   /// CASH only: amount physically received from the customer, >=
   /// amountApplied. Null for every other method. Change is
   /// (amountReceived - amountApplied), computed at read time — never
@@ -1556,4 +1572,322 @@ model SalesTender {
   salesDocument SalesDocument @relation(fields: [salesDocumentId], references: [id])
 
   @@map("sales_tenders")
+}
+
+// ---------- Purchases (Suppliers, Purchase Orders, Goods Receipts) ----------
+//
+// See docs/purchases.md. Two separate documents on purpose (per CLAUDE.md /
+// the Prompt #21 spec): PurchaseOrder is commercial intent and NEVER touches
+// stock; PurchaseReceipt is a physical inventory event and is the only thing
+// that generates StockMovement rows. A PurchaseOrder can have zero, one, or
+// many PurchaseReceipts (partial receiving) — received/pending quantities
+// are always derived from confirmed PurchaseReceiptLine history, never a
+// stored mutable counter.
+//
+// Supplier deliberately reuses CustomerDocumentType/CustomerTaxCondition
+// (see CLAUDE.md: "reuse Customer/fiscal enums... rather than creating
+// duplicate Argentina tax concepts") rather than minting SupplierDocumentType/
+// SupplierTaxCondition twins with identical values — see docs/purchases.md's
+// documented naming deviation.
+
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Same safe atomic-upsert pattern as CustomerCodeSequence — see docs/purchases.md.
+model SupplierCodeSequence {
+  companyId String @id @db.Uuid
+  lastValue Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("supplier_code_sequences")
+}
+
+/// A supplier/vendor master record — see docs/purchases.md. Never physically
+/// deleted; deactivate/reactivate flip `status`, same pattern as Customer.
+/// taxId is NOT a DB-level unique constraint for the same reason as
+/// Customer.taxId: uniqueness among ACTIVE suppliers within a company is
+/// enforced in SuppliersService, so a deactivated supplier's tax id can be
+/// reused and non-Argentine suppliers (no CUIT) are never blocked.
+model Supplier {
+  id        String @id @default(uuid()) @db.Uuid
+  tenantId  String @db.Uuid
+  companyId String @db.Uuid
+
+  code String
+
+  legalName String
+  tradeName String?
+
+  documentType CustomerDocumentType?
+  taxId        String?
+  taxCondition CustomerTaxCondition?
+
+  email String?
+  phone String?
+
+  address    String?
+  city       String?
+  province   String?
+  postalCode String?
+
+  notes String?
+
+  status SupplierStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  createdBy String? @db.Uuid
+  updatedBy String? @db.Uuid
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  purchaseOrders   PurchaseOrder[]
+  purchaseReceipts PurchaseReceipt[]
+
+  @@unique([companyId, code])
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([companyId, taxId])
+  @@index([companyId, legalName])
+  @@map("suppliers")
+}
+
+/// See docs/purchases.md for the exact state machine. CONFIRMED and
+/// CANCELLED are both terminal (DRAFT -> CONFIRMED -> CANCELLED is NOT a
+/// reachable path — a CONFIRMED order can never be cancelled through this
+/// task, matching the "no reversal of a confirmed document" pattern already
+/// used by SalesDocument/StockAdjustment). A confirmed order never creates a
+/// StockMovement — see CLAUDE.md: confirming a Purchase Order is a change of
+/// commercial status only.
+enum PurchaseOrderStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+model PurchaseOrderSequence {
+  companyId String @id @db.Uuid
+  lastValue Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("purchase_order_sequences")
+}
+
+/// Commercial intent only — see docs/purchases.md. A PurchaseOrder NEVER
+/// generates a StockMovement, at creation or confirmation; physical receipt
+/// is exclusively PurchaseReceipt's responsibility. `total` is always
+/// computed server-side from line quantity*unitCost — never trusted from the
+/// client (see CLAUDE.md). Confirmed orders are immutable for commercially
+/// important fields (see PurchaseOrdersService.update).
+model PurchaseOrder {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+
+  companyId String  @db.Uuid
+  branchId  String? @db.Uuid
+
+  /// Company-scoped sequence via PurchaseOrderSequence — e.g. OC-000001.
+  number String
+
+  supplierId String @db.Uuid
+
+  orderDate            DateTime  @db.Timestamptz(6)
+  expectedDeliveryDate DateTime? @db.Timestamptz(6)
+
+  /// Global Currency catalog (ARS/USD at minimum) — see docs/purchases.md.
+  /// No FX conversion/accounting exists yet; amounts stay in this currency.
+  currencyId String @db.Uuid
+
+  status PurchaseOrderStatus @default(DRAFT)
+
+  /// Sum of line lineTotal (quantity * unitCost) — computed server-side,
+  /// never accepted from the client.
+  total Decimal @default(0) @db.Decimal(19, 4)
+
+  notes String?
+
+  confirmedAt DateTime? @db.Timestamptz(6)
+  cancelledAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  createdBy   String? @db.Uuid
+  confirmedBy String? @db.Uuid
+  cancelledBy String? @db.Uuid
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  company  Company  @relation(fields: [companyId], references: [id])
+  branch   Branch?  @relation(fields: [branchId], references: [id])
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  currency Currency @relation(fields: [currencyId], references: [id])
+
+  lines            PurchaseOrderLine[]
+  purchaseReceipts PurchaseReceipt[]
+
+  @@unique([companyId, number])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([companyId, supplierId])
+  @@map("purchase_orders")
+}
+
+/// No tenantId/companyId of its own — scoped implicitly via purchaseOrder,
+/// same pattern as SalesDocumentLine. `purchaseReceiptLines` is the reverse
+/// side of PurchaseReceiptLine.purchaseOrderLineId — the exact edge used to
+/// derive "received so far" for THIS line without a stored counter.
+model PurchaseOrderLine {
+  id              String @id @default(uuid()) @db.Uuid
+  purchaseOrderId String @db.Uuid
+
+  productVariantId String @db.Uuid
+
+  /// NUMERIC(19,6) — same precision as StockMovement.quantity. Always > 0.
+  quantity  Decimal @db.Decimal(19, 6)
+  /// Supplier-quoted unit cost, in the order's currency. NUMERIC(19,6) to
+  /// match StockMovement.unitCost's precision (see docs/purchases.md).
+  unitCost  Decimal @db.Decimal(19, 6)
+  /// quantity * unitCost — computed server-side, never trusted from the
+  /// client (see CLAUDE.md).
+  lineTotal Decimal @default(0) @db.Decimal(19, 4)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  purchaseOrder PurchaseOrder  @relation(fields: [purchaseOrderId], references: [id])
+  variant       ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  purchaseReceiptLines PurchaseReceiptLine[]
+
+  @@index([purchaseOrderId])
+  @@index([productVariantId])
+  @@map("purchase_order_lines")
+}
+
+/// See docs/purchases.md for the exact state machine. UNLIKE
+/// PurchaseOrderStatus (where CONFIRMED is terminal), a CONFIRMED receipt
+/// CAN still transition to CANCELLED — see PurchaseReceiptsService.cancel.
+/// Confirming is the ONLY thing in the Purchases domain that creates a
+/// StockMovement (PURCHASE, positive); cancelling a CONFIRMED receipt
+/// creates a compensating PURCHASE_RETURN (negative) movement — the
+/// original PURCHASE movement is never edited or deleted (see CLAUDE.md).
+enum PurchaseReceiptStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+model PurchaseReceiptSequence {
+  companyId String @id @db.Uuid
+  lastValue Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("purchase_receipt_sequences")
+}
+
+/// A physical inventory event, deliberately separate from PurchaseOrder —
+/// see docs/purchases.md ("Purchase Order = commercial intent, Goods
+/// Receipt = physical inventory event"). `purchaseOrderId` is optional: a
+/// receipt can stand alone (direct receipt, no PO) or reference a confirmed
+/// PurchaseOrder for partial/multiple receiving. Only a CONFIRMED receipt
+/// ever produces StockMovement rows, atomically with the DRAFT->CONFIRMED
+/// transition (see PurchaseReceiptsService.confirm) — a guarded
+/// `updateMany({ where: { status: 'DRAFT' } })` done first in the same
+/// pattern as SalesService.confirm makes a retried/concurrent confirm
+/// idempotent (never double-books stock).
+model PurchaseReceipt {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+
+  companyId String  @db.Uuid
+  branchId  String? @db.Uuid
+
+  /// Company-scoped sequence via PurchaseReceiptSequence — e.g. RC-000001.
+  number String
+
+  supplierId      String  @db.Uuid
+  /// Where the received goods physically enter — validated against
+  /// Warehouse.allowsPurchases, same pattern as SalesService validating
+  /// Warehouse.allowsSales.
+  warehouseId     String  @db.Uuid
+  /// Optional — see docs/purchases.md. When present, supplier/company must
+  /// match and every line's productVariantId must belong to one of the
+  /// order's lines (validated in PurchaseReceiptsService).
+  purchaseOrderId String? @db.Uuid
+
+  receiptDate DateTime @db.Timestamptz(6)
+  currencyId  String   @db.Uuid
+
+  status PurchaseReceiptStatus @default(DRAFT)
+
+  notes String?
+
+  confirmedAt DateTime? @db.Timestamptz(6)
+  cancelledAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  createdBy   String? @db.Uuid
+  confirmedBy String? @db.Uuid
+  cancelledBy String? @db.Uuid
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  company       Company        @relation(fields: [companyId], references: [id])
+  branch        Branch?        @relation(fields: [branchId], references: [id])
+  supplier      Supplier       @relation(fields: [supplierId], references: [id])
+  warehouse     Warehouse      @relation(fields: [warehouseId], references: [id])
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  currency      Currency       @relation(fields: [currencyId], references: [id])
+
+  lines PurchaseReceiptLine[]
+
+  @@unique([companyId, number])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([companyId, supplierId])
+  @@index([companyId, purchaseOrderId])
+  @@index([warehouseId])
+  @@map("purchase_receipts")
+}
+
+/// No tenantId/companyId of its own — scoped implicitly via purchaseReceipt,
+/// same pattern as SalesDocumentLine/PurchaseOrderLine. `purchaseOrderLineId`
+/// is the explicit traceability edge back to the originating order line
+/// (never matched by productVariantId alone, so two lines of the same
+/// variant on one order are never ambiguous) — see docs/purchases.md's
+/// partial-receipt derivation rule: SUM(quantity) over CONFIRMED receipt
+/// lines grouped by purchaseOrderLineId is the "received so far" value,
+/// computed at read time, never stored as a mutable counter.
+model PurchaseReceiptLine {
+  id                  String  @id @default(uuid()) @db.Uuid
+  purchaseReceiptId   String  @db.Uuid
+  productVariantId    String  @db.Uuid
+  /// Null for a direct receipt (no originating PurchaseOrder) — see
+  /// docs/purchases.md.
+  purchaseOrderLineId String? @db.Uuid
+
+  /// NUMERIC(19,6) — same precision as StockMovement.quantity. Always > 0.
+  quantity         Decimal @db.Decimal(19, 6)
+  /// Commercial cost snapshot at receipt time — see docs/purchases.md and
+  /// CLAUDE.md: never mutates Product.cost, never feeds a costing/valuation
+  /// calculation in this task (deferred to a future Costing module).
+  unitCostSnapshot Decimal @db.Decimal(19, 6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  purchaseReceipt   PurchaseReceipt    @relation(fields: [purchaseReceiptId], references: [id])
+  variant           ProductVariant     @relation(fields: [productVariantId], references: [id])
+  purchaseOrderLine PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id])
+
+  @@index([purchaseReceiptId])
+  @@index([productVariantId])
+  @@index([purchaseOrderLineId])
+  @@map("purchase_receipt_lines")
 }
