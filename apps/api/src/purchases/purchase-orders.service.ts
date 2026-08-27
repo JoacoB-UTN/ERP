@@ -32,6 +32,7 @@ import {
   PurchaseOrderNotEditableException,
   PurchaseOrderAlreadyConfirmedException,
   PurchaseOrderSupplierInactiveException,
+  PurchaseOrderInvalidBranchException,
 } from './purchase-orders.exceptions';
 
 type VariantWithUnit = ProductVariant & {
@@ -266,6 +267,9 @@ export class PurchaseOrdersService {
       input.supplierId,
     );
     const currency = await this.loadActiveCurrency(input.currencyId);
+    if (input.branchId) {
+      await this.assertBranchBelongsToCompany(ctx.companyId, input.branchId);
+    }
     const branchId = input.branchId ?? ctx.branchId ?? null;
     const lines = await this.buildLines(ctx.companyId, input.lines);
     const total = computeOrderTotal(lines);
@@ -341,6 +345,10 @@ export class PurchaseOrdersService {
     const effectiveBranchId =
       input.branchId !== undefined ? input.branchId : existing.branchId;
 
+    if (input.branchId) {
+      await this.assertBranchBelongsToCompany(ctx.companyId, input.branchId);
+    }
+
     let rebuiltLines: BuiltLine[] | undefined;
     if (input.lines) {
       rebuiltLines = await this.buildLines(ctx.companyId, input.lines);
@@ -348,7 +356,7 @@ export class PurchaseOrdersService {
     const total = rebuiltLines ? computeOrderTotal(rebuiltLines) : undefined;
 
     await this.prisma.$transaction(async (tx) => {
-      const data: Prisma.PurchaseOrderUncheckedUpdateInput = {};
+      const data: Prisma.PurchaseOrderUncheckedUpdateManyInput = {};
       if (input.supplierId !== undefined) data.supplierId = supplier.id;
       if (input.currencyId !== undefined) data.currencyId = currency.id;
       if (input.branchId !== undefined) data.branchId = effectiveBranchId;
@@ -358,7 +366,28 @@ export class PurchaseOrdersService {
       if (input.notes !== undefined) data.notes = input.notes || null;
       if (total !== undefined) data.total = total;
 
-      await tx.purchaseOrder.update({ where: { id: existing.id }, data });
+      // `updatedAt` is set explicitly, not left to `@updatedAt` — Prisma
+      // silently downgrades an `updateMany` whose `data` is completely
+      // empty into a plain non-locking SELECT count, WITHOUT ever issuing
+      // a real UPDATE or taking a row lock, which would defeat the guard
+      // below (see the identical fix/comment in
+      // PurchaseReceiptsService.update() for the full story — this PO path
+      // isn't reachable today since a `lines` PATCH always also sets
+      // `total`, but forcing a real field here removes that as an
+      // assumption rather than an invariant).
+      data.updatedAt = new Date();
+
+      // Guarded INSIDE the transaction, not just checked before it — see
+      // docs/purchases.md's "Concurrency" section. A racing confirm()/
+      // cancel() that commits first flips status away from DRAFT; Postgres
+      // serializes the two UPDATEs on this row, so whichever loses this
+      // race sees 0 rows matched here and rolls back instead of silently
+      // mutating an order that's no longer a draft.
+      const guarded = await tx.purchaseOrder.updateMany({
+        where: { id: existing.id, status: 'DRAFT' },
+        data,
+      });
+      if (guarded.count === 0) throw new PurchaseOrderNotEditableException();
 
       if (rebuiltLines) {
         await tx.purchaseOrderLine.deleteMany({
@@ -421,6 +450,18 @@ export class PurchaseOrdersService {
       if (guarded.count === 0)
         throw new PurchaseOrderAlreadyConfirmedException();
 
+      // Reload fresh from WITHIN this transaction rather than trusting the
+      // pre-transaction `existing` snapshot — a racing update() could have
+      // committed (new supplier/lines/total) between that read and this
+      // guard succeeding; the guard above guarantees no such update can
+      // land AFTER this point (see docs/purchases.md's "Concurrency"
+      // section), but one immediately before it is otherwise invisible to
+      // an audit record built from stale data.
+      const confirmed = await tx.purchaseOrder.findUniqueOrThrow({
+        where: { id },
+        include: ORDER_INCLUDE,
+      });
+
       await this.auditService.recordFromContext(
         ctx,
         {
@@ -429,10 +470,10 @@ export class PurchaseOrdersService {
           entityId: id,
           metadata: {
             change: 'purchase_order_confirmed',
-            number: existing.number,
-            supplierName: existing.supplier.legalName,
-            total: existing.total.toString(),
-            lineCount: existing.lines.length,
+            number: confirmed.number,
+            supplierName: confirmed.supplier.legalName,
+            total: confirmed.total.toString(),
+            lineCount: confirmed.lines.length,
           },
         },
         tx,
@@ -456,14 +497,21 @@ export class PurchaseOrdersService {
       throw new PurchaseOrderNotEditableException();
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.purchaseOrder.update({
-        where: { id },
+      // Guarded, not a blind update-by-id — see update()'s identical
+      // reasoning above and docs/purchases.md's "Concurrency" section. A
+      // racing confirm() that commits first flips status to CONFIRMED;
+      // this then matches 0 rows and rolls back instead of cancelling an
+      // order that's already been confirmed (finding D: PO confirm racing
+      // cancel can never produce an illegal transition).
+      const guarded = await tx.purchaseOrder.updateMany({
+        where: { id, status: 'DRAFT' },
         data: {
           status: 'CANCELLED',
           cancelledAt: new Date(),
           cancelledBy: ctx.userId,
         },
       });
+      if (guarded.count === 0) throw new PurchaseOrderNotEditableException();
       await this.auditService.recordFromContext(
         ctx,
         {
@@ -528,6 +576,25 @@ export class PurchaseOrdersService {
       throw new PurchaseOrderSupplierInactiveException();
     }
     return supplier;
+  }
+
+  /**
+   * A client-supplied `branchId` is a raw UUID, not authorization by
+   * itself (see AGENTS.md/CLAUDE.md — never trust company ownership from
+   * request payloads). The FK to `branches` only proves the row exists
+   * SOMEWHERE, not that it belongs to this company — same rule and same
+   * shape as WarehousesService.assertBranchBelongsToCompany. `ctx.branchId`
+   * (the header-derived default) is already validated elsewhere
+   * (CompanyContextService.validateBranchAccess) and never re-checked here.
+   */
+  private async assertBranchBelongsToCompany(
+    companyId: string,
+    branchId: string,
+  ): Promise<void> {
+    const found = await this.prisma.branch.findFirst({
+      where: { id: branchId, companyId },
+    });
+    if (!found) throw new PurchaseOrderInvalidBranchException();
   }
 
   private async loadActiveCurrency(id: string): Promise<Currency> {

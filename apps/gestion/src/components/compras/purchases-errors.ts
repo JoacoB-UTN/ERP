@@ -25,7 +25,7 @@ export function supplierFieldErrors(err: unknown): { general?: string; taxId?: s
   if (!(err instanceof ApiError)) {
     return { general: 'Ocurrió un error inesperado.' };
   }
-  if (err.code === 'SUPPLIER_TAX_ID_ALREADY_EXISTS') {
+  if (err.code === 'SUPPLIER_TAX_ID_ALREADY_EXISTS' || err.code === 'SUPPLIER_INVALID_TAX_ID') {
     return { taxId: err.message };
   }
   const details = err.details as FlattenedZodError | undefined;

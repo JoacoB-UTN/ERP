@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 
 /** Same "don't reveal existence outside the caller's scope" reasoning used throughout the codebase — see CLAUDE.md. */
 export class PurchaseOrderNotFoundException extends NotFoundException {
@@ -35,6 +39,16 @@ export class PurchaseOrderSupplierInactiveException extends ConflictException {
     super({
       message: 'El proveedor está inactivo.',
       code: 'PURCHASE_ORDER_SUPPLIER_INACTIVE',
+    });
+  }
+}
+
+/** Same shape as WarehouseInvalidBranchException — a branchId that exists but belongs to a different company. */
+export class PurchaseOrderInvalidBranchException extends BadRequestException {
+  constructor() {
+    super({
+      message: 'La sucursal seleccionada no pertenece a esta empresa.',
+      code: 'PURCHASE_ORDER_INVALID_BRANCH',
     });
   }
 }

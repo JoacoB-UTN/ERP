@@ -41,6 +41,7 @@ import {
   PurchaseReceiptAlreadyCancelledException,
   PurchaseReceiptSupplierInactiveException,
   PurchaseReceiptWarehouseInvalidException,
+  PurchaseReceiptInvalidBranchException,
   PurchaseReceiptCurrencyRequiredException,
   PurchaseReceiptOrderNotConfirmedException,
   PurchaseReceiptSupplierMismatchException,
@@ -249,6 +250,9 @@ export class PurchaseReceiptsService {
       ctx.companyId,
       input.warehouseId,
     );
+    if (input.branchId) {
+      await this.assertBranchBelongsToCompany(ctx.companyId, input.branchId);
+    }
     const branchId = input.branchId ?? ctx.branchId ?? null;
 
     let purchaseOrder: (PurchaseOrder & { lines: PurchaseOrderLine[] }) | null =
@@ -359,12 +363,34 @@ export class PurchaseReceiptsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      const data: Prisma.PurchaseReceiptUncheckedUpdateInput = {};
+      const data: Prisma.PurchaseReceiptUncheckedUpdateManyInput = {};
       if (input.warehouseId !== undefined) data.warehouseId = warehouse.id;
       if (input.receiptDate !== undefined) data.receiptDate = input.receiptDate;
       if (input.notes !== undefined) data.notes = input.notes || null;
 
-      await tx.purchaseReceipt.update({ where: { id: existing.id }, data });
+      // `updatedAt` is set explicitly, not left to `@updatedAt` — Prisma
+      // silently downgrades an `updateMany` whose `data` is completely
+      // empty (e.g. a PATCH that only sends `lines`, with none of
+      // warehouseId/receiptDate/notes) into a plain non-locking SELECT
+      // count, WITHOUT ever issuing a real UPDATE or taking a row lock —
+      // which would silently defeat the guard below exactly in that case.
+      // Always forcing at least one real field assignment guarantees this
+      // is a genuine `UPDATE ... WHERE status = 'DRAFT'` every time.
+      data.updatedAt = new Date();
+
+      // Guarded INSIDE the transaction — see docs/purchases.md's
+      // "Concurrency" section. Without this, a request that read DRAFT
+      // before a racing confirm()/cancel() committed could still blindly
+      // rewrite this row's fields (and delete/recreate its lines) AFTER
+      // it's no longer a draft — the exact bug this fix closes: confirm()
+      // reloads its lines fresh from within its own transaction (see
+      // confirm() below), but only because update() can no longer land
+      // after confirm's guard has locked and flipped this row.
+      const guarded = await tx.purchaseReceipt.updateMany({
+        where: { id: existing.id, status: 'DRAFT' },
+        data,
+      });
+      if (guarded.count === 0) throw new PurchaseReceiptNotEditableException();
 
       if (rebuiltLines) {
         await tx.purchaseReceiptLine.deleteMany({
@@ -427,27 +453,45 @@ export class PurchaseReceiptsService {
       if (guarded.count === 0)
         throw new PurchaseReceiptAlreadyConfirmedException();
 
-      if (existing.purchaseOrderId) {
+      // Reload the receipt + lines fresh from WITHIN this transaction —
+      // never post inventory from the pre-transaction `existing` snapshot.
+      // A racing update() could have deleted/recreated this receipt's
+      // lines between that read and the guard above succeeding; the guard
+      // guarantees no such update can land AFTER this point (update() has
+      // its own DRAFT-only guard — see update() above — so once we've
+      // flipped status to CONFIRMED, any update() already in flight either
+      // already committed before us, in which case this reload sees its
+      // result, or is still blocked on this row's lock and will find 0
+      // rows and roll back once it proceeds). This is what guarantees the
+      // StockMovement rows below always match exactly the lines persisted
+      // on the confirmed document — see docs/purchases.md's "Concurrency"
+      // section.
+      const receipt = await tx.purchaseReceipt.findUniqueOrThrow({
+        where: { id },
+        include: RECEIPT_INCLUDE,
+      });
+
+      if (receipt.purchaseOrderId) {
         await this.assertWithinOrderedQuantityLocked(
           tx,
-          existing.purchaseOrderId,
-          existing.lines,
+          receipt.purchaseOrderId,
+          receipt.lines,
         );
       }
 
-      for (const line of existing.lines) {
+      for (const line of receipt.lines) {
         const movement = await this.inventoryService.applyPurchaseReceiptLine(
           tx,
           ctx,
           {
-            warehouse: existing.warehouse,
+            warehouse: receipt.warehouse,
             productVariantId: line.productVariantId,
             quantity: line.quantity.toString(),
             unitCost: line.unitCostSnapshot.toString(),
-            currencyId: existing.currencyId,
+            currencyId: receipt.currencyId,
             referenceType: 'PurchaseReceipt',
-            referenceId: existing.id,
-            occurredAt: existing.receiptDate,
+            referenceId: receipt.id,
+            occurredAt: receipt.receiptDate,
           },
         );
         stockChanges.push({
@@ -464,10 +508,10 @@ export class PurchaseReceiptsService {
           entityId: id,
           metadata: {
             change: 'purchase_receipt_confirmed',
-            number: existing.number,
-            supplierName: existing.supplier.legalName,
-            warehouseName: existing.warehouse.name,
-            lineCount: existing.lines.length,
+            number: receipt.number,
+            supplierName: receipt.supplier.legalName,
+            warehouseName: receipt.warehouse.name,
+            lineCount: receipt.lines.length,
           },
         },
         tx,
@@ -603,6 +647,22 @@ export class PurchaseReceiptsService {
       throw new PurchaseReceiptSupplierInactiveException();
     }
     return supplier;
+  }
+
+  /**
+   * A client-supplied `branchId` is a raw UUID, not authorization by
+   * itself — see PurchaseOrdersService.assertBranchBelongsToCompany's
+   * identical reasoning. `ctx.branchId` (the header-derived default) is
+   * already validated elsewhere and never re-checked here.
+   */
+  private async assertBranchBelongsToCompany(
+    companyId: string,
+    branchId: string,
+  ): Promise<void> {
+    const found = await this.prisma.branch.findFirst({
+      where: { id: branchId, companyId },
+    });
+    if (!found) throw new PurchaseReceiptInvalidBranchException();
   }
 
   private async loadPurchaseWarehouse(

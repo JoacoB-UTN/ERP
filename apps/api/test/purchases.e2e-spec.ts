@@ -70,6 +70,9 @@ describe('Purchases: Suppliers, Purchase Orders, Goods Receipts (e2e)', () => {
   let companyAId: string;
   let companyBId: string;
 
+  let branchAId: string; // company A
+  let branchBId: string; // company B
+
   let arsId: string;
   let usdId: string;
 
@@ -131,6 +134,25 @@ describe('Purchases: Suppliers, Purchase Orders, Goods Receipts (e2e)', () => {
     });
     companyAId = companyA.id;
     companyBId = companyB.id;
+
+    const branchA = await prisma.branch.create({
+      data: {
+        tenantId,
+        companyId: companyAId,
+        code: `BR-A-${suffix}`,
+        name: 'Branch A',
+      },
+    });
+    branchAId = branchA.id;
+    const branchB = await prisma.branch.create({
+      data: {
+        tenantId,
+        companyId: companyBId,
+        code: `BR-B-${suffix}`,
+        name: 'Branch B',
+      },
+    });
+    branchBId = branchB.id;
 
     const ars = await prisma.currency.upsert({
       where: { code: 'ARS' },
@@ -442,6 +464,9 @@ describe('Purchases: Suppliers, Purchase Orders, Goods Receipts (e2e)', () => {
     await prisma.userCompany.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.userSession.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    await prisma.branch.deleteMany({
+      where: { id: { in: [branchAId, branchBId] } },
+    });
     await prisma.company.deleteMany({
       where: { id: { in: [companyAId, companyBId] } },
     });
@@ -557,6 +582,96 @@ describe('Purchases: Suppliers, Purchase Orders, Goods Receipts (e2e)', () => {
         .set(COMPANY_ID_HEADER, companyAId);
       expect(res.status).toBe(403);
       expect((res.body as ErrorEnvelope).error.code).toBe('PERMISSION_DENIED');
+    });
+
+    // -----------------------------------------------------------------------
+    // Effective documentType/taxId validation on update() — a PATCH only
+    // carries the fields it actually sends, so the shared Zod schema's own
+    // superRefine (which only sees the PATCH body) can't catch an update
+    // that leaves an EFFECTIVE (existing + patched) documentType/taxId pair
+    // invalid. See SuppliersService.update() and docs/purchases.md.
+    // -----------------------------------------------------------------------
+    describe('effective documentType/taxId validation on update', () => {
+      it('rejects PATCH taxId alone on an existing CUIT supplier when the new taxId fails the checksum', async () => {
+        const agent = await loginAs(userAdminId);
+        const created = await agent
+          .post('/api/v1/suppliers')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            legalName: 'Effective Tax Id A',
+            documentType: 'CUIT',
+            taxId: '30711223440', // valid checksum
+          });
+        expect(created.status).toBe(201);
+        const supplierIdUnderTest = (created.body as { supplier: SupplierBody })
+          .supplier.id;
+
+        // Only `taxId` is sent — `documentType` is NOT resent, so a schema
+        // that only looks at the PATCH body (not the persisted CUIT
+        // documentType) would skip checksum validation entirely.
+        const res = await agent
+          .patch(`/api/v1/suppliers/${supplierIdUnderTest}`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({ taxId: '30713344223' }); // fails the mod-11 checksum
+        expect(res.status).toBe(400);
+        expect((res.body as ErrorEnvelope).error.code).toBe(
+          'SUPPLIER_INVALID_TAX_ID',
+        );
+
+        // The supplier's original, valid taxId must be untouched.
+        const unchanged = await agent
+          .get(`/api/v1/suppliers/${supplierIdUnderTest}`)
+          .set(COMPANY_ID_HEADER, companyAId);
+        expect(
+          (unchanged.body as { supplier: SupplierBody & { taxId: string } })
+            .supplier.taxId,
+        ).toBe('30711223440');
+      });
+
+      it('rejects PATCH documentType alone to CUIT when the existing taxId is incompatible', async () => {
+        const agent = await loginAs(userAdminId);
+        const created = await agent
+          .post('/api/v1/suppliers')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            legalName: 'Effective Tax Id B',
+            documentType: 'DNI',
+            taxId: '12345678', // valid as a DNI (no checksum), invalid as a CUIT
+          });
+        expect(created.status).toBe(201);
+        const supplierIdUnderTest = (created.body as { supplier: SupplierBody })
+          .supplier.id;
+
+        const res = await agent
+          .patch(`/api/v1/suppliers/${supplierIdUnderTest}`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({ documentType: 'CUIT' }); // taxId not resent
+        expect(res.status).toBe(400);
+        expect((res.body as ErrorEnvelope).error.code).toBe(
+          'SUPPLIER_INVALID_TAX_ID',
+        );
+      });
+
+      it('accepts a valid effective CUIT update (documentType and taxId changed together)', async () => {
+        const agent = await loginAs(userAdminId);
+        const created = await agent
+          .post('/api/v1/suppliers')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            legalName: 'Effective Tax Id C',
+            documentType: 'DNI',
+            taxId: '87654321',
+          });
+        expect(created.status).toBe(201);
+        const supplierIdUnderTest = (created.body as { supplier: SupplierBody })
+          .supplier.id;
+
+        const res = await agent
+          .patch(`/api/v1/suppliers/${supplierIdUnderTest}`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({ documentType: 'CUIT', taxId: '30722334457' }); // valid, distinct from other tests' CUITs
+        expect(res.status).toBe(200);
+      });
     });
   });
 
@@ -785,6 +900,49 @@ describe('Purchases: Suppliers, Purchase Orders, Goods Receipts (e2e)', () => {
       expect((res.body as ErrorEnvelope).error.code).toBe(
         'PURCHASE_ORDER_NOT_FOUND',
       );
+    });
+
+    // -----------------------------------------------------------------------
+    // branchId cross-company isolation — a branchId is a raw UUID supplied
+    // by the client; the FK to `branches` alone doesn't prove it belongs to
+    // the caller's company. See PurchaseOrdersService.assertBranchBelongsToCompany
+    // and docs/purchases.md.
+    // -----------------------------------------------------------------------
+    describe('branchId company isolation', () => {
+      it('rejects a company B branchId on create', async () => {
+        const agent = await loginAs(userAdminId);
+        const res = await draftOrder(agent, { branchId: branchBId });
+        expect(res.status).toBe(400);
+        expect((res.body as ErrorEnvelope).error.code).toBe(
+          'PURCHASE_ORDER_INVALID_BRANCH',
+        );
+      });
+
+      it('accepts a valid branch from the current company on create', async () => {
+        const agent = await loginAs(userAdminId);
+        const res = await draftOrder(agent, { branchId: branchAId });
+        expect(res.status).toBe(201);
+        expect(
+          (res.body as { purchaseOrder: { branch: { id: string } | null } })
+            .purchaseOrder.branch?.id,
+        ).toBe(branchAId);
+      });
+
+      it('rejects a company B branchId on update', async () => {
+        const agent = await loginAs(userAdminId);
+        const created = await draftOrder(agent);
+        const orderId = (created.body as { purchaseOrder: PurchaseOrderBody })
+          .purchaseOrder.id;
+
+        const res = await agent
+          .patch(`/api/v1/purchase-orders/${orderId}`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({ branchId: branchBId });
+        expect(res.status).toBe(400);
+        expect((res.body as ErrorEnvelope).error.code).toBe(
+          'PURCHASE_ORDER_INVALID_BRANCH',
+        );
+      });
     });
   });
 
@@ -1086,6 +1244,59 @@ describe('Purchases: Suppliers, Purchase Orders, Goods Receipts (e2e)', () => {
         .set(COMPANY_ID_HEADER, companyAId);
       expect(res.status).toBe(403);
     });
+
+    // -----------------------------------------------------------------------
+    // branchId cross-company isolation — same reasoning as Purchase Orders'
+    // own branchId isolation tests above.
+    // -----------------------------------------------------------------------
+    describe('branchId company isolation', () => {
+      it('rejects a company B branchId on create', async () => {
+        const agent = await loginAs(userAdminId);
+        const variant = await freshVariant('receipt-branch-cross-company');
+        const res = await agent
+          .post('/api/v1/purchase-receipts')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            supplierId,
+            warehouseId,
+            currencyId: arsId,
+            branchId: branchBId,
+            lines: [
+              {
+                productVariantId: variant,
+                quantity: '1',
+                unitCostSnapshot: '10',
+              },
+            ],
+          });
+        expect(res.status).toBe(400);
+        expect((res.body as ErrorEnvelope).error.code).toBe(
+          'PURCHASE_RECEIPT_INVALID_BRANCH',
+        );
+      });
+
+      it('accepts a valid branch from the current company on create', async () => {
+        const agent = await loginAs(userAdminId);
+        const variant = await freshVariant('receipt-branch-valid');
+        const res = await agent
+          .post('/api/v1/purchase-receipts')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            supplierId,
+            warehouseId,
+            currencyId: arsId,
+            branchId: branchAId,
+            lines: [
+              {
+                productVariantId: variant,
+                quantity: '1',
+                unitCostSnapshot: '10',
+              },
+            ],
+          });
+        expect(res.status).toBe(201);
+      });
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -1383,5 +1594,226 @@ describe('Purchases: Suppliers, Purchase Orders, Goods Receipts (e2e)', () => {
         expect(line.pendingQuantity).toBe('4');
       },
     );
+  });
+
+  // -----------------------------------------------------------------------
+  // Concurrency safety — update() vs confirm()/cancel() races. Distinct
+  // from the over-receipt concurrency test above (that one proves the
+  // PurchaseOrderLine FOR UPDATE lock; these prove the document-row guard
+  // that makes update()/confirm()/cancel() mutually exclusive once a
+  // document leaves DRAFT — see docs/purchases.md's "Concurrency" section
+  // and PurchaseOrdersService/PurchaseReceiptsService's update()/confirm()/
+  // cancel(). The exact winner of each race may vary; the property under
+  // test is that the final state is always internally consistent, never
+  // that one specific side wins.
+  // -----------------------------------------------------------------------
+  describe('Concurrency safety: update/confirm/cancel races', () => {
+    it('A/B: a receipt update racing its own confirm never leaves the confirmed lines out of sync with the stock ledger, and never mutates an already-confirmed receipt', async () => {
+      const agent = await loginAs(userAdminId);
+      const variantOriginal = await freshVariant(
+        'race-receipt-update-original',
+      );
+      const variantReplacement = await freshVariant(
+        'race-receipt-update-replacement',
+      );
+
+      const created = await agent
+        .post('/api/v1/purchase-receipts')
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({
+          supplierId,
+          warehouseId,
+          currencyId: arsId,
+          lines: [
+            {
+              productVariantId: variantOriginal,
+              quantity: '5',
+              unitCostSnapshot: '10',
+            },
+          ],
+        });
+      expect(created.status).toBe(201);
+      const receiptId = (
+        created.body as { purchaseReceipt: PurchaseReceiptBody }
+      ).purchaseReceipt.id;
+
+      const [confirmRes, updateRes] = await Promise.all([
+        agent
+          .post(`/api/v1/purchase-receipts/${receiptId}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId),
+        agent
+          .patch(`/api/v1/purchase-receipts/${receiptId}`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            lines: [
+              {
+                productVariantId: variantReplacement,
+                quantity: '3',
+                unitCostSnapshot: '20',
+              },
+            ],
+          }),
+      ]);
+
+      // Nothing else contends for THIS receipt's own DRAFT->CONFIRMED
+      // transition here, so confirm always succeeds; update either wins
+      // the race (200) or loses it because confirm's guard got there
+      // first (409 — proving B: update can never mutate an
+      // already-confirmed receipt).
+      expect(confirmRes.status).toBe(200);
+      expect([200, 409]).toContain(updateRes.status);
+
+      const finalReceipt = await agent
+        .get(`/api/v1/purchase-receipts/${receiptId}`)
+        .set(COMPANY_ID_HEADER, companyAId);
+      const persistedLine = (
+        finalReceipt.body as { purchaseReceipt: PurchaseReceiptBody }
+      ).purchaseReceipt.lines[0];
+
+      const movement = await prisma.stockMovement.findFirst({
+        where: {
+          companyId: companyAId,
+          referenceType: 'PurchaseReceipt',
+          referenceId: receiptId,
+        },
+      });
+      expect(movement).not.toBeNull();
+
+      if (updateRes.status === 200) {
+        // update won — confirm() reloaded fresh from inside its own
+        // transaction and booked stock for the REPLACEMENT line.
+        expect(persistedLine.productVariantId).toBe(variantReplacement);
+        expect(persistedLine.quantity).toBe('3');
+      } else {
+        expect((updateRes.body as ErrorEnvelope).error.code).toBe(
+          'PURCHASE_RECEIPT_NOT_EDITABLE',
+        );
+        expect(persistedLine.productVariantId).toBe(variantOriginal);
+        expect(persistedLine.quantity).toBe('5');
+      }
+
+      // A: the property that must hold regardless of which side won — the
+      // confirmed document's persisted lines and its StockMovement ledger
+      // always agree, never a stale/mismatched pair.
+      expect(movement!.productVariantId).toBe(persistedLine.productVariantId);
+      expect(movement!.quantity.toString()).toBe(persistedLine.quantity);
+    });
+
+    it('C: a PO update racing its own confirm never leaves the order in an inconsistent state', async () => {
+      const agent = await loginAs(userAdminId);
+      const variantOriginal = await freshVariant('race-po-update-original');
+      const variantReplacement = await freshVariant(
+        'race-po-update-replacement',
+      );
+
+      const created = await agent
+        .post('/api/v1/purchase-orders')
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({
+          supplierId,
+          currencyId: arsId,
+          lines: [
+            {
+              productVariantId: variantOriginal,
+              quantity: '5',
+              unitCost: '100',
+            },
+          ],
+        });
+      expect(created.status).toBe(201);
+      const orderId = (created.body as { purchaseOrder: PurchaseOrderBody })
+        .purchaseOrder.id;
+
+      const [confirmRes, updateRes] = await Promise.all([
+        agent
+          .post(`/api/v1/purchase-orders/${orderId}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId),
+        agent
+          .patch(`/api/v1/purchase-orders/${orderId}`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            lines: [
+              {
+                productVariantId: variantReplacement,
+                quantity: '3',
+                unitCost: '200',
+              },
+            ],
+          }),
+      ]);
+
+      expect(confirmRes.status).toBe(200);
+      expect([200, 409]).toContain(updateRes.status);
+
+      const finalOrder = await agent
+        .get(`/api/v1/purchase-orders/${orderId}`)
+        .set(COMPANY_ID_HEADER, companyAId);
+      const body = (finalOrder.body as { purchaseOrder: PurchaseOrderBody })
+        .purchaseOrder;
+      expect(body.status).toBe('CONFIRMED');
+
+      if (updateRes.status === 200) {
+        expect(body.lines[0].productVariantId).toBe(variantReplacement);
+        expect(body.lines[0].quantity).toBe('3');
+      } else {
+        expect((updateRes.body as ErrorEnvelope).error.code).toBe(
+          'PURCHASE_ORDER_NOT_EDITABLE',
+        );
+        expect(body.lines[0].productVariantId).toBe(variantOriginal);
+        expect(body.lines[0].quantity).toBe('5');
+      }
+    });
+
+    it('D: PO confirm racing cancel never produces an illegal DRAFT -> CONFIRMED -> CANCELLED transition', async () => {
+      const agent = await loginAs(userAdminId);
+      const variant = await freshVariant('race-po-confirm-cancel');
+      const created = await agent
+        .post('/api/v1/purchase-orders')
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({
+          supplierId,
+          currencyId: arsId,
+          lines: [{ productVariantId: variant, quantity: '1', unitCost: '10' }],
+        });
+      const orderId = (created.body as { purchaseOrder: PurchaseOrderBody })
+        .purchaseOrder.id;
+
+      const [confirmRes, cancelRes] = await Promise.all([
+        agent
+          .post(`/api/v1/purchase-orders/${orderId}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId),
+        agent
+          .post(`/api/v1/purchase-orders/${orderId}/cancel`)
+          .set(COMPANY_ID_HEADER, companyAId),
+      ]);
+
+      const statuses = [confirmRes.status, cancelRes.status].sort();
+      expect(statuses).toEqual([200, 409]); // exactly one side wins, never both
+
+      const finalOrder = await agent
+        .get(`/api/v1/purchase-orders/${orderId}`)
+        .set(COMPANY_ID_HEADER, companyAId);
+      const finalStatus = (
+        finalOrder.body as { purchaseOrder: PurchaseOrderBody }
+      ).purchaseOrder.status;
+      expect(finalStatus).toBe(
+        confirmRes.status === 200 ? 'CONFIRMED' : 'CANCELLED',
+      );
+
+      // Exactly one terminal-transition audit record exists — never both a
+      // CONFIRM and a CANCEL for the same order (that would be the illegal
+      // DRAFT -> CONFIRMED -> CANCELLED transition this test guards against).
+      const auditRows = await prisma.auditLog.findMany({
+        where: {
+          entityType: 'PurchaseOrder',
+          entityId: orderId,
+          action: { in: ['CONFIRM', 'CANCEL'] },
+        },
+      });
+      expect(auditRows).toHaveLength(1);
+      expect(auditRows[0].action).toBe(
+        confirmRes.status === 200 ? 'CONFIRM' : 'CANCEL',
+      );
+    });
   });
 });

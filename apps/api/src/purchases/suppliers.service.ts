@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   normalizeTaxId,
   formatCuit,
+  validateTaxIdForDocumentType,
   type CreateSupplierInput,
   type UpdateSupplierInput,
   type SupplierListQuery,
@@ -19,6 +20,7 @@ import {
   SupplierNotFoundException,
   SupplierCodeAlreadyExistsException,
   SupplierTaxIdAlreadyExistsException,
+  SupplierInvalidTaxIdException,
 } from './suppliers.exceptions';
 
 type AuditableSupplierFields = Record<
@@ -264,7 +266,26 @@ export class SuppliersService {
           : null;
     const effectiveTaxId =
       normalizedTaxId === undefined ? existing.taxId : normalizedTaxId;
+    // A PATCH only carries the fields the caller actually sent — the Zod
+    // schema's own superRefine (packages/shared/src/suppliers.ts) can only
+    // validate the taxId/documentType PAIR as it appears in THIS request
+    // body, so it silently skips CUIT/CUIL checksum validation whenever
+    // either field is omitted (e.g. PATCH { taxId } alone, on a supplier
+    // whose existing documentType is CUIT). Re-validate here using the
+    // EFFECTIVE pair — existing value merged with whatever this PATCH
+    // actually changes — reusing the same shared checksum logic, never a
+    // duplicated algorithm.
+    const effectiveDocumentType =
+      input.documentType === undefined
+        ? existing.documentType
+        : input.documentType;
     if (effectiveTaxId) {
+      const result = validateTaxIdForDocumentType(
+        effectiveDocumentType,
+        effectiveTaxId,
+      );
+      if (!result.valid)
+        throw new SupplierInvalidTaxIdException(result.message);
       await this.assertTaxIdAvailable(
         this.prisma,
         ctx.companyId,

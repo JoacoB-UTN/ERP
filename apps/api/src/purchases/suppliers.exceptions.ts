@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 
 /**
  * Same "don't reveal existence outside the caller's scope" reasoning used
@@ -39,5 +43,18 @@ export class SupplierInactiveException extends ConflictException {
       message: 'El proveedor está inactivo.',
       code: 'SUPPLIER_INACTIVE',
     });
+  }
+}
+
+/**
+ * Raised by SuppliersService.update() using the EFFECTIVE documentType/
+ * taxId pair (existing value merged with whatever the PATCH actually
+ * changes) — the shared Zod schema's superRefine only sees the PATCH body
+ * itself, so it can't catch e.g. `PATCH { taxId }` alone leaving an
+ * existing CUIT supplier with an invalid checksum. See docs/purchases.md.
+ */
+export class SupplierInvalidTaxIdException extends BadRequestException {
+  constructor(message: string) {
+    super({ message, code: 'SUPPLIER_INVALID_TAX_ID' });
   }
 }

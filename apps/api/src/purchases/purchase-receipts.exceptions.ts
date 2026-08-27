@@ -62,6 +62,16 @@ export class PurchaseReceiptWarehouseInvalidException extends ConflictException 
   }
 }
 
+/** Same shape as WarehouseInvalidBranchException — a branchId that exists but belongs to a different company. */
+export class PurchaseReceiptInvalidBranchException extends BadRequestException {
+  constructor() {
+    super({
+      message: 'La sucursal seleccionada no pertenece a esta empresa.',
+      code: 'PURCHASE_RECEIPT_INVALID_BRANCH',
+    });
+  }
+}
+
 /** A direct receipt (no purchaseOrderId) requires an explicit currencyId — see docs/purchases.md. */
 export class PurchaseReceiptCurrencyRequiredException extends BadRequestException {
   constructor() {
