@@ -8,11 +8,14 @@ import {
   History,
   Home,
   Package,
+  PackageCheck,
+  PackageSearch,
   PanelsTopLeft,
   ShieldCheck,
   ShoppingCart,
   SlidersHorizontal,
   Tag,
+  Truck,
   Users,
   Warehouse,
   X,
@@ -72,6 +75,29 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { href: '/clientes', label: 'Clientes', icon: Contact, visible: allowed('customers.read') },
         { href: '/productos', label: 'Productos', icon: Package, visible: allowed('products.read') },
+      ],
+    },
+    {
+      label: 'Compras',
+      items: [
+        {
+          href: '/compras/proveedores',
+          label: 'Proveedores',
+          icon: Truck,
+          visible: allowed('purchases.suppliers.read'),
+        },
+        {
+          href: '/compras/ordenes',
+          label: 'Órdenes de compra',
+          icon: PackageSearch,
+          visible: allowed('purchases.orders.read'),
+        },
+        {
+          href: '/compras/recepciones',
+          label: 'Recepciones',
+          icon: PackageCheck,
+          visible: allowed('purchases.goods-receipts.read'),
+        },
       ],
     },
     {

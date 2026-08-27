@@ -22,6 +22,9 @@ import { createWarehouseContextClient } from './warehouse-context-hooks';
 import { createPricingClient } from './pricing-hooks';
 import { createPriceListContextClient } from './price-list-context-hooks';
 import { createSalesClient } from './sales-hooks';
+import { createSuppliersClient } from './suppliers-hooks';
+import { createPurchaseOrdersClient } from './purchase-orders-hooks';
+import { createPurchaseReceiptsClient } from './purchase-receipts-hooks';
 import { createDashboardClient } from './dashboard-hooks';
 import { createRealtimeClient } from './realtime-client';
 
@@ -41,6 +44,9 @@ export * from './warehouse-context-hooks';
 export * from './pricing-hooks';
 export * from './price-list-context-hooks';
 export * from './sales-hooks';
+export * from './suppliers-hooks';
+export * from './purchase-orders-hooks';
+export * from './purchase-receipts-hooks';
 export * from './dashboard-hooks';
 export * from './realtime-client';
 
@@ -103,6 +109,18 @@ export function createAuthClient(config: ApiClientConfig) {
     useActiveCompanyId: companyContext.useActiveCompanyId,
   });
   const salesClient = createSalesClient({
+    apiFetch,
+    useActiveCompanyId: companyContext.useActiveCompanyId,
+  });
+  const suppliersClient = createSuppliersClient({
+    apiFetch,
+    useActiveCompanyId: companyContext.useActiveCompanyId,
+  });
+  const purchaseOrdersClient = createPurchaseOrdersClient({
+    apiFetch,
+    useActiveCompanyId: companyContext.useActiveCompanyId,
+  });
+  const purchaseReceiptsClient = createPurchaseReceiptsClient({
     apiFetch,
     useActiveCompanyId: companyContext.useActiveCompanyId,
   });
@@ -215,6 +233,9 @@ export function createAuthClient(config: ApiClientConfig) {
     ...pricingClient,
     ...priceListContextClient,
     ...salesClient,
+    ...suppliersClient,
+    ...purchaseOrdersClient,
+    ...purchaseReceiptsClient,
     ...dashboardClient,
     ...realtimeClient,
   };
