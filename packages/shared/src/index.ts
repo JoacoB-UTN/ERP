@@ -17,4 +17,5 @@ export * from './purchase-orders';
 export * from './purchase-receipts';
 export * from './dashboard';
 export * from './realtime';
+export * from './backups';
 export * from './runtime-url';

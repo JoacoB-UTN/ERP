@@ -24,6 +24,12 @@ export const envSchema = z
     CORS_ORIGIN: z.string().default('http://localhost:3000,http://localhost:3002'),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
+    // Directory the ERP Server maintenance agent (apps/server-agent) writes its
+    // backup archives and manifest to. The API only ever READS the manifest
+    // from here to report backup health — it never writes, takes or restores a
+    // backup. Must match the agent's own ERP_BACKUP_DIR.
+    ERP_BACKUP_DIR: z.string().min(1).default('./backups'),
+
     // ---- Authentication ----
     // Signs short-lived access token JWTs. The default is an obviously-fake
     // placeholder so local dev works out of the box; production MUST set a
