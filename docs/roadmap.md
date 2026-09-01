@@ -1,158 +1,208 @@
 # Roadmap
 
-Two layers: a near-term **demo milestone** (a small, real, end-to-end
-vertical slice — now complete, see below) and a **full ERP roadmap** kept
-intentionally high-level and NOT yet implemented. See
-[implementation-status.md](implementation-status.md) for the verified,
-current state of every module.
+Last updated: **2026-09-01**.
 
-## Why demo-first
+For the detailed shareable status note, see [project-status-roadmap.md](project-status-roadmap.md). For exact implemented behavior, [implementation-status.md](implementation-status.md) and the domain docs remain the technical source of truth.
 
-The immediate product objective is **not** to implement every Tango-like
-ERP feature before showing the product. It's to reach a small,
-demonstrable, end-to-end slice that a prospective user can actually
-interact with: create a customer and a product in Gestión, see it priced
-and in stock, then go into Facturación and complete a simple sale that
-visibly moves inventory and shows up back in Gestión. Everything else
-(accounting, fiscal/ARCA, treasury, purchasing, reporting) comes after
-that slice works and looks good.
+## Product direction
 
-## Demo milestone
+> **Primero Local, pero Cloud-ready. Nunca Cloud-first si retrasa el producto local; nunca Local-only si obliga a reescribir el core después.**
 
-Target flow:
+The ERP is one product/core with multiple future deployment modalities:
 
-```
-Gestión
-  └── Customer  (exists)
-  └── Product   (exists)
-  └── Inventory (exists)
-  └── Price     (exists)
+1. **Local** — customer server + LAN clients + ERP.exe.
+2. **Cloud** — same core/API/business modules hosted on managed infrastructure.
+3. **Hybrid** — future combination of local operation and selected cloud services.
 
-Facturación
-  └── Select customer
-  └── Search/scan product
-  └── See price and availability
-  └── Build a sale
-  └── Confirm a simulated/real internal sale
-  └── Inventory changes
-  └── Operation visible in Gestión
+The near-term objective is a **vendable local ERP for Argentine SMBs**, not a premature SaaS platform.
 
-Then, as a follow-up:
+## Current verified milestone
 
-POS mode (inside Facturación)
-  └── Fast product entry
-  └── Cart
-  └── Payment method
-  └── Confirm
-```
+GitHub `main` currently contains the product through **Prompt #21 / PR #18 — Suppliers + Purchase Orders + Goods Receipts**.
 
-Every piece on the Gestión side of that flow already exists (Customers,
-Products, Inventory, Pricing — see implementation-status.md), and the
-sale itself exists (Prompt #10, see [sales.md](sales.md)). The Facturación
-side of the same flow is implemented too (Prompt #11, see
-[facturacion.md](facturacion.md)): select customer, search/scan a
-product, see its real price and warehouse availability, build a sale,
-confirm it, watch inventory actually change, see it back in Gestión.
-**POS mode is now implemented as well** (Prompt #12, see
-[pos.md](pos.md)) — fast counter-sale entry with a payment method
-(cash/card/transfer/other), all inside Facturación, calling the same
-Sales domain. The full demo milestone described above is complete and
-has been hardened end to end (Prompt #13, see
-[implementation-status.md](implementation-status.md)) — integration
-tests and manual verification confirm Gestión, Facturación, and POS all
-share one Sales domain, one pricing engine, and one inventory ledger, and
-one real frontend defect (a swallowed confirm-failure error message) was
-found and fixed in the process. **Demo dashboard/UX polish is now
-complete as well** (Prompt #14, see [dashboard.md](dashboard.md)) —
-Gestión's home page is a real permission-aware operational dashboard
-backed by one small read-only aggregate endpoint, replacing the stale
-placeholder home page; stale foundation-era copy and a real date-format
-inconsistency across several history/audit screens were fixed in the
-process. The next milestone is demo data/presentation flow (Prompt #15).
+Implemented foundations already include:
 
-### Suggested upcoming milestones
+- auth, multi-company/branch context, RBAC, audit;
+- customers, products, warehouses, inventory ledger, pricing;
+- Sales core, Gestión sales UI, Facturación and POS;
+- realistic demo data + operational dashboard;
+- LAN realtime notifications;
+- Electron thin client with runtime server configuration;
+- Suppliers, Purchase Orders and Goods Receipts with partial receiving and concurrency protection.
 
-Planning suggestions only, except #10-#13 which are now implemented —
-not committed to this exact scope or order for the rest. See
-`prompts/planned/`/`prompts/completed/` for the actual task record of
-each.
+**Prompt #22 — Current Accounts + Collections + Supplier Payments** has been worked on locally, but at the time of this roadmap update it is not yet represented by a remote branch/PR in GitHub and therefore is not counted as implemented in `main`.
 
-```
-10  Demo Sales Core           — DONE (see prompts/completed/, docs/sales.md).
-                                 SalesDocument/SalesDocumentLine, DRAFT/
-                                 CONFIRMED/CANCELLED, price snapshot via
-                                 PricingService, inventory decrement via
-                                 InventoryService, Gestión /ventas UI.
-11  Facturación MVP           — DONE (see prompts/completed/, docs/facturacion.md).
-                                 Customer/product/barcode search, cart, draft/
-                                 confirm, calling the SAME SalesService from
-                                 #10 — zero new endpoints or tables.
-12  POS MVP                   — DONE (see prompts/completed/, docs/pos.md).
-                                 Keyboard-first checkout mode inside
-                                 Facturación; one new table (SalesTender, an
-                                 operational payment snapshot, never Treasury)
-                                 and one optional field on the existing
-                                 confirm endpoint — still the same SalesService.
-13  End-to-end integration    — DONE (see prompts/completed/, docs/implementation-status.md).
-                                 Hardening across Gestión/Facturación/POS sale
-                                 confirmation, pricing resolution, and inventory
-                                 effect — new integration/concurrency tests, one
-                                 real frontend defect found and fixed (a
-                                 swallowed confirm-failure error message).
-14  Demo Dashboard / UX polish   — DONE (see prompts/completed/, docs/dashboard.md).
-                                 Real Gestión home dashboard (GET
-                                 /dashboard/summary, permission-gated,
-                                 zero duplicated business rules), stale
-                                 copy fixes, and a real date-formatting
-                                 consistency fix across five screens.
-15  Demo data + presentation flow
-```
+---
 
-Do not begin any of these from this document — each needs its own task
-specification under `prompts/planned/` (see
-[prompts/README.md](../prompts/README.md)) before an agent or developer
-starts it.
+## PHASE 1 — LOCAL OPERATIONAL ERP
 
-## Full ERP roadmap (high-level, no implementation order implied)
+**Status: mostly complete; deployment/operations remain.**
 
-```
-Sales
-  Sales orders / quotes, delivery notes, sales invoices, credit/debit notes
+### Done
 
-Accounts Receivable
-  Customer balances (ledger-derived — never a stored column), collections
+- [x] Architecture / modular monolith
+- [x] Authentication
+- [x] Multi-company and branch context
+- [x] RBAC
+- [x] Audit
+- [x] Customers
+- [x] Products/catalog
+- [x] Pricing
+- [x] Inventory ledger
+- [x] Sales
+- [x] Facturación
+- [x] POS
+- [x] LAN realtime
+- [x] Electron thin client
 
-Purchases
-  Suppliers, purchase orders, goods receipts — DONE, see docs/purchases.md.
-  Remaining: fiscal purchase invoices, ARCA purchase integration.
+### Remaining before calling the Local distribution fully productized
 
-Accounts Payable
-  Supplier balances, payment scheduling
+- [ ] ERP Server installer/service
+- [ ] Stable service lifecycle for API/PostgreSQL/Gestión/Facturación
+- [ ] Basic backup automation
+- [ ] Restore workflow tested end-to-end
+- [ ] Support diagnostics/log collection
+- [ ] Safe upgrade/migration procedure for installed customers
 
-Treasury
-  Bank accounts, cash management, checks, payment methods
+---
 
-Fiscal / ARCA
-  Argentine tax authority integration, electronic invoicing
+## PHASE 2 — COMPLETE COMMERCIAL CIRCUIT
 
-Taxes
-  VAT calculation (PriceList.includesTax is metadata only today — no
-  calculation engine exists)
+**Status: in progress.**
 
-Accounting
-  Chart of accounts, journal entries, ledger posting from business events
+### Done
 
-Reporting
-  Dashboards, exports, business intelligence
+- [x] Suppliers
+- [x] Purchase Orders
+- [x] Goods Receipts
+- [x] Partial receiving
 
-Imports/Exports
-  Bulk data import/export tooling
+### In progress / next
 
-Integrations
-  Third-party/e-commerce integrations
-```
+- [~] Customer current accounts — Prompt #22 local work
+- [~] Supplier current accounts — Prompt #22 local work
+- [~] Collections — Prompt #22 local work
+- [~] Supplier payments — Prompt #22 local work
+- [ ] Stock transfers
+- [ ] Final commercial-flow polish
 
-Each of these, when actually started, gets its own `docs/<module>.md`
-(see the pattern already established by customers.md/products.md/
-inventory.md/pricing.md) and its own entry in
-[implementation-status.md](implementation-status.md).
+Permanent accounting-style rule: balances must be ledger-derived, never mutable authoritative `balance` columns.
+
+---
+
+## PHASE 3 — FINANCE / TREASURY
+
+**Status: not started.**
+
+- [ ] Cash / cashboxes
+- [ ] Opening and closing cash registers
+- [ ] Banks
+- [ ] Mercado Pago
+- [ ] Treasury movements
+- [ ] Reconciliation
+- [ ] Financial multicurrency
+- [ ] Checks/values if commercially required
+
+`SalesTender` remains an operational checkout snapshot; Treasury will be a distinct financial ledger.
+
+---
+
+## PHASE 4 — FISCAL / ARCA
+
+**Status: not started.**
+
+- [ ] Fiscal documents
+- [ ] Electronic invoicing / CAE
+- [ ] ARCA integration
+- [ ] VAT/tax calculation
+- [ ] Credit notes
+- [ ] Debit notes
+- [ ] Required fiscal reporting
+
+The existing `SalesDocument` is an internal commercial transaction, not a fiscal invoice.
+
+---
+
+## PHASE 5 — ADVANCED MANAGEMENT
+
+**Status: not started.**
+
+- [ ] Costs
+- [ ] Profitability / margins
+- [ ] Lots / batches
+- [ ] Traceability
+- [ ] Advanced logistics
+- [ ] Management reporting
+
+---
+
+## PHASE 6 — MEDIUM / INDUSTRIAL COMPANY
+
+**Status: not started.**
+
+- [ ] Accounting
+- [ ] Chart of accounts / journal entries
+- [ ] Cost centers
+- [ ] Imports
+- [ ] Production
+- [ ] BOM / formulas
+- [ ] Production orders
+- [ ] Industrial costing
+
+---
+
+## PHASE 7 — AUTOMATION / ECOSYSTEM
+
+**Status: not started.**
+
+- [ ] AI/OCR document ingestion
+- [ ] Mercado Libre
+- [ ] External APIs/integrations
+- [ ] Automations
+- [ ] Improved bulk import/export
+
+---
+
+## PHASE 8 — CLOUD
+
+**Status: architecture prepared; infrastructure not implemented.**
+
+The current core already follows important Cloud-ready rules:
+
+- one API as the business-data entry point;
+- strict company isolation;
+- runtime deployment configuration instead of fixed host assumptions;
+- frontends and Electron do not connect directly to PostgreSQL;
+- business domain is not coupled to Electron or a specific OS;
+- reproducible migrations;
+- realtime is an invalidation transport while REST + PostgreSQL stay authoritative.
+
+Future work:
+
+- [ ] Managed deployment
+- [ ] HTTPS/domains
+- [ ] Provisioning
+- [ ] Managed backups
+- [ ] Observability
+- [ ] Multi-instance architecture only when required
+- [ ] SaaS subscriptions/billing only when a real commercial need exists
+
+Do **not** prematurely build Kubernetes/AWS-specific/autoscaling architecture.
+
+---
+
+## Recommended immediate sequence
+
+1. Recover and inspect the local Prompt #22 working tree.
+2. Commit/push it to `agent/claude-current-accounts` and open a draft PR.
+3. Review and merge only after ledger/concurrency/backfill/isolation verification.
+4. Build the ERP Server installer/runtime.
+5. Add backup + restore + support diagnostics.
+6. Add stock transfers if needed by the first customer profile.
+7. Treasury.
+8. Fiscal/ARCA.
+9. Advanced management / accounting / industrial modules as demand justifies them.
+
+## Positioning
+
+> **ERP moderno para PyMEs argentinas, desde un comercio hasta una empresa mediana, con modalidad local primero y preparado para Cloud.**
