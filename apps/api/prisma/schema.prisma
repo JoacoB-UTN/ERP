@@ -36,28 +36,32 @@ model Tenant {
   createdAt DateTime     @default(now()) @db.Timestamptz(6)
   updatedAt DateTime     @updatedAt @db.Timestamptz(6)
 
-  companies          Company[]
-  branches           Branch[]
-  userCompanies      UserCompany[]
-  roles              Role[]
-  auditLogs          AuditLog[]
-  customers          Customer[]
-  customerCategories CustomerCategory[]
-  products           Product[]
-  productCategories  ProductCategory[]
-  brands             Brand[]
-  unitsOfMeasure     UnitOfMeasure[]
-  warehouses         Warehouse[]
-  stockMovements     StockMovement[]
-  stockReservations  StockReservation[]
-  stockAdjustments   StockAdjustment[]
-  priceLists         PriceList[]
-  priceListItems     PriceListItem[]
-  priceHistory       PriceHistory[]
-  salesDocuments     SalesDocument[]
-  suppliers          Supplier[]
-  purchaseOrders     PurchaseOrder[]
-  purchaseReceipts   PurchaseReceipt[]
+  companies                Company[]
+  branches                 Branch[]
+  userCompanies            UserCompany[]
+  roles                    Role[]
+  auditLogs                AuditLog[]
+  customers                Customer[]
+  customerCategories       CustomerCategory[]
+  products                 Product[]
+  productCategories        ProductCategory[]
+  brands                   Brand[]
+  unitsOfMeasure           UnitOfMeasure[]
+  warehouses               Warehouse[]
+  stockMovements           StockMovement[]
+  stockReservations        StockReservation[]
+  stockAdjustments         StockAdjustment[]
+  priceLists               PriceList[]
+  priceListItems           PriceListItem[]
+  priceHistory             PriceHistory[]
+  salesDocuments           SalesDocument[]
+  suppliers                Supplier[]
+  purchaseOrders           PurchaseOrder[]
+  purchaseReceipts         PurchaseReceipt[]
+  customerAccountMovements CustomerAccountMovement[]
+  supplierAccountMovements SupplierAccountMovement[]
+  customerCollections      CustomerCollection[]
+  supplierPayments         SupplierPayment[]
 
   @@map("tenants")
 }
@@ -80,37 +84,43 @@ model Company {
   createdAt   DateTime      @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime      @updatedAt @db.Timestamptz(6)
 
-  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
-  branches                Branch[]
-  userCompanies           UserCompany[]
-  roles                   Role[]
-  userRoles               UserRole[]
-  auditLogs               AuditLog[]
-  customers               Customer[]
-  customerCategories      CustomerCategory[]
-  customerCodeSequence    CustomerCodeSequence?
-  products                Product[]
-  productCategories       ProductCategory[]
-  brands                  Brand[]
-  unitsOfMeasure          UnitOfMeasure[]
-  productCodeSequence     ProductCodeSequence?
-  warehouses              Warehouse[]
-  stockMovements          StockMovement[]
-  stockReservations       StockReservation[]
-  inventoryBalances       InventoryBalance[]
-  stockAdjustments        StockAdjustment[]
-  stockAdjustmentSequence StockAdjustmentSequence?
-  priceLists              PriceList[]
-  priceListItems          PriceListItem[]
-  priceHistory            PriceHistory[]
-  salesDocuments          SalesDocument[]
-  salesDocumentSequence   SalesDocumentSequence?
-  suppliers               Supplier[]
-  supplierCodeSequence    SupplierCodeSequence?
-  purchaseOrders          PurchaseOrder[]
-  purchaseOrderSequence   PurchaseOrderSequence?
-  purchaseReceipts        PurchaseReceipt[]
-  purchaseReceiptSequence PurchaseReceiptSequence?
+  tenant                     Tenant                      @relation(fields: [tenantId], references: [id])
+  branches                   Branch[]
+  userCompanies              UserCompany[]
+  roles                      Role[]
+  userRoles                  UserRole[]
+  auditLogs                  AuditLog[]
+  customers                  Customer[]
+  customerCategories         CustomerCategory[]
+  customerCodeSequence       CustomerCodeSequence?
+  products                   Product[]
+  productCategories          ProductCategory[]
+  brands                     Brand[]
+  unitsOfMeasure             UnitOfMeasure[]
+  productCodeSequence        ProductCodeSequence?
+  warehouses                 Warehouse[]
+  stockMovements             StockMovement[]
+  stockReservations          StockReservation[]
+  inventoryBalances          InventoryBalance[]
+  stockAdjustments           StockAdjustment[]
+  stockAdjustmentSequence    StockAdjustmentSequence?
+  priceLists                 PriceList[]
+  priceListItems             PriceListItem[]
+  priceHistory               PriceHistory[]
+  salesDocuments             SalesDocument[]
+  salesDocumentSequence      SalesDocumentSequence?
+  suppliers                  Supplier[]
+  supplierCodeSequence       SupplierCodeSequence?
+  purchaseOrders             PurchaseOrder[]
+  purchaseOrderSequence      PurchaseOrderSequence?
+  purchaseReceipts           PurchaseReceipt[]
+  purchaseReceiptSequence    PurchaseReceiptSequence?
+  customerAccountMovements   CustomerAccountMovement[]
+  supplierAccountMovements   SupplierAccountMovement[]
+  customerCollections        CustomerCollection[]
+  customerCollectionSequence CustomerCollectionSequence?
+  supplierPayments           SupplierPayment[]
+  supplierPaymentSequence    SupplierPaymentSequence?
 
   // A given tax id should not be registered twice within the same tenant.
   @@unique([tenantId, taxId])
@@ -136,13 +146,15 @@ model Branch {
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   company Company @relation(fields: [companyId], references: [id])
 
-  auditLogs        AuditLog[]
-  warehouses       Warehouse[]
-  stockMovements   StockMovement[]
-  stockAdjustments StockAdjustment[]
-  salesDocuments   SalesDocument[]
-  purchaseOrders   PurchaseOrder[]
-  purchaseReceipts PurchaseReceipt[]
+  auditLogs           AuditLog[]
+  warehouses          Warehouse[]
+  stockMovements      StockMovement[]
+  stockAdjustments    StockAdjustment[]
+  salesDocuments      SalesDocument[]
+  purchaseOrders      PurchaseOrder[]
+  purchaseReceipts    PurchaseReceipt[]
+  customerCollections CustomerCollection[]
+  supplierPayments    SupplierPayment[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -522,6 +534,8 @@ model Customer {
   contacts            CustomerContact[]
   categoryAssignments CustomerCategoryAssignment[]
   salesDocuments      SalesDocument[]
+  accountMovements    CustomerAccountMovement[]
+  collections         CustomerCollection[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -1208,10 +1222,14 @@ model Currency {
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
 
-  priceLists       PriceList[]
-  salesDocuments   SalesDocument[]
-  purchaseOrders   PurchaseOrder[]
-  purchaseReceipts PurchaseReceipt[]
+  priceLists               PriceList[]
+  salesDocuments           SalesDocument[]
+  purchaseOrders           PurchaseOrder[]
+  purchaseReceipts         PurchaseReceipt[]
+  customerAccountMovements CustomerAccountMovement[]
+  supplierAccountMovements SupplierAccountMovement[]
+  customerCollections      CustomerCollection[]
+  supplierPayments         SupplierPayment[]
 
   @@map("currencies")
 }
@@ -1481,6 +1499,8 @@ model SalesDocument {
   lines  SalesDocumentLine[]
   tender SalesTender?
 
+  collectionApplications CustomerCollectionApplication[]
+
   @@unique([companyId, number])
   @@index([tenantId])
   @@index([companyId, status])
@@ -1648,6 +1668,8 @@ model Supplier {
 
   purchaseOrders   PurchaseOrder[]
   purchaseReceipts PurchaseReceipt[]
+  accountMovements SupplierAccountMovement[]
+  payments         SupplierPayment[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -1848,6 +1870,8 @@ model PurchaseReceipt {
 
   lines PurchaseReceiptLine[]
 
+  paymentApplications SupplierPaymentApplication[]
+
   @@unique([companyId, number])
   @@index([tenantId])
   @@index([companyId, status])
@@ -1890,4 +1914,363 @@ model PurchaseReceiptLine {
   @@index([productVariantId])
   @@index([purchaseOrderLineId])
   @@map("purchase_receipt_lines")
+}
+
+// ---------- Current Accounts (Customer AR, Supplier AP) ----------
+//
+// See docs/current-accounts.md. Same immutable-ledger philosophy as
+// Inventory (docs/inventory.md): CustomerAccountMovement/
+// SupplierAccountMovement are the ONLY authoritative source of a party's
+// balance — there is deliberately no `customer.balance`/`supplier.balance`
+// column anywhere. A balance is always SUM(movements) for that
+// (party, currency) pair, computed at read time (or via an explicitly
+// rebuildable projection later, if profiling ever justifies one — not
+// needed at this scale).
+//
+// Sign convention (documented once here, applied everywhere — see
+// docs/current-accounts.md):
+//   Customer account: positive = customer owes us.
+//     SALE_CHARGE +, TENDER_SETTLEMENT -, COLLECTION -, COLLECTION_REVERSAL +.
+//   Supplier account: positive = we owe the supplier.
+//     PURCHASE_RECEIPT_ACCRUAL +, PURCHASE_RECEIPT_REVERSAL -,
+//     SUPPLIER_PAYMENT -, SUPPLIER_PAYMENT_REVERSAL +.
+//
+// `sourceType`/`sourceId` mirror StockMovement's existing
+// referenceType/referenceId convention (see inventory section above) —
+// a deliberate plain-string pointer, NOT a DB foreign key, because the
+// source can be any of several tables (SalesDocument today; a future
+// fiscal invoice or credit note tomorrow) and never needs to be
+// dereferenced with a JOIN, only displayed/looked-up by the owning
+// service. This is NOT the "polymorphic party FK" anti-pattern this
+// module deliberately avoids elsewhere: Customer and Supplier ledgers
+// are two SEPARATE tables with real, enforceable FKs to Customer/Supplier
+// respectively — only the "what caused this movement" pointer is a
+// plain string pair, exactly like StockMovement already does.
+//
+// `@@unique([companyId, sourceType, sourceId, movementType])` is the
+// database-level idempotency guarantee the task requires: the same
+// business event (a given SalesDocument's charge, a given
+// PurchaseReceipt's accrual, a given Collection's settlement, ...) can
+// physically never produce two rows, even under a genuine concurrent
+// double-confirm — a second attempt hits a unique-constraint violation,
+// not just an application-level "does one already exist?" check.
+
+/// Growable on purpose — see docs/current-accounts.md's documented
+/// extension points. Only SALE_CHARGE/TENDER_SETTLEMENT/COLLECTION/
+/// COLLECTION_REVERSAL are ever created by this task's services;
+/// CREDIT_NOTE/DEBIT_NOTE/OPENING_BALANCE/ADJUSTMENT/WRITE_OFF exist as
+/// reserved future values only, so a later module can add that behavior
+/// without a schema migration.
+enum CustomerAccountMovementType {
+  SALE_CHARGE
+  TENDER_SETTLEMENT
+  COLLECTION
+  COLLECTION_REVERSAL
+  CREDIT_NOTE
+  DEBIT_NOTE
+  OPENING_BALANCE
+  ADJUSTMENT
+  WRITE_OFF
+}
+
+/// The customer-side ledger — see the section header above and
+/// docs/current-accounts.md. Immutable: never UPDATE'd or DELETE'd after
+/// insert; a correction is always a NEW row (a reversal), pointed back at
+/// the original via `reversalOfId`.
+model CustomerAccountMovement {
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @db.Uuid
+  companyId  String @db.Uuid
+  customerId String @db.Uuid
+  currencyId String @db.Uuid
+
+  movementType CustomerAccountMovementType
+
+  /// Signed — see the sign convention documented above. NUMERIC(19,4),
+  /// same precision as every other money column in this schema.
+  amount Decimal @db.Decimal(19, 4)
+
+  /// Business date this movement is attributed to (the sale's occurredAt,
+  /// the collection's own date, ...) — NOT necessarily createdAt.
+  occurredAt DateTime @db.Timestamptz(6)
+
+  /// Plain string pointer, not a FK — see the section header above.
+  /// Values are Prisma model names: "SalesDocument", "CustomerCollection".
+  sourceType String
+  sourceId   String @db.Uuid
+
+  /// Self-relation: the movement THIS one reverses. Null for every
+  /// non-reversal movement. The original row is never edited/deleted.
+  reversalOfId String? @db.Uuid
+
+  /// Short, human-readable, immutable snapshot for the statement view —
+  /// e.g. "Venta VTA-000042" — so a statement read years from now doesn't
+  /// depend on joining/formatting logic that may have since changed.
+  description String?
+
+  createdBy String?  @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  company  Company  @relation(fields: [companyId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+  currency Currency @relation(fields: [currencyId], references: [id])
+
+  reversalOf CustomerAccountMovement?  @relation("CustomerAccountMovementReversal", fields: [reversalOfId], references: [id])
+  reversals  CustomerAccountMovement[] @relation("CustomerAccountMovementReversal")
+
+  @@unique([companyId, sourceType, sourceId, movementType])
+  @@index([tenantId])
+  @@index([companyId, customerId, currencyId])
+  @@index([companyId, customerId, currencyId, occurredAt])
+  @@map("customer_account_movements")
+}
+
+/// Symmetric to CustomerAccountMovementType — see docs/current-accounts.md.
+enum SupplierAccountMovementType {
+  PURCHASE_RECEIPT_ACCRUAL
+  PURCHASE_RECEIPT_REVERSAL
+  SUPPLIER_PAYMENT
+  SUPPLIER_PAYMENT_REVERSAL
+  PURCHASE_INVOICE
+  PURCHASE_CREDIT_NOTE
+  OPENING_BALANCE
+  ADJUSTMENT
+}
+
+/// The supplier-side ledger — symmetric to CustomerAccountMovement, see
+/// the section header above and docs/current-accounts.md.
+model SupplierAccountMovement {
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @db.Uuid
+  companyId  String @db.Uuid
+  supplierId String @db.Uuid
+  currencyId String @db.Uuid
+
+  movementType SupplierAccountMovementType
+
+  amount Decimal @db.Decimal(19, 4)
+
+  occurredAt DateTime @db.Timestamptz(6)
+
+  /// Plain string pointer, not a FK — see CustomerAccountMovement's
+  /// identical documented reasoning. Values are Prisma model names:
+  /// "PurchaseReceipt", "SupplierPayment".
+  sourceType String
+  sourceId   String @db.Uuid
+
+  reversalOfId String? @db.Uuid
+
+  description String?
+
+  createdBy String?  @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  company  Company  @relation(fields: [companyId], references: [id])
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  currency Currency @relation(fields: [currencyId], references: [id])
+
+  reversalOf SupplierAccountMovement?  @relation("SupplierAccountMovementReversal", fields: [reversalOfId], references: [id])
+  reversals  SupplierAccountMovement[] @relation("SupplierAccountMovementReversal")
+
+  @@unique([companyId, sourceType, sourceId, movementType])
+  @@index([tenantId])
+  @@index([companyId, supplierId, currencyId])
+  @@index([companyId, supplierId, currencyId, occurredAt])
+  @@map("supplier_account_movements")
+}
+
+/// See docs/current-accounts.md's Cobro state machine. Unlike PurchaseOrder/
+/// SalesDocument, CONFIRMED is NOT terminal here — a CONFIRMED collection
+/// can still be CANCELLED (posting a compensating COLLECTION_REVERSAL),
+/// the same deliberate exception already established for PurchaseReceipt
+/// in Prompt #21 (a "new reversing entry" is exactly what a mistaken/
+/// bounced collection needs).
+enum CustomerCollectionStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+model CustomerCollectionSequence {
+  companyId String @id @db.Uuid
+  lastValue Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("customer_collection_sequences")
+}
+
+/// A "Cobro" — see docs/current-accounts.md. `amount` is the total
+/// collected; `applications` (below) says which SalesDocument(s) it pays
+/// down. SUM(applications.amount) is never required to equal `amount` —
+/// any remainder is unapplied customer credit/advance, by design (see
+/// "Applications" in docs/current-accounts.md).
+model CustomerCollection {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+
+  companyId String  @db.Uuid
+  branchId  String? @db.Uuid
+
+  /// Company-scoped sequence via CustomerCollectionSequence — "COB-000001".
+  number String
+
+  customerId String @db.Uuid
+  currencyId String @db.Uuid
+
+  occurredAt DateTime @db.Timestamptz(6)
+  /// Always > 0 — the total amount collected in this document's currency.
+  amount     Decimal  @db.Decimal(19, 4)
+
+  /// Reuses SalesTenderMethod (see docs/pos.md and docs/current-accounts.md's
+  /// documented naming decision) — purely descriptive, never touches a
+  /// cash/bank balance (Treasury is out of scope for this task).
+  paymentMethod SalesTenderMethod
+
+  externalReference String?
+  notes             String?
+
+  status CustomerCollectionStatus @default(DRAFT)
+
+  confirmedAt DateTime? @db.Timestamptz(6)
+  cancelledAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  createdBy   String? @db.Uuid
+  confirmedBy String? @db.Uuid
+  cancelledBy String? @db.Uuid
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  company  Company  @relation(fields: [companyId], references: [id])
+  branch   Branch?  @relation(fields: [branchId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+  currency Currency @relation(fields: [currencyId], references: [id])
+
+  applications CustomerCollectionApplication[]
+
+  @@unique([companyId, number])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([companyId, customerId])
+  @@map("customer_collections")
+}
+
+/// One row per (collection, targeted SalesDocument) — see
+/// docs/current-accounts.md's "Applications" section. Rows are created/
+/// replaced freely while the parent collection is DRAFT, then FROZEN at
+/// CONFIRM (never edited/deleted afterward, including on cancellation —
+/// see docs/current-accounts.md's "reopening" behavior: a cancelled
+/// collection's applications remain as history, but AccountsReceivableService's
+/// outstanding calculation only counts applications belonging to a
+/// CONFIRMED collection, so cancelling one automatically and correctly
+/// reopens every SalesDocument it had applied to — with zero mutation of
+/// these rows). `@@unique([customerCollectionId, salesDocumentId])`
+/// prevents the same collection from ever double-applying to one sale.
+model CustomerCollectionApplication {
+  id                   String @id @default(uuid()) @db.Uuid
+  customerCollectionId String @db.Uuid
+  salesDocumentId      String @db.Uuid
+
+  /// Always > 0.
+  amount Decimal @db.Decimal(19, 4)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  customerCollection CustomerCollection @relation(fields: [customerCollectionId], references: [id])
+  salesDocument      SalesDocument      @relation(fields: [salesDocumentId], references: [id])
+
+  @@unique([customerCollectionId, salesDocumentId])
+  @@index([customerCollectionId])
+  @@index([salesDocumentId])
+  @@map("customer_collection_applications")
+}
+
+/// Symmetric to CustomerCollectionStatus — see docs/current-accounts.md.
+enum SupplierPaymentStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+model SupplierPaymentSequence {
+  companyId String @id @db.Uuid
+  lastValue Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("supplier_payment_sequences")
+}
+
+/// A "Pago" — symmetric to CustomerCollection, see docs/current-accounts.md.
+model SupplierPayment {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+
+  companyId String  @db.Uuid
+  branchId  String? @db.Uuid
+
+  /// Company-scoped sequence via SupplierPaymentSequence — "PAG-000001".
+  number String
+
+  supplierId String @db.Uuid
+  currencyId String @db.Uuid
+
+  occurredAt DateTime @db.Timestamptz(6)
+  amount     Decimal  @db.Decimal(19, 4)
+
+  paymentMethod SalesTenderMethod
+
+  externalReference String?
+  notes             String?
+
+  status SupplierPaymentStatus @default(DRAFT)
+
+  confirmedAt DateTime? @db.Timestamptz(6)
+  cancelledAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  createdBy   String? @db.Uuid
+  confirmedBy String? @db.Uuid
+  cancelledBy String? @db.Uuid
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  company  Company  @relation(fields: [companyId], references: [id])
+  branch   Branch?  @relation(fields: [branchId], references: [id])
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  currency Currency @relation(fields: [currencyId], references: [id])
+
+  applications SupplierPaymentApplication[]
+
+  @@unique([companyId, number])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([companyId, supplierId])
+  @@map("supplier_payments")
+}
+
+/// Symmetric to CustomerCollectionApplication — see its documented
+/// freeze/reopen behavior, identical here against PurchaseReceipt.
+model SupplierPaymentApplication {
+  id                String @id @default(uuid()) @db.Uuid
+  supplierPaymentId String @db.Uuid
+  purchaseReceiptId String @db.Uuid
+
+  /// Always > 0.
+  amount Decimal @db.Decimal(19, 4)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  supplierPayment SupplierPayment @relation(fields: [supplierPaymentId], references: [id])
+  purchaseReceipt PurchaseReceipt @relation(fields: [purchaseReceiptId], references: [id])
+
+  @@unique([supplierPaymentId, purchaseReceiptId])
+  @@index([supplierPaymentId])
+  @@index([purchaseReceiptId])
+  @@map("supplier_payment_applications")
 }

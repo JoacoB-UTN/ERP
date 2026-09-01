@@ -24,6 +24,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:seed": "prisma db seed",
+    "db:backfill-current-accounts": "tsx prisma/backfill-current-accounts.ts",
     "db:reset": "prisma migrate reset",
     "db:studio": "prisma studio"
   },

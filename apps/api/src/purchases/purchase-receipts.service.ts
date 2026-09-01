@@ -34,6 +34,8 @@ import { CurrencyNotFoundException } from '../pricing/pricing.exceptions';
 import { InventoryService } from '../inventory/inventory.service';
 import { SuppliersService } from './suppliers.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
+import { SupplierAccountService } from '../accounts/supplier-account.service';
+import { PurchaseReceiptHasActivePaymentsException } from '../accounts/supplier-payments.exceptions';
 import {
   PurchaseReceiptNotFoundException,
   PurchaseReceiptNotEditableException,
@@ -164,6 +166,7 @@ export class PurchaseReceiptsService {
     private readonly purchaseOrdersService: PurchaseOrdersService,
     private readonly inventoryService: InventoryService,
     private readonly realtimePublisher: RealtimePublisher,
+    private readonly supplierAccountService: SupplierAccountService,
   ) {}
 
   async list(
@@ -500,6 +503,24 @@ export class PurchaseReceiptsService {
         });
       }
 
+      // Operational payable accrual — SUM(quantity × unitCostSnapshot),
+      // deliberately not a fiscal invoice — see docs/current-accounts.md.
+      const accrualTotal = receipt.lines.reduce(
+        (sum, line) => sum.add(new Prisma.Decimal(line.quantity).mul(line.unitCostSnapshot)),
+        new Prisma.Decimal(0),
+      );
+      await this.supplierAccountService.postReceiptAccrual(tx, {
+        tenantId: ctx.tenantId,
+        companyId: ctx.companyId,
+        supplierId: receipt.supplierId,
+        currencyId: receipt.currencyId,
+        purchaseReceiptId: receipt.id,
+        purchaseReceiptNumber: receipt.number,
+        amount: accrualTotal.toString(),
+        occurredAt: receipt.receiptDate,
+        createdBy: ctx.userId,
+      });
+
       await this.auditService.recordFromContext(
         ctx,
         {
@@ -521,6 +542,10 @@ export class PurchaseReceiptsService {
     // Only reachable once the transaction above has committed — see
     // docs/desktop-lan-architecture.md's "Realtime architecture".
     this.realtimePublisher.purchaseReceiptConfirmed(ctx.companyId, id);
+    this.realtimePublisher.supplierAccountChanged(
+      ctx.companyId,
+      existing.supplierId,
+    );
     for (const change of stockChanges) {
       this.realtimePublisher.stockChanged(
         ctx.companyId,
@@ -577,6 +602,20 @@ export class PurchaseReceiptsService {
     const stockChanges: { warehouseId: string; productVariantId: string }[] =
       [];
     await this.prisma.$transaction(async (tx) => {
+      // Locks THIS receipt row before checking for active payments — the
+      // SAME row SupplierPaymentsService.confirm() locks (via an identical
+      // `FOR UPDATE`) before posting a payment against it, so a concurrent
+      // "confirm this payment" vs "cancel this receipt" race is fully
+      // serialized by Postgres rather than racing past each other's
+      // in-memory check — see docs/current-accounts.md's "Concurrency"
+      // section and SupplierPaymentsService's class doc comment.
+      await tx.$queryRaw(
+        Prisma.sql`SELECT id FROM purchase_receipts WHERE id = ${id} FOR UPDATE`,
+      );
+      if (await this.supplierAccountService.hasActiveConfirmedApplications(tx, id)) {
+        throw new PurchaseReceiptHasActivePaymentsException();
+      }
+
       const guarded = await tx.purchaseReceipt.updateMany({
         where: { id, status: 'CONFIRMED' },
         data: {
@@ -609,6 +648,22 @@ export class PurchaseReceiptsService {
         });
       }
 
+      const accrualTotal = existing.lines.reduce(
+        (sum, line) => sum.add(new Prisma.Decimal(line.quantity).mul(line.unitCostSnapshot)),
+        new Prisma.Decimal(0),
+      );
+      await this.supplierAccountService.postReceiptReversal(tx, {
+        tenantId: ctx.tenantId,
+        companyId: ctx.companyId,
+        supplierId: existing.supplierId,
+        currencyId: existing.currencyId,
+        purchaseReceiptId: existing.id,
+        purchaseReceiptNumber: existing.number,
+        amount: accrualTotal.toString(),
+        occurredAt: new Date(),
+        createdBy: ctx.userId,
+      });
+
       await this.auditService.recordFromContext(
         ctx,
         {
@@ -626,6 +681,10 @@ export class PurchaseReceiptsService {
     });
 
     this.realtimePublisher.purchaseReceiptCancelled(ctx.companyId, id);
+    this.realtimePublisher.supplierAccountChanged(
+      ctx.companyId,
+      existing.supplierId,
+    );
     for (const change of stockChanges) {
       this.realtimePublisher.stockChanged(
         ctx.companyId,
