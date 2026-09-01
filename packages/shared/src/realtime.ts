@@ -21,6 +21,12 @@ export const REALTIME_EVENTS = [
   'purchase-order.cancelled',
   'purchase-receipt.confirmed',
   'purchase-receipt.cancelled',
+  'customer-account.changed',
+  'supplier-account.changed',
+  'collection.confirmed',
+  'collection.cancelled',
+  'supplier-payment.confirmed',
+  'supplier-payment.cancelled',
 ] as const;
 
 export type RealtimeEventName = (typeof REALTIME_EVENTS)[number];
@@ -78,6 +84,38 @@ export interface PurchaseReceiptCancelledEvent {
   purchaseReceiptId: string;
 }
 
+/** See docs/current-accounts.md. Published after ANY commit that posts a CustomerAccountMovement for this customer (sale confirm, collection confirm/cancel). */
+export interface CustomerAccountChangedEvent {
+  companyId: string;
+  customerId: string;
+}
+
+/** Symmetric to CustomerAccountChangedEvent — published after a SupplierAccountMovement post (receipt confirm/cancel, supplier payment confirm/cancel). */
+export interface SupplierAccountChangedEvent {
+  companyId: string;
+  supplierId: string;
+}
+
+export interface CollectionConfirmedEvent {
+  companyId: string;
+  collectionId: string;
+}
+
+export interface CollectionCancelledEvent {
+  companyId: string;
+  collectionId: string;
+}
+
+export interface SupplierPaymentConfirmedEvent {
+  companyId: string;
+  supplierPaymentId: string;
+}
+
+export interface SupplierPaymentCancelledEvent {
+  companyId: string;
+  supplierPaymentId: string;
+}
+
 /** Maps each event name to its exact payload shape — used by both the API publisher and the frontend listener so neither side can drift. */
 export interface RealtimeEventPayloads {
   'sale.confirmed': SaleConfirmedEvent;
@@ -90,6 +128,12 @@ export interface RealtimeEventPayloads {
   'purchase-order.cancelled': PurchaseOrderCancelledEvent;
   'purchase-receipt.confirmed': PurchaseReceiptConfirmedEvent;
   'purchase-receipt.cancelled': PurchaseReceiptCancelledEvent;
+  'customer-account.changed': CustomerAccountChangedEvent;
+  'supplier-account.changed': SupplierAccountChangedEvent;
+  'collection.confirmed': CollectionConfirmedEvent;
+  'collection.cancelled': CollectionCancelledEvent;
+  'supplier-payment.confirmed': SupplierPaymentConfirmedEvent;
+  'supplier-payment.cancelled': SupplierPaymentCancelledEvent;
 }
 
 /**

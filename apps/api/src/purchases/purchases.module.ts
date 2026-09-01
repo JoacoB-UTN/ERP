@@ -5,6 +5,7 @@ import { AuthorizationModule } from '../authorization/authorization.module';
 import { AuditModule } from '../audit/audit.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { AccountsModule } from '../accounts/accounts.module';
 import { SuppliersController } from './suppliers.controller';
 import { SuppliersService } from './suppliers.service';
 import { PurchaseOrdersController } from './purchase-orders.controller';
@@ -26,6 +27,7 @@ import { PurchaseReceiptsService } from './purchase-receipts.service';
     AuditModule,
     InventoryModule,
     RealtimeModule,
+    AccountsModule,
   ],
   controllers: [
     SuppliersController,

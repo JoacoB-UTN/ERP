@@ -32,6 +32,7 @@ import { InvalidQuantityPrecisionException } from '../inventory/inventory.except
 import { InventoryService } from '../inventory/inventory.service';
 import { PricingService } from '../pricing/pricing.service';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
+import { CustomerAccountService } from '../accounts/customer-account.service';
 import {
   SaleNotFoundException,
   SaleNotEditableException,
@@ -245,6 +246,7 @@ export class SalesService {
     private readonly inventoryService: InventoryService,
     private readonly pricingService: PricingService,
     private readonly realtimePublisher: RealtimePublisher,
+    private readonly customerAccountService: CustomerAccountService,
   ) {}
 
   async list(
@@ -609,6 +611,23 @@ export class SalesService {
         });
       }
 
+      // Posts SALE_CHARGE (+total) and, when tendered, TENDER_SETTLEMENT
+      // (-total — NEVER amountReceived, so change is never customer
+      // credit) in this SAME transaction — see docs/current-accounts.md.
+      // A sale confirmed without a tender remains fully outstanding.
+      await this.customerAccountService.postSaleConfirmation(tx, {
+        tenantId: ctx.tenantId,
+        companyId: ctx.companyId,
+        customerId: existing.customerId,
+        currencyId: existing.currencyId,
+        salesDocumentId: existing.id,
+        salesDocumentNumber: existing.number,
+        total,
+        occurredAt: existing.occurredAt,
+        createdBy: ctx.userId,
+        tender: tender ? { amount: total } : undefined,
+      });
+
       await this.auditService.recordFromContext(
         ctx,
         {
@@ -636,6 +655,10 @@ export class SalesService {
     // never runs, so a failed confirm emits nothing (see
     // docs/desktop-lan-architecture.md's "Realtime architecture").
     this.realtimePublisher.saleConfirmed(ctx.companyId, id);
+    this.realtimePublisher.customerAccountChanged(
+      ctx.companyId,
+      existing.customerId,
+    );
     for (const change of stockChanges) {
       this.realtimePublisher.stockChanged(
         ctx.companyId,
