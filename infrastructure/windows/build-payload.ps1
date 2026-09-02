@@ -40,8 +40,29 @@ param(
   # binary zip extracted to a staging folder. Optional: omit it to build a
   # payload for testing the Node side without the ~200 MB database.
   [string]$PostgresDir,
+  # Path to an already-downloaded WinSW executable. Omit it and the script
+  # fetches the pinned release below. Use it on a build machine with no
+  # internet, or to substitute the much smaller WinSW.NET461.exe (see the
+  # note on the constants below).
+  [string]$WinSWPath,
   [switch]$Build
 )
+
+# WinSW (MIT) supervises the five Windows services — see docs/server-installer.md.
+#
+# WinSW-x64.exe is the SELF-CONTAINED .NET build: 18 MB, and it depends on no
+# runtime being installed on the customer's PC. That is the same principle
+# behind bundling PostgreSQL and node.exe, and it is worth the size — a machine
+# with a broken or absent .NET Framework is exactly what makes an on-site
+# install fail at 6pm on a Friday. WinSW.NET461.exe is 656 KB but needs .NET
+# Framework 4.6.1+; pass it via -WinSWPath if you want that trade instead.
+#
+# The hash is pinned because this binary runs as SYSTEM on a customer's
+# machine. A build must never ship whatever happened to be at that URL today.
+$WINSW_VERSION = 'v2.12.0'
+$WINSW_URL     = "https://github.com/winsw/winsw/releases/download/$WINSW_VERSION/WinSW-x64.exe"
+$WINSW_SHA256  = '05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da'
+$WINSW_LICENSE_URL = "https://raw.githubusercontent.com/winsw/winsw/$WINSW_VERSION/LICENSE.txt"
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -124,6 +145,33 @@ try {
   $nodeDir = Join-Path $payload 'node'
   New-Item -ItemType Directory -Path $nodeDir -Force | Out-Null
   Copy-Item $NodeExe (Join-Path $nodeDir 'node.exe')
+
+  # ---- WinSW --------------------------------------------------------------
+  # Fetched at BUILD time, never at install time: the customer's PC may have no
+  # internet, and an installer that needs one is not a local-first product.
+  #
+  # Staged early, before the expensive node_modules copy, so a failed download
+  # or a checksum mismatch costs seconds instead of a quarter of an hour.
+  Write-Step "Staging WinSW ($WINSW_VERSION)"
+  $winswDir = Join-Path $payload 'winsw'
+  New-Item -ItemType Directory -Path $winswDir -Force | Out-Null
+  $winswExe = Join-Path $winswDir 'WinSW.exe'
+
+  if ($WinSWPath) {
+    if (-not (Test-Path $WinSWPath)) { throw "-WinSWPath not found: $WinSWPath" }
+    Copy-Item $WinSWPath $winswExe -Force
+    Write-Warning "Using -WinSWPath; the pinned hash is NOT enforced for a locally supplied binary."
+  } else {
+    Invoke-WebRequest -Uri $WINSW_URL -OutFile $winswExe -UseBasicParsing
+    $actual = (Get-FileHash $winswExe -Algorithm SHA256).Hash.ToLower()
+    if ($actual -ne $WINSW_SHA256) {
+      Remove-Item $winswExe -Force
+      throw "WinSW checksum mismatch. Expected $WINSW_SHA256, got $actual. Refusing to ship an unverified binary."
+    }
+    # MIT requires the licence and copyright notice travel with the binary.
+    Invoke-WebRequest -Uri $WINSW_LICENSE_URL `
+      -OutFile (Join-Path $winswDir 'LICENSE.txt') -UseBasicParsing
+  }
 
   # ---- API + agent --------------------------------------------------------
   Write-Step "Staging API and maintenance agent"

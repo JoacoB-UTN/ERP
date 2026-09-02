@@ -104,6 +104,12 @@ iscc infrastructure/windows/erp-server.iss /DPayloadDir=dist/erp-server /DAppVer
 `-PostgresDir` is optional: omit it to build a Node-only payload for testing,
 which is how the smoke test in CI runs.
 
+WinSW (MIT) is downloaded at build time against a pinned SHA-256 and staged
+with its licence; nothing is fetched at install time. `-WinSWPath` builds from
+a local copy when the build machine is offline. See
+[infrastructure/windows/README.md](../infrastructure/windows/README.md) for
+which WinSW build is used and why.
+
 Two things worth knowing about the payload build:
 
 - **Gestión and Facturación ship as Next.js standalone output.** This is the
@@ -190,8 +196,15 @@ PostgreSQL 16 and a real provisioned database:
   `/administracion/backups` shows the live backup state with no console errors.
 - Full API e2e suite passes (250/251; the one failure is
   `Health › returns a healthy response`, which requires a live Redis).
+- **All five service definitions are accepted by the real WinSW 2.12.0
+  binary.** Each template is rendered with dummy values (including an `&` in
+  the password, to exercise XML escaping) and parsed via `WinSW status`. CI now
+  runs exactly this check on every change.
+- **The per-service hard links work** and the linked binary is executable —
+  WinSW confirms it looks for `erp-<id>.xml` by its own executable name, which
+  is the assumption the whole `services/` layout rests on.
 
-Three real bugs were found by running this rather than by reading it, and are
+Four real bugs were found by running this rather than by reading it, and are
 fixed:
 
 1. `npm prune` inside the build script used `2>&1`. In Windows PowerShell 5.1
@@ -202,15 +215,22 @@ fixed:
    `provision.ts` is now bundled into the payload next to `schema.prisma`.
 3. `Copy-Item` cannot copy `node_modules`: deep paths exceed Windows'
    260-character `MAX_PATH`. Replaced with `robocopy`.
+4. `erp-api.xml.template`'s own comment contained the literal string
+   `{{PLACEHOLDER}}`, which `install.ps1`'s unreplaced-placeholder guard
+   matched — **every installation would have aborted** while rendering the
+   service definitions. The comment no longer spells it out, and the CI check
+   above would now catch a recurrence.
 
 **Not verified, and needing a clean Windows VM:**
 
 - Compiling `erp-server.iss` (no Inno Setup on the implementing machine).
 - `initdb` and the bundled PostgreSQL running under a Windows service account.
-- WinSW service registration, start order and the failure/restart behaviour.
-  Note the PostgreSQL service runs `postgres.exe` directly, not
-  `pg_ctl runservice` — the latter registers itself with the Service Control
-  Manager and collides with WinSW doing the same.
+- WinSW service *registration* and start order. The configurations parse and
+  the executables run; what is untested is `install`/`start` against the real
+  Service Control Manager, and the failure/restart behaviour. Note the
+  PostgreSQL service runs `postgres.exe` directly, not `pg_ctl runservice` —
+  the latter registers itself with the Service Control Manager and collides
+  with WinSW doing the same.
 - The ACL hardening against a real non-administrator user.
 - Upgrade over an existing installation, and the uninstall path.
 

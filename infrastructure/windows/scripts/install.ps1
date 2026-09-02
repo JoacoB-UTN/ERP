@@ -75,7 +75,12 @@ foreach ($dir in @($backupDir, $logsDir, (Split-Path $secretsFile -Parent))) {
 # ---------------------------------------------------------------------------
 function New-Secret([int]$bytes = 32) {
   $buffer = [byte[]]::new($bytes)
-  [System.Security.Cryptography.RandomNumberGenerator]::Fill($buffer)
+  # Create().GetBytes(), NOT RandomNumberGenerator::Fill(). Fill() only exists
+  # from .NET Core 2.1 onwards, and this script runs under Windows PowerShell
+  # 5.1 (.NET Framework), where it throws "does not contain a method named
+  # 'Fill'" — which would have failed the install on its very first step.
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $rng.GetBytes($buffer) } finally { $rng.Dispose() }
   # Base64url: safe inside an XML attribute and a connection string alike.
   [Convert]::ToBase64String($buffer).Replace('+', '-').Replace('/', '_').TrimEnd('=')
 }
@@ -146,6 +151,13 @@ port = $PgPort
 # ---------------------------------------------------------------------------
 Write-Step 'Rendering service definitions'
 
+# XML attribute values must be escaped; a generated secret, an object-store key
+# or a bucket name can contain & or <. Declared before first use: PowerShell
+# resolves functions at run time, top to bottom.
+function ConvertTo-XmlAttribute([string]$value) {
+  [System.Security.SecurityElement]::Escape($value)
+}
+
 $cloudEnabled = if ($CloudBackup) { 'true' } else { 'false' }
 $cloudBlock = ''
 if ($CloudBackup) {
@@ -153,18 +165,13 @@ if ($CloudBackup) {
     throw 'CloudBackup requires -CloudBucket, -CloudAccessKeyId and -CloudSecretAccessKey.'
   }
   $endpointLine = if ($CloudEndpoint) {
-    "  <env name=`"ERP_BACKUP_CLOUD_ENDPOINT`" value=`"$CloudEndpoint`"/>`n"
+    "  <env name=`"ERP_BACKUP_CLOUD_ENDPOINT`" value=`"$(ConvertTo-XmlAttribute $CloudEndpoint)`"/>`n"
   } else { '' }
   $cloudBlock = $endpointLine +
-    "  <env name=`"ERP_BACKUP_CLOUD_REGION`" value=`"$CloudRegion`"/>`n" +
-    "  <env name=`"ERP_BACKUP_CLOUD_BUCKET`" value=`"$CloudBucket`"/>`n" +
-    "  <env name=`"ERP_BACKUP_CLOUD_ACCESS_KEY_ID`" value=`"$CloudAccessKeyId`"/>`n" +
-    "  <env name=`"ERP_BACKUP_CLOUD_SECRET_ACCESS_KEY`" value=`"$CloudSecretAccessKey`"/>"
-}
-
-# XML attribute values must be escaped; a generated secret can contain & or <.
-function ConvertTo-XmlAttribute([string]$value) {
-  [System.Security.SecurityElement]::Escape($value)
+    "  <env name=`"ERP_BACKUP_CLOUD_REGION`" value=`"$(ConvertTo-XmlAttribute $CloudRegion)`"/>`n" +
+    "  <env name=`"ERP_BACKUP_CLOUD_BUCKET`" value=`"$(ConvertTo-XmlAttribute $CloudBucket)`"/>`n" +
+    "  <env name=`"ERP_BACKUP_CLOUD_ACCESS_KEY_ID`" value=`"$(ConvertTo-XmlAttribute $CloudAccessKeyId)`"/>`n" +
+    "  <env name=`"ERP_BACKUP_CLOUD_SECRET_ACCESS_KEY`" value=`"$(ConvertTo-XmlAttribute $CloudSecretAccessKey)`"/>"
 }
 
 $replacements = @{
@@ -195,6 +202,17 @@ if (-not (Test-Path $winswSource)) {
 }
 
 $serviceIds = @('erp-postgres', 'erp-api', 'erp-gestion', 'erp-facturacion', 'erp-agent')
+
+# On an upgrade the services are still running, and Windows holds a lock on a
+# running service's executable — replacing erp-<id>.exe below would fail. Stop
+# them first, dependents before their dependencies so Windows never refuses.
+foreach ($id in @('erp-agent', 'erp-facturacion', 'erp-gestion', 'erp-api', 'erp-postgres')) {
+  if (Get-Service -Name $id -ErrorAction SilentlyContinue) {
+    Write-Step "Stopping $id for upgrade"
+    Stop-Service -Name $id -Force -ErrorAction SilentlyContinue
+  }
+}
+
 foreach ($id in $serviceIds) {
   $template = Join-Path $servicesDir "$id.xml.template"
   $rendered = Join-Path $servicesDir "$id.xml"
@@ -210,7 +228,20 @@ foreach ($id in $serviceIds) {
   }
 
   Set-Content -Path $rendered -Value $content -Encoding utf8
-  Copy-Item $winswSource (Join-Path $servicesDir "$id.exe") -Force
+
+  # WinSW v2 finds its configuration by its OWN executable name, so each
+  # service needs its own erp-<id>.exe beside its erp-<id>.xml. Hard-link
+  # rather than copy: the self-contained WinSW build is 18 MB, and five copies
+  # would cost 91 MB of the customer's disk for five identical files. Falls
+  # back to a real copy where linking is unavailable (a different volume, or a
+  # non-NTFS filesystem).
+  $serviceExe = Join-Path $servicesDir "$id.exe"
+  Remove-Item $serviceExe -Force -ErrorAction SilentlyContinue
+  try {
+    New-Item -ItemType HardLink -Path $serviceExe -Target $winswSource -ErrorAction Stop | Out-Null
+  } catch {
+    Copy-Item $winswSource $serviceExe -Force
+  }
 }
 
 # ---------------------------------------------------------------------------

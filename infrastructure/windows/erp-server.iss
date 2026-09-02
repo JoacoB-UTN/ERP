@@ -6,6 +6,9 @@
 ; install.ps1. Keeping the logic out of Pascal script is deliberate — .ps1 can
 ; be run, re-run and debugged on a customer's machine during a support call.
 ;
+; Requires Inno Setup 6.3 or newer: "x64compatible" below was introduced there
+; (older 6.x spells it "x64").
+;
 ; Build:  iscc erp-server.iss /DPayloadDir=..\..\dist\erp-server /DAppVersion=0.1.0
 
 #ifndef PayloadDir
@@ -36,6 +39,9 @@ PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 ; A 32-bit Windows cannot run the bundled x64 PostgreSQL or Node.
 ArchitecturesAllowed=x64compatible
+; Windows 10 or newer: that is the floor for the bundled PostgreSQL and for
+; the self-contained WinSW build.
+MinVersion=10.0
 UninstallDisplayName={#AppName}
 
 [Languages]
@@ -150,6 +156,19 @@ begin
   end;
 end;
 
+{ Wraps a value as a single-quoted PowerShell literal, doubling any embedded
+  apostrophe.
+
+  Without this a company name like "D'Angelo SRL" — or a password containing an
+  apostrophe — would terminate the string early and produce a data file that
+  Import-PowerShellDataFile either rejects or reads wrongly. The operator would
+  see the install fail at the last step with no useful explanation. }
+function PsLiteral(Value: string): string;
+begin
+  StringChangeEx(Value, '''', '''''', True);
+  Result := '''' + Value + '''';
+end;
+
 { Arguments are passed via a parameter file rather than the command line:
   the administrator password would otherwise be visible to every process on
   the machine while the installer runs. }
@@ -161,12 +180,13 @@ begin
   Path := ExpandConstant('{tmp}\erp-install-args.psd1');
   SetArrayLength(Lines, 8);
   Lines[0] := '@{';
-  Lines[1] := '  InstallDir = ''' + ExpandConstant('{app}') + '''';
-  Lines[2] := '  CompanyName = ''' + Trim(CompanyPage.Values[0]) + '''';
-  Lines[3] := '  CompanyTaxId = ''' + Trim(CompanyPage.Values[1]) + '''';
-  Lines[4] := '  AdminEmail = ''' + Trim(AdminPage.Values[0]) + '''';
-  Lines[5] := '  AdminPassword = ''' + AdminPage.Values[1] + '''';
-  Lines[6] := '  BackupTimes = ''' + BackupPage.Values[0] + '''';
+  Lines[1] := '  InstallDir = ' + PsLiteral(ExpandConstant('{app}'));
+  Lines[2] := '  CompanyName = ' + PsLiteral(Trim(CompanyPage.Values[0]));
+  Lines[3] := '  CompanyTaxId = ' + PsLiteral(Trim(CompanyPage.Values[1]));
+  Lines[4] := '  AdminEmail = ' + PsLiteral(Trim(AdminPage.Values[0]));
+  Lines[5] := '  AdminPassword = ' + PsLiteral(AdminPage.Values[1]);
+  Lines[6] := '  BackupTimes = ' + PsLiteral(BackupPage.Values[0]);
+  { Validated as a positive integer by NextButtonClick, so it needs no quoting. }
   Lines[7] := '  BackupRetentionDays = ' + BackupPage.Values[1] + '; }';
   SaveStringsToFile(Path, Lines, False);
   Result := Path;

@@ -1,14 +1,15 @@
 <!--
   WinSW definition for the ERP API service.
 
-  Rendered from this template by scripts/configure.ps1, which substitutes the
-  {{PLACEHOLDER}} values and writes the result next to a copy of WinSW.exe
-  named erp-api.exe. %BASE% is WinSW's own variable for the directory holding
+  Rendered from this template by scripts/install.ps1, which substitutes the
+  double-brace placeholders below and writes the result beside a WinSW
+  executable named erp-api.exe (WinSW v2 finds its configuration by its own
+  executable name). %BASE% is WinSW's own variable for the directory holding
   that executable, so the rendered file contains no absolute paths of its own
   and the install directory can be moved.
 
   This file ends up containing the database password and the JWT secret, which
-  is why scripts/install-services.ps1 restricts the install directory's ACL to
+  is why scripts/install.ps1 restricts the install directory's ACL to
   SYSTEM and Administrators. It must never be copied into a backup archive, a
   support bundle, or a repository.
 -->

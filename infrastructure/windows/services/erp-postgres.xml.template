@@ -16,7 +16,7 @@
   PostgreSQL — the invariant from AGENTS.md and
   docs/desktop-lan-architecture.md.
 
-  Rendered by scripts/configure.ps1.
+  Rendered by scripts/install.ps1.
 -->
 <service>
   <id>erp-postgres</id>
