@@ -111,6 +111,14 @@ Times of day (`ERP_BACKUP_TIMES`, default `03:00`), not cron. A PyME policy is
 "every night at 03:00", occasionally "03:00 and 15:00". HH:MM stays readable to
 whoever supports the install, and keeps the next-run maths pure and testable.
 
+The agent publishes its effective settings into the manifest both at service
+startup and on every run. The startup write makes the schedule visible before
+the first backup has happened; the per-run write covers the case where the
+service has never started but someone ran `erp-backup now` by hand — without
+it Gestión would show "backups configured" beside an empty schedule and a
+retention of zero, which is technically true and useless to whoever is reading
+it.
+
 The maths lives in `packages/shared/src/backups.ts` rather than in the agent
 because two processes need it — the agent to know when to wake up, the API to
 tell Gestión when the next backup is due. One implementation, so the two can

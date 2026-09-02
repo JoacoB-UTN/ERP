@@ -1,0 +1,116 @@
+name: ERP Server installer
+
+# The payload is what actually breaks — a missing build output, a Next
+# standalone tree without its static assets, a path that only exists on the
+# developer's machine. Building it on every relevant change catches that
+# without needing a Windows VM. Compiling the .exe is a separate, manual job:
+# it only makes sense for a release, and a real install still has to be tested
+# on a clean machine (see docs/server-installer.md).
+
+on:
+  pull_request:
+    paths:
+      - 'infrastructure/windows/**'
+      - 'apps/server-agent/**'
+      - 'apps/api/prisma/provision.ts'
+      - 'apps/api/prisma/system-roles.ts'
+      - 'apps/*/next.config.ts'
+      - '.github/workflows/server-installer.yml'
+  workflow_dispatch:
+    inputs:
+      compile_installer:
+        description: 'Also compile the .exe with Inno Setup'
+        type: boolean
+        default: false
+
+env:
+  NODE_VERSION: '22'
+  # Dummy/test-only values — never real secrets. Needed because `next build`
+  # and `prisma generate` read the environment.
+  DATABASE_URL: 'postgresql://erp:erp@localhost:5432/erp_platform_test?schema=public'
+  REDIS_URL: 'redis://localhost:6379'
+  AUTH_ACCESS_TOKEN_SECRET: 'ci-test-only-access-secret-not-a-real-secret'
+
+jobs:
+  payload:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate --workspace=apps/api
+
+      - name: Build payload
+        shell: pwsh
+        # No -PostgresDir: the Node side is what this job validates. Bundling
+        # PostgreSQL is a release-time concern and adds ~200 MB to every run.
+        run: ./infrastructure/windows/build-payload.ps1 -Build
+
+      - name: Verify payload contents
+        shell: pwsh
+        # Guards the two failure modes that produce a payload which looks fine
+        # and is broken: a missing entry point, and Next standalone output
+        # without the static assets it does not copy itself.
+        run: |
+          $payload = 'dist/erp-server'
+          $required = @(
+            "$payload/node/node.exe",
+            "$payload/server/apps/api/dist/main.js",
+            "$payload/server/apps/server-agent/dist/main.js",
+            "$payload/server/apps/api/prisma/schema.prisma",
+            "$payload/server/apps/api/prisma/provision.js",
+            "$payload/gestion/apps/gestion/server.js",
+            "$payload/gestion/apps/gestion/.next/static",
+            "$payload/facturacion/apps/facturacion/server.js",
+            "$payload/facturacion/apps/facturacion/.next/static",
+            "$payload/services/erp-api.xml.template",
+            "$payload/scripts/install.ps1",
+            "$payload/scripts/uninstall.ps1",
+            "$payload/VERSION"
+          )
+          $missing = $required | Where-Object { -not (Test-Path $_) }
+          if ($missing) {
+            Write-Error "Missing from payload:`n$($missing -join "`n")"
+            exit 1
+          }
+          Write-Host 'Payload contents OK.'
+
+      - name: Check the payload carries no secrets
+        shell: pwsh
+        # The templates must still contain placeholders, never rendered values:
+        # a payload with a real secret in it would ship that secret to every
+        # customer who installs the same build.
+        run: |
+          Get-ChildItem 'dist/erp-server/services' -Filter '*.xml' |
+            ForEach-Object { Write-Error "Rendered service definition in payload: $($_.Name)"; exit 1 }
+          Write-Host 'No rendered service definitions in the payload.'
+
+      - name: Compile installer
+        if: ${{ inputs.compile_installer }}
+        shell: pwsh
+        run: |
+          # Inno Setup is not guaranteed to be on the runner image, so install
+          # it rather than assuming.
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup --no-progress -y
+          }
+          $version = Get-Content dist/erp-server/VERSION
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            infrastructure/windows/erp-server.iss `
+            /DPayloadDir=dist/erp-server /DAppVersion=$version
+
+      - name: Upload installer
+        if: ${{ inputs.compile_installer }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-server-installer
+          path: infrastructure/windows/Output/*.exe
+          if-no-files-found: error
