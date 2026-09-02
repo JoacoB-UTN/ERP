@@ -1,7 +1,7 @@
 <!--
   WinSW definition for the ERP maintenance agent (scheduled backups).
 
-  Rendered by scripts/configure.ps1. See erp-api.xml.template for the notes on
+  Rendered by scripts/install.ps1. See erp-api.xml.template for the notes on
   %BASE%, ACLs and secrets that apply to every service in this folder.
 
   Deliberately does NOT depend on erp-api: backups must keep running while the
@@ -9,7 +9,7 @@
   which is the thing it actually dumps.
 
   Cloud credentials appear here only when the offsite copy is switched on, and
-  are written by configure.ps1 from operator input — never defaulted, never
+  are written by install.ps1 from operator input — never defaulted, never
   committed. See docs/backups.md.
 -->
 <service>

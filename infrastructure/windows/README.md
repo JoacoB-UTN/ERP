@@ -28,14 +28,22 @@ a customer.
 
 ## WinSW
 
-The service definitions expect `WinSW.exe` at `winsw\WinSW.exe` inside the
-install directory; `install.ps1` copies it once per service, renamed to match
-each service's XML (that renaming is how WinSW finds its own configuration).
+`build-payload.ps1` downloads WinSW (MIT) at BUILD time and stages it at
+`winsw\WinSW.exe` with its licence, verifying a pinned SHA-256 — the binary
+runs as SYSTEM on a customer's machine, so a build must never ship whatever
+happened to be at that URL today. Nothing is fetched at INSTALL time: a
+customer's PC may have no internet, and an installer that needs one is not a
+local-first product. Pass `-WinSWPath` to build offline from a local copy.
 
-WinSW is not vendored in this repository — download the release binary and
-place it in the payload before compiling the installer. It is deliberately not
-fetched at install time: a customer's PC may have no internet, and an installer
-that needs one is not a local-first product.
+The default is `WinSW-x64.exe`, the self-contained .NET build (18 MB, no
+runtime dependency) — the same reasoning that bundles PostgreSQL and node.exe.
+`WinSW.NET461.exe` is 656 KB but requires .NET Framework 4.6.1+; supply it via
+`-WinSWPath` if you prefer that trade.
+
+`install.ps1` gives each service its own `erp-<id>.exe` beside its
+`erp-<id>.xml`, because WinSW v2 locates its configuration by its own
+executable name. Those are hard links, not copies — five copies of an 18 MB
+binary would cost 91 MB of the customer's disk for five identical files.
 
 ## Things that will bite you
 

@@ -1,7 +1,7 @@
 <!--
   WinSW definition for the Gestión frontend service.
 
-  Rendered by scripts/configure.ps1. See erp-api.xml.template for the notes on
+  Rendered by scripts/install.ps1. See erp-api.xml.template for the notes on
   %BASE%, ACLs and secrets that apply to every service in this folder.
 
   This runs the Next.js standalone server, which serves the Gestión UI to every
