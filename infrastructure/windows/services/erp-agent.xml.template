@@ -1,0 +1,50 @@
+<!--
+  WinSW definition for the ERP maintenance agent (scheduled backups).
+
+  Rendered by scripts/configure.ps1. See erp-api.xml.template for the notes on
+  %BASE%, ACLs and secrets that apply to every service in this folder.
+
+  Deliberately does NOT depend on erp-api: backups must keep running while the
+  API is stopped for maintenance or an upgrade. It depends only on PostgreSQL,
+  which is the thing it actually dumps.
+
+  Cloud credentials appear here only when the offsite copy is switched on, and
+  are written by configure.ps1 from operator input — never defaulted, never
+  committed. See docs/backups.md.
+-->
+<service>
+  <id>erp-agent</id>
+  <name>ERP Mantenimiento</name>
+  <description>Takes and verifies scheduled backups of the ERP database.</description>
+
+  <executable>%BASE%\..\node\node.exe</executable>
+  <arguments>%BASE%\..\server\apps\server-agent\dist\main.js</arguments>
+  <workingdirectory>%BASE%\..\server</workingdirectory>
+
+  <depend>erp-postgres</depend>
+
+  <onfailure action="restart" delay="60 sec"/>
+  <onfailure action="restart" delay="120 sec"/>
+  <onfailure action="restart" delay="300 sec"/>
+
+  <log mode="roll-by-size-time">
+    <sizeThreshold>10240</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <!-- Kept longer than the other services': when someone finally asks "why
+         is there no backup from last March", the answer has to still exist. -->
+    <keepFiles>90</keepFiles>
+  </log>
+  <logpath>%BASE%\..\logs</logpath>
+
+  <env name="NODE_ENV" value="production"/>
+  <env name="DATABASE_URL" value="{{DATABASE_URL}}"/>
+  <env name="ERP_BACKUP_DIR" value="{{ERP_BACKUP_DIR}}"/>
+  <env name="ERP_PG_BIN_DIR" value="{{ERP_PG_BIN_DIR}}"/>
+  <env name="ERP_BACKUP_TIMES" value="{{ERP_BACKUP_TIMES}}"/>
+  <env name="ERP_BACKUP_RETENTION_DAYS" value="{{ERP_BACKUP_RETENTION_DAYS}}"/>
+  <env name="ERP_BACKUP_KEEP_MINIMUM" value="{{ERP_BACKUP_KEEP_MINIMUM}}"/>
+  <env name="ERP_BACKUP_CLOUD_ENABLED" value="{{ERP_BACKUP_CLOUD_ENABLED}}"/>
+{{CLOUD_ENV_BLOCK}}
+  <env name="LOG_LEVEL" value="info"/>
+</service>
