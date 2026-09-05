@@ -50,6 +50,15 @@ binary would cost 91 MB of the customer's disk for five identical files.
 - **`MAX_PATH`.** Copy trees with `robocopy`, never `Copy-Item`. Deep
   `node_modules` paths exceed Windows' 260-character limit and `Copy-Item`
   reports it as a missing file that plainly exists.
+- **npm workspace junctions.** `node_modules/@erp/*` are junctions, and
+  `@erp/gestion` / `@erp/facturacion` point at `apps/*`, which hold `.next/`
+  with their own nested `node_modules`. Robocopy follows them unless you pass
+  `/XJ`, which means copying the entire frontend build trees into
+  `server/node_modules` — and on a CI runner that fails outright (exit 9). The
+  packages the server runtime actually needs (`@erp/shared`, `@erp/config`) are
+  materialised into `server/node_modules/@erp/` as real directories after the
+  prune. A payload should contain no reparse points: they encode absolute paths
+  from the machine that built it.
 - **Next standalone output omits `.next/static` and `public/`.** The build
   script copies them in. Forget that and every page renders unstyled.
 - **`Start-Service` returns before PostgreSQL accepts connections.**

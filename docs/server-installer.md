@@ -124,6 +124,14 @@ Two things worth knowing about the payload build:
   paths exceed Windows' 260-character `MAX_PATH`, and `Copy-Item` fails on them
   with a "cannot find part of the path" error naming a file that plainly
   exists.
+- **Junctions are excluded (`/XJ`) and the workspace packages materialised.**
+  npm puts a junction in `node_modules` for every workspace package; two of
+  them point at `apps/*`, whose `.next/` trees carry their own nested
+  `node_modules`. Following them copies the entire frontend builds into
+  `server/node_modules` and fails on a CI runner. `@erp/shared` and
+  `@erp/config` — the only two the built server imports — are copied into
+  `server/node_modules/@erp/` as real directories after the prune, so the
+  payload ships no reparse points.
 
 ## Configuration and secrets
 
