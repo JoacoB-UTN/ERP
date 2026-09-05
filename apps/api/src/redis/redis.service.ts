@@ -8,6 +8,9 @@ import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import type { Env } from '@erp/config';
 
+/** How long the first health check waits for an in-flight connection. */
+const READY_GRACE_MS = 2000;
+
 /**
  * Redis connection.
  *
@@ -28,6 +31,11 @@ import type { Env } from '@erp/config';
  * connection is attempted, failure is logged, and ioredis keeps reconnecting in
  * the background; commands issued meanwhile reject and every call site already
  * handles that.
+ *
+ * The offline queue stays disabled: with it on, every permission lookup during
+ * a Redis outage waits for the retry budget instead of failing fast, which is
+ * enough to hang the application. The cost of that choice is paid in
+ * `isHealthy()` below.
  */
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
@@ -36,6 +44,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   /** Suppresses a log line per reconnect attempt while Redis stays down. */
   private connectionErrorLogged = false;
+
+  /** The startup grace in `isHealthy()` is spent at most once per process. */
+  private readyGraceUsed = false;
 
   constructor(configService: ConfigService<Env, true>) {
     this.client = new Redis(configService.get('REDIS_URL', { infer: true }), {
@@ -83,13 +94,46 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.client.disconnect();
   }
 
-  /** Lightweight liveness check used by HealthService. */
+  /**
+   * Lightweight liveness check used by HealthService.
+   *
+   * Because `onModuleInit` deliberately does not await the connection, the very
+   * first health check can land mid-handshake. With the offline queue disabled
+   * a ping in that window fails instantly and reports a perfectly healthy Redis
+   * as down — CI caught exactly that, on a runner where Redis was up.
+   *
+   * So the handshake gets ONE bounded chance to finish, once per process. Every
+   * later call pings immediately, which is what keeps a genuine outage from
+   * making this endpoint slow: the ERP desktop client polls it.
+   */
   async isHealthy(): Promise<boolean> {
+    if (!this.readyGraceUsed && this.client.status !== 'ready') {
+      this.readyGraceUsed = true;
+      await this.waitForReady(READY_GRACE_MS);
+    }
+
     try {
       const pong = await this.client.ping();
       return pong === 'PONG';
     } catch {
       return false;
     }
+  }
+
+  /** Resolves when the client reports ready, or when the grace period expires. */
+  private waitForReady(timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      if (this.client.status === 'ready') {
+        resolve();
+        return;
+      }
+      const finish = () => {
+        clearTimeout(timer);
+        this.client.removeListener('ready', finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      this.client.once('ready', finish);
+    });
   }
 }
