@@ -1,0 +1,47 @@
+<!--
+  WinSW definition for the Gestión frontend service.
+
+  Rendered by scripts/install.ps1. See erp-api.xml.template for the notes on
+  %BASE%, ACLs and secrets that apply to every service in this folder.
+
+  This runs the Next.js standalone server, which serves the Gestión UI to every
+  LAN client. Updating this one directory updates every connected PC — the
+  central-UI-deployment property described in
+  docs/desktop-lan-architecture.md's "Deployment model (corrected)".
+-->
+<service>
+  <id>erp-gestion</id>
+  <name>ERP Gestión</name>
+  <description>Serves the ERP Gestión web application to LAN clients.</description>
+
+  <executable>%BASE%\..\node\node.exe</executable>
+  <arguments>%BASE%\..\gestion\apps\gestion\server.js</arguments>
+  <workingdirectory>%BASE%\..\gestion\apps\gestion</workingdirectory>
+
+  <depend>erp-api</depend>
+
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+
+  <log mode="roll-by-size-time">
+    <sizeThreshold>10240</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <keepFiles>14</keepFiles>
+  </log>
+  <logpath>%BASE%\..\logs</logpath>
+
+  <env name="NODE_ENV" value="production"/>
+  <!-- 0.0.0.0, not localhost: the whole point is that other PCs on the LAN
+       can reach this. -->
+  <env name="HOSTNAME" value="0.0.0.0"/>
+  <env name="PORT" value="{{GESTION_PORT}}"/>
+  <!-- NEXT_PUBLIC_API_URL is deliberately NOT set.
+       It is baked into the browser bundle at build time, so a fixed value here
+       would pin every LAN client to one host. With it unset, the frontend
+       derives the API's URL from whichever host the page was actually loaded
+       from (packages/shared/src/runtime-url.ts), so the same installed build
+       works via localhost on the server and via the LAN IP from every till.
+       See docs/desktop-lan-architecture.md's "Runtime LAN addressing". -->
+</service>

@@ -1,0 +1,60 @@
+<!--
+  WinSW definition for the bundled PostgreSQL instance.
+
+  The ERP ships and supervises its own PostgreSQL rather than using one the
+  customer may or may not have installed. Three reasons, all learned the hard
+  way by anyone who has shipped on-premise software:
+
+    - Version drift. pg_dump refuses to dump a server newer than itself, so a
+      customer upgrading "their" PostgreSQL silently breaks ERP backups.
+    - Ownership. An ERP that adopts an existing instance also adopts whatever
+      else lives in it, and an uninstall can no longer safely remove anything.
+    - Ports and defaults. A private instance on its own port and data directory
+      cannot collide with another application's.
+
+  It listens on 127.0.0.1 only: LAN clients talk to the API, never to
+  PostgreSQL — the invariant from AGENTS.md and
+  docs/desktop-lan-architecture.md.
+
+  Rendered by scripts/install.ps1.
+-->
+<service>
+  <id>erp-postgres</id>
+  <name>ERP PostgreSQL</name>
+  <description>PostgreSQL database engine dedicated to the ERP. Not for general use.</description>
+
+  <!-- postgres.exe, NOT `pg_ctl runservice`.
+       pg_ctl's runservice mode exists for services registered by
+       `pg_ctl register`: it talks to the Windows Service Control Manager
+       itself, which collides with WinSW doing the same thing. A service
+       wrapper wants a plain foreground process, and postgres.exe is exactly
+       that. -->
+  <executable>%BASE%\..\pgsql\bin\postgres.exe</executable>
+  <arguments>-D "%BASE%\..\data"</arguments>
+  <workingdirectory>%BASE%\..\pgsql\bin</workingdirectory>
+
+  <!-- Shut down through pg_ctl instead of letting the wrapper kill the
+       process. "fast" disconnects clients and writes a clean checkpoint;
+       killing postgres.exe outright forces crash recovery on the next start,
+       which on a shop PC that gets switched off every night would mean a slow,
+       alarming boot every single morning. -->
+  <stopexecutable>%BASE%\..\pgsql\bin\pg_ctl.exe</stopexecutable>
+  <stoparguments>stop -D "%BASE%\..\data" -m fast -w -t 60</stoparguments>
+  <stoptimeout>90 sec</stoptimeout>
+
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+
+  <log mode="roll-by-size-time">
+    <sizeThreshold>10240</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <keepFiles>14</keepFiles>
+  </log>
+  <logpath>%BASE%\..\logs</logpath>
+
+  <!-- Windows service accounts have no useful locale; without this initdb's
+       collation and PostgreSQL's own messages are unpredictable. -->
+  <env name="PGDATA" value="%BASE%\..\data"/>
+  <env name="PGPORT" value="{{PG_PORT}}"/>
+</service>

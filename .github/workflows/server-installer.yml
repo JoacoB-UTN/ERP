@@ -1,0 +1,177 @@
+name: ERP Server installer
+
+# The payload is what actually breaks — a missing build output, a Next
+# standalone tree without its static assets, a path that only exists on the
+# developer's machine. Building it on every relevant change catches that
+# without needing a Windows VM. Compiling the .exe is a separate, manual job:
+# it only makes sense for a release, and a real install still has to be tested
+# on a clean machine (see docs/server-installer.md).
+
+on:
+  pull_request:
+    paths:
+      - 'infrastructure/windows/**'
+      - 'apps/server-agent/**'
+      - 'apps/api/prisma/provision.ts'
+      - 'apps/api/prisma/system-roles.ts'
+      - 'apps/*/next.config.ts'
+      - '.github/workflows/server-installer.yml'
+  workflow_dispatch:
+    inputs:
+      compile_installer:
+        description: 'Also compile the .exe with Inno Setup'
+        type: boolean
+        default: false
+
+env:
+  NODE_VERSION: '22'
+  # Dummy/test-only values — never real secrets. Needed because `next build`
+  # and `prisma generate` read the environment.
+  DATABASE_URL: 'postgresql://erp:erp@localhost:5432/erp_platform_test?schema=public'
+  REDIS_URL: 'redis://localhost:6379'
+  AUTH_ACCESS_TOKEN_SECRET: 'ci-test-only-access-secret-not-a-real-secret'
+
+jobs:
+  payload:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate --workspace=apps/api
+
+      - name: Build payload
+        shell: pwsh
+        # No -PostgresDir: the Node side is what this job validates. Bundling
+        # PostgreSQL is a release-time concern and adds ~200 MB to every run.
+        run: ./infrastructure/windows/build-payload.ps1 -Build
+
+      - name: Verify payload contents
+        shell: pwsh
+        # Guards the two failure modes that produce a payload which looks fine
+        # and is broken: a missing entry point, and Next standalone output
+        # without the static assets it does not copy itself.
+        run: |
+          $payload = 'dist/erp-server'
+          $required = @(
+            "$payload/node/node.exe",
+            "$payload/winsw/WinSW.exe",
+            "$payload/winsw/LICENSE.txt",
+            "$payload/server/apps/api/dist/main.js",
+            "$payload/server/apps/server-agent/dist/main.js",
+            "$payload/server/apps/api/prisma/schema.prisma",
+            "$payload/server/apps/api/prisma/provision.js",
+            "$payload/server/apps/api/src/generated/prisma/client.js",
+            "$payload/server/node_modules/@erp/shared/dist/index.js",
+            "$payload/server/node_modules/@erp/config/dist/index.js",
+            "$payload/gestion/apps/gestion/server.js",
+            "$payload/gestion/apps/gestion/.next/static",
+            "$payload/facturacion/apps/facturacion/server.js",
+            "$payload/facturacion/apps/facturacion/.next/static",
+            "$payload/services/erp-api.xml.template",
+            "$payload/scripts/install.ps1",
+            "$payload/scripts/uninstall.ps1",
+            "$payload/VERSION"
+          )
+          $missing = $required | Where-Object { -not (Test-Path $_) }
+          if ($missing) {
+            Write-Error "Missing from payload:`n$($missing -join "`n")"
+            exit 1
+          }
+          Write-Host 'Payload contents OK.'
+
+      - name: Check the payload carries no secrets
+        shell: pwsh
+        # The templates must still contain placeholders, never rendered values:
+        # a payload with a real secret in it would ship that secret to every
+        # customer who installs the same build.
+        run: |
+          Get-ChildItem 'dist/erp-server/services' -Filter '*.xml' |
+            ForEach-Object { Write-Error "Rendered service definition in payload: $($_.Name)"; exit 1 }
+          Write-Host 'No rendered service definitions in the payload.'
+
+      - name: Validate service definitions
+        shell: pwsh
+        # Renders each template the way install.ps1 does and has the real WinSW
+        # binary parse the result. This is the ONLY automated coverage the
+        # service definitions get, and it earns its keep: it caught a literal
+        # "{{" + "PLACEHOLDER}}" string inside a template comment, which
+        # install.ps1's own unreplaced-placeholder guard matched — that alone
+        # would have aborted every single installation.
+        run: |
+          $payload = 'dist/erp-server'
+          $winsw = Resolve-Path "$payload/winsw/WinSW.exe"
+          $work = Join-Path $env:RUNNER_TEMP 'svcvalidate'
+          New-Item -ItemType Directory -Path $work -Force | Out-Null
+          New-Item -ItemType Directory -Path (Join-Path $work 'logs') -Force | Out-Null
+
+          # Dummy values only — never real secrets. The '&' exercises the XML
+          # escaping a generated password can require.
+          $r = @{
+            '{{PG_PORT}}' = '5433'; '{{API_PORT}}' = '3001'
+            '{{GESTION_PORT}}' = '3000'; '{{FACTURACION_PORT}}' = '3002'
+            '{{DATABASE_URL}}' = 'postgresql://erp:p&amp;ss@127.0.0.1:5433/erp?schema=public'
+            '{{REDIS_URL}}' = 'redis://127.0.0.1:6379'
+            '{{CORS_ORIGIN}}' = 'http://localhost:3000,http://localhost:3002'
+            '{{AUTH_ACCESS_TOKEN_SECRET}}' = 'ci-only-not-a-real-secret'
+            '{{ERP_BACKUP_DIR}}' = 'C:\ERP\backups'
+            '{{ERP_PG_BIN_DIR}}' = 'C:\ERP\pgsql\bin'
+            '{{ERP_BACKUP_TIMES}}' = '03:00'
+            '{{ERP_BACKUP_RETENTION_DAYS}}' = '30'
+            '{{ERP_BACKUP_KEEP_MINIMUM}}' = '7'
+            '{{ERP_BACKUP_CLOUD_ENABLED}}' = 'false'
+            '{{CLOUD_ENV_BLOCK}}' = ''
+          }
+
+          $failed = $false
+          foreach ($id in @('erp-postgres','erp-api','erp-gestion','erp-facturacion','erp-agent')) {
+            $c = Get-Content "$payload/services/$id.xml.template" -Raw
+            foreach ($k in $r.Keys) { $c = $c.Replace($k, $r[$k]) }
+
+            if ($c -match '\{\{[A-Z_]+\}\}') {
+              Write-Host "::error::$id : unreplaced placeholder $($Matches[0])"
+              $failed = $true; continue
+            }
+
+            Set-Content -Path (Join-Path $work "$id.xml") -Value $c -Encoding utf8
+            $exe = Join-Path $work "$id.exe"
+            Copy-Item $winsw $exe -Force
+            $out = (& $exe status 2>&1 | Out-String).Trim()
+            if ($out -match 'FATAL|Exception') {
+              Write-Host "::error::$id : WinSW rejected the configuration -- $out"
+              $failed = $true
+            } else {
+              Write-Host "$id : OK ($out)"
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Compile installer
+        if: ${{ inputs.compile_installer }}
+        shell: pwsh
+        run: |
+          # Inno Setup is not guaranteed to be on the runner image, so install
+          # it rather than assuming.
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup --no-progress -y
+          }
+          $version = Get-Content dist/erp-server/VERSION
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            infrastructure/windows/erp-server.iss `
+            /DPayloadDir=dist/erp-server /DAppVersion=$version
+
+      - name: Upload installer
+        if: ${{ inputs.compile_installer }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-server-installer
+          path: infrastructure/windows/Output/*.exe
+          if-no-files-found: error
