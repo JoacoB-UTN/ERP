@@ -43,6 +43,31 @@ interface BulkAdjustPreviewLineBody {
 }
 
 /**
+ * A date comfortably in the future, recomputed on every run.
+ *
+ * The bulk-adjustment tests used to hardcode '2026-09-01'. That worked until
+ * the calendar caught up with it. `PUT /prices` creates its rows with
+ * `effectiveFrom` defaulting to TODAY, so once today moved past the literal,
+ * the bulk adjustment was no longer scheduling a future price — it was trying
+ * to insert an open-ended one BEFORE the row that already existed for today,
+ * which `PricingService.applyPriceChange` correctly rejects as an overlap
+ * (`PRICE_VALIDITY_OVERLAP`, HTTP 409).
+ *
+ * The product was never wrong; the test encoded "the future" as a constant.
+ * The whole suite then began failing on every branch at once with no code
+ * change behind it, which is an expensive way to discover a time-dependent
+ * test.
+ *
+ * The 30-day margin also absorbs the UTC/local skew in `toISOString()` — the
+ * exact day does not matter, only that it is safely after today.
+ */
+function futureDate(daysAhead = 30): string {
+  const date = new Date();
+  date.setDate(date.getDate() + daysAhead);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
  * Mandatory Pricing coverage per the Prompt #9 task spec — see
  * docs/pricing.md. Self-contained fixtures, not the dev seed. Mixes
  * supertest (HTTP contract, permissions, company isolation) with direct
@@ -1026,13 +1051,18 @@ describe('Pricing (e2e)', () => {
         },
       });
 
+      // Bound once: the preview, the confirm and the lookup below must all
+      // refer to the same day, or the lookup reads a date the adjustment never
+      // touched.
+      const effectiveFrom = futureDate();
+
       const preview = await agent
         .post(`/api/v1/pricing/lists/${list.id}/bulk-adjust/preview`)
         .set(COMPANY_ID_HEADER, companyAId)
         .send({
           adjustmentType: 'PERCENTAGE_INCREASE',
           value: '10',
-          effectiveFrom: '2026-09-01',
+          effectiveFrom,
           scope: 'ALL',
         });
       expect(preview.status).toBe(200);
@@ -1064,22 +1094,22 @@ describe('Pricing (e2e)', () => {
         .send({
           adjustmentType: 'PERCENTAGE_INCREASE',
           value: '10',
-          effectiveFrom: '2026-09-01',
+          effectiveFrom,
           scope: 'ALL',
           reason: 'Ajuste general',
         });
       expect(confirm.status).toBe(201);
       expect((confirm.body as { affectedCount: number }).affectedCount).toBe(3);
 
-      // The bulk adjustment's effectiveFrom (2026-09-01) is in the future relative to
-      // "now" — look up ON that date, not the default "today", to see the new price.
+      // The bulk adjustment's effectiveFrom is in the future relative to "now" —
+      // look up ON that date, not the default "today", to see the new price.
       async function priceOf(variantId: string) {
         const res = await agent
           .get('/api/v1/pricing/lookup')
           .query({
             priceListId: list.id,
             productVariantId: variantId,
-            date: '2026-09-01',
+            date: effectiveFrom,
           })
           .set(COMPANY_ID_HEADER, companyAId);
         return (res.body as { result: LookupResultBody }).result.price;
@@ -1156,7 +1186,7 @@ describe('Pricing (e2e)', () => {
         .send({
           adjustmentType: 'PERCENTAGE_INCREASE',
           value: '10',
-          effectiveFrom: '2026-09-01',
+          effectiveFrom: futureDate(),
           scope: 'ALL',
         });
       expect(res.status).toBe(400);
@@ -1358,7 +1388,7 @@ describe('Pricing (e2e)', () => {
         .send({
           adjustmentType: 'PERCENTAGE_INCREASE',
           value: '10',
-          effectiveFrom: '2026-09-01',
+          effectiveFrom: futureDate(),
           scope: 'ALL',
         });
       expect(res.status).toBe(403);
