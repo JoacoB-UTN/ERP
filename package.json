@@ -35,6 +35,7 @@
     "pretest:facturacion": "npm run build:packages",
     "test:facturacion": "npm run test --workspace=apps/facturacion",
     "test:desktop": "npm run test --workspace=apps/desktop",
+    "test:server-agent": "npm run test --workspace=apps/server-agent",
     "package:desktop": "npm run package --workspace=apps/desktop",
     "db:migrate": "npm run db:migrate --workspace=apps/api",
     "db:seed": "npm run db:seed --workspace=apps/api",

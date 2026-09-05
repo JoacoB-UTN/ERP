@@ -592,6 +592,19 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     action: 'manage',
     description: 'Administrar configuración de la empresa',
   },
+  // ---- Server operations ----
+  // Backups cover the whole PostgreSQL instance, not one company, so this
+  // permission deliberately grants READ-ONLY status only: last run, size,
+  // schedule, offsite result. Taking, downloading or restoring a backup is not
+  // exposed through the API at all — see docs/backups.md for why a
+  // company-scoped role can never be allowed to move instance-wide data.
+  {
+    code: 'system.backups.read',
+    module: 'system',
+    resource: 'backups',
+    action: 'read',
+    description: 'Ver el estado de los backups del servidor',
+  },
 ];
 
 export const PERMISSION_CODES = PERMISSION_CATALOG.map((p) => p.code);
@@ -610,6 +623,7 @@ export const MODULE_LABELS: Record<string, string> = {
   accounting: 'Contabilidad',
   reports: 'Reportes',
   configuration: 'Configuración',
+  system: 'Servidor',
 };
 
 export const RESOURCE_LABELS: Record<string, string> = {
@@ -643,6 +657,7 @@ export const RESOURCE_LABELS: Record<string, string> = {
   accounting: 'Contabilidad',
   reports: 'Reportes',
   configuration: 'Configuración',
+  backups: 'Backups',
 };
 
 export const ACTION_LABELS: Record<string, string> = {
