@@ -93,6 +93,48 @@ export class RealtimePublisher {
     });
   }
 
+  customerAccountChanged(companyId: string, customerId: string): void {
+    this.publish(companyId, 'customer-account.changed', {
+      companyId,
+      customerId,
+    });
+  }
+
+  supplierAccountChanged(companyId: string, supplierId: string): void {
+    this.publish(companyId, 'supplier-account.changed', {
+      companyId,
+      supplierId,
+    });
+  }
+
+  collectionConfirmed(companyId: string, collectionId: string): void {
+    this.publish(companyId, 'collection.confirmed', {
+      companyId,
+      collectionId,
+    });
+  }
+
+  collectionCancelled(companyId: string, collectionId: string): void {
+    this.publish(companyId, 'collection.cancelled', {
+      companyId,
+      collectionId,
+    });
+  }
+
+  supplierPaymentConfirmed(companyId: string, supplierPaymentId: string): void {
+    this.publish(companyId, 'supplier-payment.confirmed', {
+      companyId,
+      supplierPaymentId,
+    });
+  }
+
+  supplierPaymentCancelled(companyId: string, supplierPaymentId: string): void {
+    this.publish(companyId, 'supplier-payment.cancelled', {
+      companyId,
+      supplierPaymentId,
+    });
+  }
+
   private publish<E extends RealtimeEventName>(
     companyId: string,
     event: E,

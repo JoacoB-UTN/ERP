@@ -541,6 +541,41 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     action: 'read',
     description: 'Ver tesorería',
   },
+
+  // ---- Current accounts (Customer AR, Supplier AP — see
+  // docs/current-accounts.md, Prompt #22). `accounts.receivable.read`/
+  // `accounts.payable.read` gate the account BALANCE/statement read
+  // surface (customer/supplier statements, balances, open-document
+  // lists) — deliberately a different module ("accounts") from
+  // `customers.read`/`purchases.suppliers.read`, since seeing a party's
+  // master data and seeing its financial balance are different trust
+  // levels (see the role table in docs/current-accounts.md). Cobro/Pago
+  // documents themselves reuse the pre-existing `treasury.receipts.*`/
+  // `treasury.payments.*` codes (reserved before this module existed)
+  // rather than a parallel `accounts.collections.*`/`accounts.payments.*`
+  // vocabulary — `.create` already existed; `.read`/`.update`/`.confirm`/
+  // `.cancel` are added here to complete the set.
+  {
+    code: 'accounts.receivable.read',
+    module: 'accounts',
+    resource: 'receivable',
+    action: 'read',
+    description: 'Ver cuenta corriente de clientes',
+  },
+  {
+    code: 'accounts.payable.read',
+    module: 'accounts',
+    resource: 'payable',
+    action: 'read',
+    description: 'Ver cuenta corriente de proveedores',
+  },
+  {
+    code: 'treasury.receipts.read',
+    module: 'treasury',
+    resource: 'receipts',
+    action: 'read',
+    description: 'Ver cobros',
+  },
   {
     code: 'treasury.receipts.create',
     module: 'treasury',
@@ -549,11 +584,60 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     description: 'Registrar cobros',
   },
   {
+    code: 'treasury.receipts.update',
+    module: 'treasury',
+    resource: 'receipts',
+    action: 'update',
+    description: 'Modificar cobros en borrador',
+  },
+  {
+    code: 'treasury.receipts.confirm',
+    module: 'treasury',
+    resource: 'receipts',
+    action: 'confirm',
+    description: 'Confirmar cobros',
+  },
+  {
+    code: 'treasury.receipts.cancel',
+    module: 'treasury',
+    resource: 'receipts',
+    action: 'cancel',
+    description: 'Anular cobros',
+  },
+  {
+    code: 'treasury.payments.read',
+    module: 'treasury',
+    resource: 'payments',
+    action: 'read',
+    description: 'Ver pagos',
+  },
+  {
     code: 'treasury.payments.create',
     module: 'treasury',
     resource: 'payments',
     action: 'create',
     description: 'Registrar pagos',
+  },
+  {
+    code: 'treasury.payments.update',
+    module: 'treasury',
+    resource: 'payments',
+    action: 'update',
+    description: 'Modificar pagos en borrador',
+  },
+  {
+    code: 'treasury.payments.confirm',
+    module: 'treasury',
+    resource: 'payments',
+    action: 'confirm',
+    description: 'Confirmar pagos',
+  },
+  {
+    code: 'treasury.payments.cancel',
+    module: 'treasury',
+    resource: 'payments',
+    action: 'cancel',
+    description: 'Anular pagos',
   },
 
   {
@@ -606,6 +690,7 @@ export const MODULE_LABELS: Record<string, string> = {
   pricing: 'Precios',
   sales: 'Ventas',
   purchases: 'Compras',
+  accounts: 'Cuentas corrientes',
   treasury: 'Tesorería',
   accounting: 'Contabilidad',
   reports: 'Reportes',
@@ -636,6 +721,8 @@ export const RESOURCE_LABELS: Record<string, string> = {
   costs: 'Costos',
   suppliers: 'Proveedores',
   'goods-receipts': 'Recepciones',
+  receivable: 'Cuenta corriente clientes',
+  payable: 'Cuenta corriente proveedores',
   receipts: 'Cobros',
   payments: 'Pagos',
   entries: 'Asientos',

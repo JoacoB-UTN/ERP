@@ -238,3 +238,77 @@ export const PurchaseReceiptStatus = {
   CANCELLED: 'CANCELLED',
 } as const;
 export type PurchaseReceiptStatus = (typeof PurchaseReceiptStatus)[keyof typeof PurchaseReceiptStatus];
+
+// ---------- Current Accounts (Customer AR, Supplier AP) — see docs/current-accounts.md ----------
+
+/**
+ * Same vocabulary as SalesTenderMethod (CASH/CARD/TRANSFER/OTHER) — see
+ * docs/current-accounts.md's documented naming decision. CustomerCollection/
+ * SupplierPayment reuse the EXACT SAME Prisma column type
+ * (SalesTenderMethod) rather than minting a duplicate Postgres enum with
+ * identical values; this is only a friendlier alias for code that has
+ * nothing to do with POS/checkout. Never diverges from SalesTenderMethod —
+ * if a payment method is ever needed that doesn't apply to checkout
+ * tenders (or vice versa), split them deliberately then, not preemptively
+ * now. Purely descriptive here too: it never touches a cash/bank balance
+ * (Treasury is out of scope for this task).
+ */
+export const PaymentMethod = SalesTenderMethod;
+export type PaymentMethod = SalesTenderMethod;
+
+/**
+ * Growable on purpose — see docs/current-accounts.md's documented
+ * extension points. Only SALE_CHARGE/TENDER_SETTLEMENT/COLLECTION/
+ * COLLECTION_REVERSAL are ever created by this task's services;
+ * CREDIT_NOTE/DEBIT_NOTE/OPENING_BALANCE/ADJUSTMENT/WRITE_OFF are reserved
+ * future values so a later module (credit notes, an opening-balance
+ * import wizard, ...) can add that behavior without a schema migration.
+ */
+export const CustomerAccountMovementType = {
+  SALE_CHARGE: 'SALE_CHARGE',
+  TENDER_SETTLEMENT: 'TENDER_SETTLEMENT',
+  COLLECTION: 'COLLECTION',
+  COLLECTION_REVERSAL: 'COLLECTION_REVERSAL',
+  CREDIT_NOTE: 'CREDIT_NOTE',
+  DEBIT_NOTE: 'DEBIT_NOTE',
+  OPENING_BALANCE: 'OPENING_BALANCE',
+  ADJUSTMENT: 'ADJUSTMENT',
+  WRITE_OFF: 'WRITE_OFF',
+} as const;
+export type CustomerAccountMovementType =
+  (typeof CustomerAccountMovementType)[keyof typeof CustomerAccountMovementType];
+
+/** Symmetric to CustomerAccountMovementType — see docs/current-accounts.md. */
+export const SupplierAccountMovementType = {
+  PURCHASE_RECEIPT_ACCRUAL: 'PURCHASE_RECEIPT_ACCRUAL',
+  PURCHASE_RECEIPT_REVERSAL: 'PURCHASE_RECEIPT_REVERSAL',
+  SUPPLIER_PAYMENT: 'SUPPLIER_PAYMENT',
+  SUPPLIER_PAYMENT_REVERSAL: 'SUPPLIER_PAYMENT_REVERSAL',
+  PURCHASE_INVOICE: 'PURCHASE_INVOICE',
+  PURCHASE_CREDIT_NOTE: 'PURCHASE_CREDIT_NOTE',
+  OPENING_BALANCE: 'OPENING_BALANCE',
+  ADJUSTMENT: 'ADJUSTMENT',
+} as const;
+export type SupplierAccountMovementType =
+  (typeof SupplierAccountMovementType)[keyof typeof SupplierAccountMovementType];
+
+/**
+ * See docs/current-accounts.md's Cobro state machine. Unlike PurchaseOrder/
+ * SalesDocument, CONFIRMED is NOT terminal — a CONFIRMED collection can
+ * still be CANCELLED (posting a compensating COLLECTION_REVERSAL), the
+ * same deliberate exception already established for PurchaseReceipt.
+ */
+export const CustomerCollectionStatus = {
+  DRAFT: 'DRAFT',
+  CONFIRMED: 'CONFIRMED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type CustomerCollectionStatus = (typeof CustomerCollectionStatus)[keyof typeof CustomerCollectionStatus];
+
+/** Symmetric to CustomerCollectionStatus — see docs/current-accounts.md. */
+export const SupplierPaymentStatus = {
+  DRAFT: 'DRAFT',
+  CONFIRMED: 'CONFIRMED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type SupplierPaymentStatus = (typeof SupplierPaymentStatus)[keyof typeof SupplierPaymentStatus];

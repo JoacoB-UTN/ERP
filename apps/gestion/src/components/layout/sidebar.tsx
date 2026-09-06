@@ -46,10 +46,15 @@ function NavLink({ item, pathname, onNavigate }: { item: NavItem; pathname: stri
         'group flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[0.8125rem] font-medium transition-colors',
         active
           ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-          : 'text-sidebar-foreground/75 hover:bg-muted hover:text-sidebar-foreground',
+          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/15 hover:text-sidebar-foreground',
       )}
     >
-      <Icon className={cn('size-3.5', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} />
+      <Icon
+        className={cn(
+          'size-3.5',
+          active ? 'text-sidebar-accent-foreground' : 'text-sidebar-foreground/70 group-hover:text-sidebar-foreground',
+        )}
+      />
       <span>{item.label}</span>
     </Link>
   );
@@ -165,7 +170,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           return (
             <div key={section.label ?? 'inicio'} className={cn(index > 0 && 'mt-3.5')}>
               {section.label && (
-                <p className="mb-1 px-2.5 text-[0.6875rem] font-semibold text-muted-foreground/80">
+                <p className="mb-1 px-2.5 text-[0.6875rem] font-semibold text-sidebar-foreground/50">
                   {section.label}
                 </p>
               )}
@@ -199,7 +204,13 @@ export function Sidebar({
           <SheetTitle className="sr-only">Navegación de Gestión</SheetTitle>
           <SheetClose
             aria-label="Cerrar navegación"
-            render={<Button variant="ghost" size="icon-sm" className="absolute top-3 right-3 z-10" />}
+            render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="absolute top-3 right-3 z-10 text-sidebar-foreground hover:bg-sidebar-accent/20"
+            />
+          }
           >
             <X className="size-4" />
           </SheetClose>

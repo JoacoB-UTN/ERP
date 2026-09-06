@@ -2,6 +2,7 @@ import * as argon2 from 'argon2';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { passwordSchema, PERMISSION_CATALOG } from '@erp/shared';
 import { PrismaClient, Prisma } from '../src/generated/prisma/client';
+import { backfillCurrentAccounts } from './current-accounts-backfill';
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
@@ -1660,14 +1661,16 @@ interface SeedSaleTenderInput {
 }
 
 /**
- * Creates one historical/demo SalesDocument — DRAFT (no `confirm` block)
- * or CONFIRMED (with real stock-out + optional tender) depending on
- * whether `confirm` is provided. `marker` is the idempotency key stored
- * in `notes` — see the block comment above. `daysAgo` is resolved against
- * `new Date()` at call time, never a fixed date. Returns `null` (and
- * creates nothing) if the marker sale already exists, or if any line's
- * product/variant/price can't be resolved — logged, never thrown, so one
- * missing fixture never aborts the whole seed run.
+ * Creates one historical/demo SalesDocument — DRAFT (no `confirm` block),
+ * CONFIRMED with a tender, or CONFIRMED "on account" (`confirm: true`,
+ * no tender — see docs/current-accounts.md: a sale confirmed without a
+ * tender remains fully outstanding) depending on what `confirm` is.
+ * `marker` is the idempotency key stored in `notes` — see the block
+ * comment above. `daysAgo` is resolved against `new Date()` at call time,
+ * never a fixed date. Returns `null` (and creates nothing) if the marker
+ * sale already exists, or if any line's product/variant/price can't be
+ * resolved — logged, never thrown, so one missing fixture never aborts
+ * the whole seed run.
  */
 async function seedHistoricalSale(params: {
   tenantId: string;
@@ -1682,8 +1685,8 @@ async function seedHistoricalSale(params: {
   currencyDecimalPlaces: number;
   daysAgo: number;
   lines: SeedSaleLineInput[];
-  confirm?: SeedSaleTenderInput;
-}): Promise<{ number: string; total: string } | null> {
+  confirm?: SeedSaleTenderInput | true;
+}): Promise<{ id: string; customerId: string; number: string; total: string } | null> {
   const {
     tenantId,
     companyId,
@@ -1704,7 +1707,12 @@ async function seedHistoricalSale(params: {
     where: { companyId, notes: marker },
   });
   if (existing)
-    return { number: existing.number, total: existing.total.toString() };
+    return {
+      id: existing.id,
+      customerId: existing.customerId,
+      number: existing.number,
+      total: existing.total.toString(),
+    };
 
   const customer = await prisma.customer.findUnique({
     where: { companyId_code: { companyId, code: customerCode } },
@@ -1821,23 +1829,32 @@ async function seedHistoricalSale(params: {
           occurredAt,
         );
       }
-      await tx.salesTender.create({
-        data: {
-          salesDocumentId: sale.id,
-          method: confirm.method,
-          amountApplied: documentTotals.total,
-          amountReceived:
-            confirm.method === 'CASH'
-              ? (confirm.amountReceived ?? documentTotals.total)
-              : null,
-        },
-      });
+      // `confirm === true` means "confirmed on account" — no tender, the
+      // sale remains fully outstanding (see docs/current-accounts.md).
+      if (confirm !== true) {
+        await tx.salesTender.create({
+          data: {
+            salesDocumentId: sale.id,
+            method: confirm.method,
+            amountApplied: documentTotals.total,
+            amountReceived:
+              confirm.method === 'CASH'
+                ? (confirm.amountReceived ?? documentTotals.total)
+                : null,
+          },
+        });
+      }
     }
 
     return sale;
   });
 
-  return { number: result.number, total: result.total.toString() };
+  return {
+    id: result.id,
+    customerId: result.customerId,
+    number: result.number,
+    total: result.total.toString(),
+  };
 }
 
 /**
@@ -1864,6 +1881,7 @@ async function seedDemoSales(
   draftCount: number;
   distinctDays: number;
   tenderCounts: string;
+  onAccountSale: { id: string; customerId: string; number: string; total: string } | null;
 }> {
   const minorista = await prisma.priceList.findUniqueOrThrow({
     where: { companyId_code: { companyId, code: 'MIN' } },
@@ -2030,6 +2048,24 @@ async function seedDemoSales(
       ],
       confirm: { method: 'CASH', amountReceived: undefined },
     },
+    {
+      ...common,
+      marker: 'DEMO-SEED-11',
+      customerCode: '000002', // Ferretería El Puente — a second, unpaid purchase on account
+      warehouseId: warehouses.central.id,
+      branchId: branchMainId,
+      priceListId: mayorista.id,
+      priceListCode: 'MAY',
+      daysAgo: 2,
+      lines: [
+        { productCode: '000004', quantity: '10' }, // Yerba mate 1 kg
+        { productCode: '000003', quantity: '5' }, // Café 1 kg
+      ],
+      // Confirmed WITHOUT a tender — see docs/current-accounts.md and
+      // docs/sales.md: this sale remains fully outstanding until a
+      // CustomerCollection is applied to it (see seedDemoCurrentAccounts).
+      confirm: true,
+    },
   ];
 
   const daysUsed = new Set<number>();
@@ -2040,12 +2076,17 @@ async function seedDemoSales(
     OTHER: 0,
   };
   let confirmedCount = 0;
+  let onAccountSale: { id: string; customerId: string; number: string; total: string } | null = null;
   for (const spec of specs) {
     const created = await seedHistoricalSale(spec);
     if (created && spec.confirm) {
       confirmedCount += 1;
       daysUsed.add(spec.daysAgo);
-      tenderTally[spec.confirm.method] += 1;
+      if (spec.confirm === true) {
+        onAccountSale = created;
+      } else {
+        tenderTally[spec.confirm.method] += 1;
+      }
     }
   }
 
@@ -2072,6 +2113,7 @@ async function seedDemoSales(
       .filter(([, count]) => count > 0)
       .map(([method, count]) => `${count} ${method}`)
       .join(', '),
+    onAccountSale,
   };
 }
 
@@ -2254,14 +2296,29 @@ async function seedDemoPurchases(
   branchSecondaryId: string,
   warehouses: { central: { id: string }; sucursalNorte: { id: string } },
   supplierIdByCode: Map<string, string>,
-): Promise<{ orderCount: number; receiptCount: number }> {
+): Promise<{
+  orderCount: number;
+  receiptCount: number;
+  fullyReceivedReceipt: { id: string; supplierId: string; currencyId: string } | null;
+}> {
   const alreadySeeded = await prisma.purchaseOrder.count({ where: { companyId } });
   if (alreadySeeded > 0) {
-    const [orderCount, receiptCount] = await Promise.all([
+    const [orderCount, receiptCount, fullyReceivedReceipt] = await Promise.all([
       prisma.purchaseOrder.count({ where: { companyId } }),
       prisma.purchaseReceipt.count({ where: { companyId } }),
+      prisma.purchaseReceipt.findFirst({ where: { companyId, notes: 'Recepción completa.' } }),
     ]);
-    return { orderCount, receiptCount };
+    return {
+      orderCount,
+      receiptCount,
+      fullyReceivedReceipt: fullyReceivedReceipt
+        ? {
+            id: fullyReceivedReceipt.id,
+            supplierId: fullyReceivedReceipt.supplierId,
+            currencyId: fullyReceivedReceipt.currencyId,
+          }
+        : null,
+    };
   }
 
   const ars = await prisma.currency.findUniqueOrThrow({ where: { code: 'ARS' } });
@@ -2550,7 +2607,7 @@ async function seedDemoPurchases(
   const po3Cuaderno = po3.lines.find(
     (l) => l.productVariantId === cuadernoId,
   )!;
-  await confirmedReceipt({
+  const po3Receipt = await confirmedReceipt({
     supplierId: papeleraSupplierId,
     warehouseId: warehouses.central.id,
     branchId: branchMainId,
@@ -2619,7 +2676,240 @@ async function seedDemoPurchases(
     prisma.purchaseOrder.count({ where: { companyId } }),
     prisma.purchaseReceipt.count({ where: { companyId } }),
   ]);
-  return { orderCount, receiptCount };
+  return {
+    orderCount,
+    receiptCount,
+    fullyReceivedReceipt: {
+      id: po3Receipt.id,
+      supplierId: po3Receipt.supplierId,
+      currencyId: po3Receipt.currencyId,
+    },
+  };
+}
+
+/**
+ * Demo Customer Collections ("Cobros") / Supplier Payments ("Pagos") — see
+ * docs/current-accounts.md. Deliberately targets ONLY the one on-account
+ * sale (`onAccountSale` — DEMO-SEED-11, confirmed with no tender) rather
+ * than any of seedDemoSales's already-tendered POS-style sales, per the
+ * explicit rule that a Collection must never be created against a sale
+ * whose tender already settled it in full. These documents are inserted
+ * directly (bypassing CustomerCollectionsService/SupplierPaymentsService),
+ * so each CONFIRMED one manually posts the exact same ledger movement
+ * postCollection()/postPayment() would — see CustomerAccountService/
+ * SupplierAccountService. Idempotent via `externalReference` as the
+ * marker (this module has no other stable natural key to check against).
+ */
+async function seedDemoCurrentAccounts(
+  tenantId: string,
+  companyId: string,
+  createdBy: string,
+  onAccountSale: { id: string; customerId: string; number: string; total: string } | null,
+  fullyReceivedReceipt: { id: string; supplierId: string; currencyId: string } | null,
+): Promise<{ collectionCount: number; paymentCount: number }> {
+  let collectionCount = 0;
+  let paymentCount = 0;
+
+  if (onAccountSale) {
+    const sale = await prisma.salesDocument.findUniqueOrThrow({
+      where: { id: onAccountSale.id },
+    });
+
+    const confirmedMarker = 'DEMO-COB-01';
+    const alreadyConfirmed = await prisma.customerCollection.findFirst({
+      where: { companyId, externalReference: confirmedMarker },
+    });
+    if (alreadyConfirmed) {
+      collectionCount += 1;
+    } else {
+      const half = new Prisma.Decimal(onAccountSale.total)
+        .div(2)
+        .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP)
+        .toString();
+      const occurredAt = new Date();
+      await prisma.$transaction(async (tx) => {
+        const seq = await tx.customerCollectionSequence.upsert({
+          where: { companyId },
+          create: { companyId, lastValue: 1 },
+          update: { lastValue: { increment: 1 } },
+        });
+        const number = `COB-${String(seq.lastValue).padStart(6, '0')}`;
+        const collection = await tx.customerCollection.create({
+          data: {
+            tenantId,
+            companyId,
+            number,
+            customerId: onAccountSale.customerId,
+            currencyId: sale.currencyId,
+            occurredAt,
+            amount: half,
+            paymentMethod: 'TRANSFER',
+            externalReference: confirmedMarker,
+            notes: `Cobro parcial de la venta ${onAccountSale.number} (cuenta corriente).`,
+            status: 'CONFIRMED',
+            confirmedAt: occurredAt,
+            createdBy,
+            confirmedBy: createdBy,
+            applications: {
+              create: [{ salesDocumentId: onAccountSale.id, amount: half }],
+            },
+          },
+        });
+        await tx.customerAccountMovement.create({
+          data: {
+            tenantId,
+            companyId,
+            customerId: onAccountSale.customerId,
+            currencyId: sale.currencyId,
+            movementType: 'COLLECTION',
+            amount: new Prisma.Decimal(half).neg(),
+            occurredAt,
+            sourceType: 'CustomerCollection',
+            sourceId: collection.id,
+            description: `Cobro ${number}`,
+            createdBy,
+          },
+        });
+      });
+      collectionCount += 1;
+    }
+
+    // A second, DRAFT collection for the same customer — unconfirmed on
+    // purpose, so the Gestión Cobros list has more than one status to show.
+    const draftMarker = 'DEMO-COB-02';
+    const alreadyDraft = await prisma.customerCollection.findFirst({
+      where: { companyId, externalReference: draftMarker },
+    });
+    if (!alreadyDraft) {
+      const seq = await prisma.customerCollectionSequence.upsert({
+        where: { companyId },
+        create: { companyId, lastValue: 1 },
+        update: { lastValue: { increment: 1 } },
+      });
+      const number = `COB-${String(seq.lastValue).padStart(6, '0')}`;
+      await prisma.customerCollection.create({
+        data: {
+          tenantId,
+          companyId,
+          number,
+          customerId: onAccountSale.customerId,
+          currencyId: sale.currencyId,
+          occurredAt: new Date(),
+          amount: '5000',
+          paymentMethod: 'CASH',
+          externalReference: draftMarker,
+          notes: 'Anticipo a confirmar.',
+          status: 'DRAFT',
+          createdBy,
+        },
+      });
+    }
+    collectionCount += 1;
+  }
+
+  if (fullyReceivedReceipt) {
+    const receipt = await prisma.purchaseReceipt.findUniqueOrThrow({
+      where: { id: fullyReceivedReceipt.id },
+      include: { lines: true },
+    });
+    const receiptTotal = receipt.lines.reduce(
+      (sum, line) => sum.add(new Prisma.Decimal(line.quantity).mul(line.unitCostSnapshot)),
+      new Prisma.Decimal(0),
+    );
+
+    const confirmedMarker = 'DEMO-PAG-01';
+    const alreadyConfirmed = await prisma.supplierPayment.findFirst({
+      where: { companyId, externalReference: confirmedMarker },
+    });
+    if (alreadyConfirmed) {
+      paymentCount += 1;
+    } else {
+      const partial = receiptTotal
+        .mul('0.6')
+        .toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP)
+        .toString();
+      const occurredAt = new Date();
+      await prisma.$transaction(async (tx) => {
+        const seq = await tx.supplierPaymentSequence.upsert({
+          where: { companyId },
+          create: { companyId, lastValue: 1 },
+          update: { lastValue: { increment: 1 } },
+        });
+        const number = `PAG-${String(seq.lastValue).padStart(6, '0')}`;
+        const payment = await tx.supplierPayment.create({
+          data: {
+            tenantId,
+            companyId,
+            number,
+            supplierId: fullyReceivedReceipt.supplierId,
+            currencyId: fullyReceivedReceipt.currencyId,
+            occurredAt,
+            amount: partial,
+            paymentMethod: 'TRANSFER',
+            externalReference: confirmedMarker,
+            notes: `Pago parcial de la recepción ${receipt.number}.`,
+            status: 'CONFIRMED',
+            confirmedAt: occurredAt,
+            createdBy,
+            confirmedBy: createdBy,
+            applications: {
+              create: [{ purchaseReceiptId: fullyReceivedReceipt.id, amount: partial }],
+            },
+          },
+        });
+        await tx.supplierAccountMovement.create({
+          data: {
+            tenantId,
+            companyId,
+            supplierId: fullyReceivedReceipt.supplierId,
+            currencyId: fullyReceivedReceipt.currencyId,
+            movementType: 'SUPPLIER_PAYMENT',
+            amount: new Prisma.Decimal(partial).neg(),
+            occurredAt,
+            sourceType: 'SupplierPayment',
+            sourceId: payment.id,
+            description: `Pago ${number}`,
+            createdBy,
+          },
+        });
+      });
+      paymentCount += 1;
+    }
+
+    // A second, DRAFT payment for the same supplier — same reasoning as
+    // the DRAFT collection above.
+    const draftMarker = 'DEMO-PAG-02';
+    const alreadyDraft = await prisma.supplierPayment.findFirst({
+      where: { companyId, externalReference: draftMarker },
+    });
+    if (!alreadyDraft) {
+      const seq = await prisma.supplierPaymentSequence.upsert({
+        where: { companyId },
+        create: { companyId, lastValue: 1 },
+        update: { lastValue: { increment: 1 } },
+      });
+      const number = `PAG-${String(seq.lastValue).padStart(6, '0')}`;
+      await prisma.supplierPayment.create({
+        data: {
+          tenantId,
+          companyId,
+          number,
+          supplierId: fullyReceivedReceipt.supplierId,
+          currencyId: fullyReceivedReceipt.currencyId,
+          occurredAt: new Date(),
+          amount: '10000',
+          paymentMethod: 'TRANSFER',
+          externalReference: draftMarker,
+          notes: 'Pago a confirmar.',
+          status: 'DRAFT',
+          createdBy,
+        },
+      });
+    }
+    paymentCount += 1;
+  }
+
+  return { collectionCount, paymentCount };
 }
 
 /**
@@ -2855,6 +3145,14 @@ async function main() {
     supplierIdByCode,
   );
 
+  // Posts SALE_CHARGE/TENDER_SETTLEMENT/PURCHASE_RECEIPT_ACCRUAL/REVERSAL
+  // for everything seeded above — see current-accounts-backfill.ts. Reused
+  // as-is (not duplicated) because seedDemoSales/seedDemoPurchases insert
+  // SalesDocuments/PurchaseReceipts directly via prisma.*.create rather
+  // than through SalesService/PurchaseReceiptsService, so nothing else
+  // would ever post their ledger movements.
+  await backfillCurrentAccounts(prisma);
+
   const passwordHash = await argon2.hash(resolvedPassword, {
     type: argon2.argon2id,
   });
@@ -2885,6 +3183,18 @@ async function main() {
       active: true,
     },
   });
+
+  // Demo Cobros/Pagos — see docs/current-accounts.md and
+  // seedDemoCurrentAccounts's own doc comment. Runs after the admin user
+  // exists (needed as createdBy/confirmedBy) and after the ledger backfill
+  // above (so the on-account sale's outstanding is already correct).
+  const accountsSummary = await seedDemoCurrentAccounts(
+    tenant.id,
+    company.id,
+    user.id,
+    salesSummary.onAccountSale,
+    purchasesSummary.fullyReceivedReceipt,
+  );
   await prisma.userCompany.upsert({
     where: {
       userId_companyId: { userId: user.id, companyId: secondCompany.id },
@@ -2968,6 +3278,9 @@ async function main() {
   );
   console.log(
     `  Sales:       ${salesSummary.confirmedCount} confirmed sales across ${salesSummary.distinctDays} days (${salesSummary.tenderCounts}) + ${salesSummary.draftCount} draft in Distribuidora Horizonte`,
+  );
+  console.log(
+    `  Accounts:    current-accounts ledger backfilled for all confirmed sales/receipts; ${accountsSummary.collectionCount} Cobros (1 confirmed partial + 1 draft) + ${accountsSummary.paymentCount} Pagos (1 confirmed partial + 1 draft) against the on-account sale/fully-received receipt in Distribuidora Horizonte`,
   );
 }
 
