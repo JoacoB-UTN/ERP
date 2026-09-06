@@ -40,6 +40,7 @@ export const {
   useRemoveRoleAssignment,
   useAuditLog,
   useAuditLogDetail,
+  useBackupStatus,
   useCustomers,
   useCustomer,
   useCustomerHistory,

@@ -88,6 +88,9 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Server agent tests
+        run: npm run test:server-agent
+
       - name: E2E tests
         run: npm run test:e2e
 

@@ -71,6 +71,7 @@ const SYSTEM_ROLES: {
       'treasury.read',
       'accounting.read',
       'reports.read',
+      'system.backups.read',
     ],
   },
   {
