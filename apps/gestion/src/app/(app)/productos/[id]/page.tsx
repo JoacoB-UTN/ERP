@@ -556,14 +556,14 @@ function StockTab({ productId }: { productId: string }) {
           {variant.warehouses.length === 0 ? (
             <p className="text-sm text-muted-foreground">Sin movimientos en ningún depósito.</p>
           ) : (
-            <div className="overflow-x-auto rounded-md border border-border bg-card">
+            <div className="overflow-x-auto rounded-md border border-border">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-2">Depósito</th>
-                    <th className="px-4 py-2 text-right">Físico</th>
-                    <th className="px-4 py-2 text-right">Reservado</th>
-                    <th className="px-4 py-2 text-right">Disponible</th>
+                    <th className="px-3 py-1.5">Depósito</th>
+                    <th className="px-3 py-1.5 text-right">Físico</th>
+                    <th className="px-3 py-1.5 text-right">Reservado</th>
+                    <th className="px-3 py-1.5 text-right">Disponible</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -571,13 +571,13 @@ function StockTab({ productId }: { productId: string }) {
                     const onHand = Number(w.onHand);
                     const available = Number(w.available);
                     return (
-                      <tr key={w.warehouseId} className="border-t border-border">
-                        <td className="px-4 py-2 whitespace-nowrap">{w.warehouseName}</td>
-                        <td className={`px-4 py-2 text-right tabular-nums ${onHand < 0 ? 'text-red-600' : ''}`}>
+                      <tr key={w.warehouseId} className="border-t border-border hover:bg-muted/30">
+                        <td className="px-3 py-1 whitespace-nowrap">{w.warehouseName}</td>
+                        <td className={`px-3 py-1 text-right tabular-nums ${onHand < 0 ? 'text-red-600' : ''}`}>
                           {qty(w.onHand)}
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums">{qty(w.reserved)}</td>
-                        <td className={`px-4 py-2 text-right tabular-nums ${available < 0 ? 'text-red-600' : ''}`}>
+                        <td className="px-3 py-1 text-right tabular-nums">{qty(w.reserved)}</td>
+                        <td className={`px-3 py-1 text-right tabular-nums ${available < 0 ? 'text-red-600' : ''}`}>
                           {qty(w.available)}
                         </td>
                       </tr>
@@ -620,32 +620,32 @@ function PreciosTab({ productId }: { productId: string }) {
           {variant.prices.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay listas de precios activas.</p>
           ) : (
-            <div className="overflow-x-auto rounded-md border border-border bg-card">
+            <div className="overflow-x-auto rounded-md border border-border">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-2">Lista de precios</th>
-                    <th className="px-4 py-2 text-right">Precio</th>
-                    <th className="px-4 py-2">Vigente desde</th>
+                    <th className="px-3 py-1.5">Lista de precios</th>
+                    <th className="px-3 py-1.5 text-right">Precio</th>
+                    <th className="px-3 py-1.5">Vigente desde</th>
                   </tr>
                 </thead>
                 <tbody>
                   {variant.prices.map((p) => (
-                    <tr key={p.priceListId} className="border-t border-border">
-                      <td className="px-4 py-2">
+                    <tr key={p.priceListId} className="border-t border-border hover:bg-muted/30">
+                      <td className="px-3 py-1">
                         <Link href={`/listas-de-precios/${p.priceListId}`} className="font-medium underline-offset-4 hover:underline">
                           {p.priceListName}
                         </Link>
                         <p className="text-xs text-muted-foreground">{p.priceListCode}</p>
                       </td>
-                      <td className="px-4 py-2 text-right tabular-nums">
+                      <td className="px-3 py-1 text-right tabular-nums">
                         {p.price !== null ? (
                           formatMoney(p.price, p.currencyCode)
                         ) : (
                           <span className="text-muted-foreground">Sin precio</span>
                         )}
                       </td>
-                      <td className="px-4 py-2 whitespace-nowrap">{p.effectiveFrom ?? '—'}</td>
+                      <td className="px-3 py-1 whitespace-nowrap">{p.effectiveFrom ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>

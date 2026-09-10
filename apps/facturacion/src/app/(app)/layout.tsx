@@ -3,10 +3,9 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMe, useActiveCompany, usePermissions, useRealtimeSync } from '@/lib/auth-client';
-import { Topbar } from '@/components/layout/topbar';
+import { AppShell } from '@/components/layout/app-shell';
 import { NoCompanies } from '@/components/layout/no-companies';
 import { SelectCompanyPrompt } from '@/components/layout/select-company-prompt';
-import { AppAccessDenied } from '@/components/layout/app-access-denied';
 
 /**
  * Session gate for every route under (app), mirroring apps/gestion:
@@ -14,7 +13,7 @@ import { AppAccessDenied } from '@/components/layout/app-access-denied';
  * refreshed transparently before this resolves, if invalid redirect to
  * /login. Company resolution (zero/one/many) also mirrors Gestión — see
  * docs/multi-company-architecture.md. Branch is resolved separately by
- * BranchSelector in the Topbar; it doesn't gate content yet since no
+ * BranchSelector in the side panel; it doesn't gate content yet since no
  * branch-scoped feature exists in this task.
  *
  * A third gate checks apps.facturacion.access for the active company —
@@ -32,13 +31,26 @@ export default function AuthenticatedLayout({ children }: { children: React.Reac
   // fully usable on its own regardless of whether this connects.
   useRealtimeSync({ enabled: !isLoading && !isError && !!data && !!companyCtx.activeCompanyId });
 
+  // Computed before any early return so the redirect effect below can depend on
+  // it — hooks cannot live after a conditional return.
+  const lacksAppAccess =
+    !!companyCtx.activeCompanyId && !permissions.isLoading && !permissions.can('apps.facturacion.access');
+
   useEffect(() => {
     if (isError) {
       router.replace('/login');
     }
   }, [isError, router]);
 
-  if (isLoading || isError || !data) {
+  useEffect(() => {
+    // Not a dead end any more: the picker knows every workspace this user does
+    // have, and forwards them straight there when it is the only one.
+    if (lacksAppAccess) {
+      router.replace('/modulos');
+    }
+  }, [lacksAppAccess, router]);
+
+  if (isLoading || isError || !data || lacksAppAccess) {
     return <div className="min-h-screen bg-background" />;
   }
 
@@ -51,17 +63,7 @@ export default function AuthenticatedLayout({ children }: { children: React.Reac
     if (permissions.isLoading) {
       return <div className="min-h-screen bg-background" />;
     }
-    if (!permissions.can('apps.facturacion.access')) {
-      content = <AppAccessDenied />;
-    }
   }
 
-  return (
-    <div className="flex h-screen flex-col overflow-hidden">
-      <Topbar userLabel={`${data.user.firstName} ${data.user.lastName}`} userEmail={data.user.email} />
-      <main data-facturacion-workspace className="min-h-0 flex-1 overflow-auto px-4 py-5 md:px-6 md:py-6">
-        {content}
-      </main>
-    </div>
-  );
+  return <AppShell>{content}</AppShell>;
 }

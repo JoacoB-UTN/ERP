@@ -6,7 +6,6 @@ import { useMe, useActiveCompany, usePermissions, useRealtimeSync } from '@/lib/
 import { AppShell } from '@/components/layout/app-shell';
 import { NoCompanies } from '@/components/layout/no-companies';
 import { SelectCompanyPrompt } from '@/components/layout/select-company-prompt';
-import { AppAccessDenied } from '@/components/layout/app-access-denied';
 
 /**
  * Session gate for every route under (app). Implements the startup
@@ -38,13 +37,26 @@ export default function AuthenticatedLayout({ children }: { children: React.Reac
   // fully usable on its own regardless of whether this connects.
   useRealtimeSync({ enabled: !isLoading && !isError && !!data && !!companyCtx.activeCompanyId });
 
+  // Computed before any early return so the redirect effect below can depend on
+  // it — hooks cannot live after a conditional return.
+  const lacksAppAccess =
+    !!companyCtx.activeCompanyId && !permissions.isLoading && !permissions.can('apps.gestion.access');
+
   useEffect(() => {
     if (isError) {
       router.replace('/login');
     }
   }, [isError, router]);
 
-  if (isLoading || isError || !data) {
+  useEffect(() => {
+    // Not a dead end any more: the picker knows every workspace this user does
+    // have, and forwards them straight there when it is the only one.
+    if (lacksAppAccess) {
+      router.replace('/modulos');
+    }
+  }, [lacksAppAccess, router]);
+
+  if (isLoading || isError || !data || lacksAppAccess) {
     // Intentionally blank rather than a spinner — this state is normally
     // brief, and avoids a flash of shell UI for a session that turns out
     // to be invalid.
@@ -62,13 +74,10 @@ export default function AuthenticatedLayout({ children }: { children: React.Reac
       // grants apps.gestion.access.
       return <div className="min-h-screen bg-background" />;
     }
-    if (!permissions.can('apps.gestion.access')) {
-      content = <AppAccessDenied />;
-    }
   }
 
   return (
-    <AppShell userLabel={`${data.user.firstName} ${data.user.lastName}`} userEmail={data.user.email}>
+    <AppShell>
       {content}
     </AppShell>
   );

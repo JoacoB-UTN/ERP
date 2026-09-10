@@ -29,7 +29,7 @@ export function SaleReadOnly({ sale }: { sale: SalesDocumentDetailDto }) {
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4">
+    <div className="flex flex-col gap-2.5">
       <header className="flex flex-col justify-between gap-3 border-b border-border pb-4 md:flex-row md:items-end">
         <div>
           <Link

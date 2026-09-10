@@ -76,7 +76,7 @@ export default function UnidadesPage() {
   const units = unitsQuery.data?.units ?? [];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2.5">
       <ProductosSubNav />
       <PageHeader
         title="Unidades de medida"
@@ -123,32 +123,32 @@ export default function UnidadesPage() {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Código</th>
-              <th className="px-4 py-2">Nombre</th>
-              <th className="px-4 py-2">Símbolo</th>
-              <th className="px-4 py-2">Decimales</th>
-              <th className="px-4 py-2">Estado</th>
-              <th className="px-4 py-2" />
+              <th className="px-3 py-1.5">Código</th>
+              <th className="px-3 py-1.5">Nombre</th>
+              <th className="px-3 py-1.5">Símbolo</th>
+              <th className="px-3 py-1.5">Decimales</th>
+              <th className="px-3 py-1.5">Estado</th>
+              <th className="px-3 py-1.5" />
             </tr>
           </thead>
           <tbody>
             {units.map((unit) =>
               editingId === unit.id ? (
-                <tr key={unit.id} className="border-t border-border">
-                  <td className="px-4 py-2">
+                <tr key={unit.id} className="border-t border-border hover:bg-muted/30">
+                  <td className="px-3 py-1">
                     <Input value={editDraft.code} onChange={(e) => setEditDraft({ ...editDraft, code: e.target.value })} className="w-20" />
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-3 py-1">
                     <Input value={editDraft.name} onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })} className="w-36" />
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-3 py-1">
                     <Input value={editDraft.symbol} onChange={(e) => setEditDraft({ ...editDraft, symbol: e.target.value })} className="w-16" />
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-3 py-1">
                     <Input
                       type="number"
                       min="0"
@@ -158,8 +158,8 @@ export default function UnidadesPage() {
                       className="w-16"
                     />
                   </td>
-                  <td className="px-4 py-2">{unit.active ? 'Activo' : 'Inactivo'}</td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-3 py-1">{unit.active ? 'Activo' : 'Inactivo'}</td>
+                  <td className="px-3 py-1 text-right">
                     <div className="flex justify-end gap-2">
                       <Button size="sm" onClick={() => submitEdit(unit.id)} disabled={updateUnit.isPending}>
                         Guardar
@@ -171,19 +171,19 @@ export default function UnidadesPage() {
                   </td>
                 </tr>
               ) : (
-                <tr key={unit.id} className="border-t border-border">
-                  <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">{unit.code}</td>
-                  <td className="px-4 py-2">{unit.name}</td>
-                  <td className="px-4 py-2">{unit.symbol}</td>
-                  <td className="px-4 py-2">{unit.decimalPlaces}</td>
-                  <td className="px-4 py-2">
+                <tr key={unit.id} className="border-t border-border hover:bg-muted/30">
+                  <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{unit.code}</td>
+                  <td className="px-3 py-1">{unit.name}</td>
+                  <td className="px-3 py-1">{unit.symbol}</td>
+                  <td className="px-3 py-1">{unit.decimalPlaces}</td>
+                  <td className="px-3 py-1">
                     {unit.active ? (
                       <span className="text-emerald-600">Activo</span>
                     ) : (
                       <span className="text-muted-foreground">Inactivo</span>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-3 py-1 text-right">
                     {canUpdate && (
                       <div className="flex justify-end gap-1">
                         <Button type="button" size="icon-sm" variant="ghost" onClick={() => startEdit(unit)}>

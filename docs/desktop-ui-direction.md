@@ -42,7 +42,7 @@ list:
 3. **A repeated "icon-in-a-colored-square" decorative motif** shows up
    independently in at least four places: the Gestión sidebar wordmark
    (`Sidebar` in `sidebar.tsx`, a `size-7 rounded-md bg-primary` block
-   around a `Building2` icon), the Facturación topbar wordmark
+   around a `Building2` icon), the Facturación wordmark
    (same shape, a `ReceiptText` icon), the dashboard's "Acciones
    rápidas" — actually fine, compact — and most notably Facturación's
    home page "Nueva operación" section
@@ -187,22 +187,67 @@ form — that belongs on its own route.
 ## Navigation
 
 **Workspace vs module navigation are different levels.** Gestión and
-Facturación are workspaces (see "Workspace switching concept" in the
-final report); within Gestión, the sidebar's grouped sections (Operación,
-Maestros, Inventario y precios, Administración) are module navigation.
-Don't conflate the two — a workspace switch changes what kind of tool
-you're using; a module navigation changes what part of the backoffice
-you're looking at. Facturación intentionally has no module-level nested
+Facturación are workspaces; within Gestión, the sidebar's grouped
+sections (Operación, Maestros, Inventario y precios, Administración) are
+module navigation. Don't conflate the two — a workspace switch changes
+what kind of tool you're using; a module navigation changes what part of
+the backoffice you're looking at.
+
+**Switching workspace lives in the session control**, the bordered
+identity block in the top bar (`session-control.tsx`), alongside
+"Cambiar empresa" and "Cerrar sesión" — not in a permanently visible
+top-bar toggle, which is what this prototype originally used. That
+toggle spent horizontal space on every screen for something a user does
+rarely, and hardcoded exactly the two workspaces that exist today; its
+menu entry goes to `/modulos`, which resolves what this user can
+actually reach and forwards straight through when there is only one. Facturación intentionally has no module-level nested
 navigation (product-ui-principles.md already states why: it's a single
 fast workspace, not a backoffice with a tree).
 
-## Status bar
+## Shell (both workspaces, every screen)
 
-A persistent, low-emphasis strip (bottom of the Gestión shell in this
-prototype's concept) carrying company / branch / server connection /
-user identity — see "Connection status concept" in the final report.
-Compact, factual, never a second header competing for attention with
-the real page content above it.
+The shell is identical in Gestión and Facturación, and it is not opt-in:
+all 54 routes in the two apps render inside `(app)/layout.tsx` → `AppShell`,
+so anything below applies to every screen by construction. A new screen
+gets it for free; a screen that wants to opt out is a bug.
+
+- **No top bar and no status bar.** Both were removed. Everything they
+  carried — identity, active company, workspace, sign-out, server
+  connection — is in one floating session control (`session-control.tsx`)
+  over the top-right of the content.
+- **Side panel** with the logo and a hover-revealed collapse control at
+  the top, navigation below, sign-out anchored at the bottom in red.
+  Collapses to a 56px icon rail, remembered per browser. Facturación's
+  panel is the same shape with different contents — see
+  product-ui-principles.md for the restriction that keeps it from growing
+  into a tree.
+- **One 64px band across the top**, drawn by nobody: the sidebar's logo
+  and the session control are both centred in it, and the content's first
+  line starts at 64px — the same baseline as the sidebar's first
+  navigation item. Getting these onto one line matters; with the logo,
+  the control and the page title at three different heights the top edge
+  reads as ragged even though nothing is technically misaligned.
+- **Theme** is a light/dark switch inside the session control, stored in a
+  cookie so one choice covers both workspaces (localStorage is
+  per-origin, and the two apps differ by port).
+
+## Connection status
+
+**There is no status bar.** The prototype had a persistent strip along the
+bottom of the Gestión shell carrying company / server connection / user
+identity. Once the session control existed, that strip repeated the
+company and the user, and the only thing left that was genuinely its own
+was the server connection — one readout for a full-width band.
+
+The connection now rides the session control instead: a coloured dot on
+the avatar (neutral while checking, green / amber / red thereafter), with
+the state spelled out in words at the top of its menu, because a bare
+coloured dot is not self-explanatory. Same source as before —
+`use-server-health.ts` polling `GET /health` — and the same rule that a
+first load never flashes a false "Sin conexión" before the first check
+has answered.
+
+Both workspaces show it identically; it is not a Gestión-only concern.
 
 ## Propagated standards (from Prompt #18)
 
@@ -211,12 +256,12 @@ Concrete, load-bearing numbers discovered/finalized while propagating
 standard for any *new* Gestión list/index route, not just guidance:
 
 - **List-page heading**: use `ListHeader`
-  (`apps/gestion/src/components/ui/page-header.tsx`) — `text-lg`/`leading-6`
+  (`apps/gestion/src/components/ui/page-header.tsx`) — a `text-2xl`
   title, an optional inline `meta` string (usually a row count, e.g. "19
   ventas"), primary action(s) on the right, **no description**. This is
-  distinct from `PageHeader` (now `text-xl`, down from the original
-  `text-2xl`), which remains for detail/create/edit routes that
-  genuinely want a back link or real contextual copy — don't use
+  distinct from `PageHeader` (also `text-2xl`), which remains for
+  detail/create/edit routes that genuinely want a back link or real
+  contextual copy — don't use
   `PageHeader` for a routine list screen, and don't invent a third
   heading pattern.
 - **Subtitles are allowed only when they convey something the title
@@ -244,6 +289,15 @@ standard for any *new* Gestión list/index route, not just guidance:
   `overflow-x-auto rounded-md border border-border` container never
   carries `bg-card` — the border and header row are enough structure
   (see "Cards" above).
+- **Heading size was walked back.** This pass originally cut titles to
+  `text-lg` (list) and `text-xl` (detail), down from `text-2xl`. Once the
+  shell's floating session control existed, an 18px title read as lighter
+  than the chrome beside it — chrome outweighing the screen's own heading
+  is the wrong way round. Both are `text-2xl` again. **This is the
+  heading only.** Row height, toolbar height, filter controls and page
+  gaps are unchanged: the density argument was always about how many rows
+  fit on a 1366×768 screen, and a heading costs one line.
+
 - **Page-level vertical rhythm**: the outer page container is
   `flex flex-col gap-2.5` (down from `gap-5`/`gap-6`) — heading,
   toolbar, table, and pagination sit close together as one working
@@ -272,12 +326,21 @@ standard for any *new* Gestión list/index route, not just guidance:
   KPI strip. Ventas recientes' own heading shrank to match (`text-sm`,
   muted) since it's a secondary section on this page, not the page's own
   title.
-- **Left deliberately untouched in this pass**: Facturación/POS (a
-  different operational role — see "Gestión vs Facturación" below), and
-  Gestión's secondary nested routes (customer/product detail pages,
-  create/edit forms, categorías/marcas/unidades) beyond what they
-  inherited automatically from `PageHeader`'s smaller title — propagating
-  into those is future work, not assumed to be finished by this pass.
+- **Now propagated to every Gestión route.** The pass that produced these
+  standards left the secondary nested routes out (detail pages,
+  create/edit forms, categorías/marcas/unidades); they have since been
+  brought in line — table cells at `px-3 py-1.5` / `px-3 py-1`, row
+  `hover:bg-muted/30`, table wrappers without `bg-card`, and the outer
+  page container at `gap-2.5`. There is no longer a "migrated" and an
+  "unmigrated" half of Gestión, and a grep for `<td className="px-4 py-2`
+  under `app/(app)` should stay empty.
+
+- **Facturación is deliberately NOT included in the density rules.** Its
+  cart and POS tables keep their looser spacing. That is not an oversight
+  and not work left pending: touch targets at a counter are the point,
+  and "Gestión vs Facturación" below is explicit that Facturación must
+  not be made as dense as Gestión for consistency's own sake. What the two
+  share is the shell (see "Shell" above), not row height.
 
 ## Gestión vs Facturación
 
@@ -292,8 +355,8 @@ product-ui-principles.md's existing, unchanged boundary:
 - **Facturación** — stays the leaner, faster, keyboard-first workspace
   it already is. This direction's density push is a Gestión-primary
   concern; Facturación's shell only gains enough visual family
-  resemblance (identity, connection status placement, workspace
-  switcher) to read as "the same ERP," not Gestión's row density or
+  resemblance (identity, connection status placement, session control)
+  to read as "the same ERP," not Gestión's row density or
   toolbar complexity. Do not make Facturación as dense as Gestión for
   consistency's own sake — product-ui-principles.md's speed-first
   mandate for Facturación is unchanged by this document.

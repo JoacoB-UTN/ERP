@@ -39,7 +39,7 @@ const CONFIRM_ERROR_STORAGE_KEY = 'facturacion:sale-workspace:confirm-error';
 
 function SaleWorkspaceSkeleton() {
   return (
-    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4" aria-label="Cargando venta">
+    <div className="flex flex-col gap-2.5" aria-label="Cargando venta">
       <div className="h-16 animate-pulse rounded-md bg-muted" />
       <div className="grid gap-3 lg:grid-cols-[20rem_minmax(0,1fr)]">
         <div className="h-20 animate-pulse rounded-md bg-muted" />
@@ -55,7 +55,7 @@ function SaleWorkspaceSkeleton() {
  * The main Facturación operational workspace — used for both a brand new
  * sale (`saleId: null`) and continuing/confirming an existing DRAFT
  * (`saleId` set). Warehouse and price list are never re-implemented here
- * — they ARE the topbar's `useActiveWarehouse`/`useActivePriceList`
+ * — they ARE the side panel's `useActiveWarehouse`/`useActivePriceList`
  * selectors (see docs/facturacion.md and AGENTS.md's "don't duplicate
  * shared context infrastructure" rule). Everything here calls the same
  * `SalesService` API Gestión's `/ventas` uses — no parallel sales domain.
@@ -434,7 +434,7 @@ export function SaleWorkspace({ saleId }: { saleId: string | null }) {
   const customerNeedsAttention = error === 'Elegí un cliente.';
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-[1440px] flex-col gap-4">
+    <div className="flex min-h-full flex-col gap-2.5">
       <header className="flex flex-col justify-between gap-3 border-b border-border pb-4 md:flex-row md:items-end">
         <div>
           <Link

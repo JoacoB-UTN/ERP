@@ -255,34 +255,34 @@ export default function ActualizacionMasivaPage() {
           </div>
 
           {preview.lines.length > 0 && (
-            <div className="overflow-x-auto rounded-md border border-border bg-card">
+            <div className="overflow-x-auto rounded-md border border-border">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-2">Producto</th>
-                    <th className="px-4 py-2">SKU</th>
-                    <th className="px-4 py-2 text-right">Precio actual</th>
-                    <th className="px-4 py-2 text-right">Precio nuevo</th>
-                    <th className="px-4 py-2 text-right">Diferencia</th>
+                    <th className="px-3 py-1.5">Producto</th>
+                    <th className="px-3 py-1.5">SKU</th>
+                    <th className="px-3 py-1.5 text-right">Precio actual</th>
+                    <th className="px-3 py-1.5 text-right">Precio nuevo</th>
+                    <th className="px-3 py-1.5 text-right">Diferencia</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.lines.map((line) => {
                     const diff = Number(line.newPrice) - Number(line.currentPrice);
                     return (
-                      <tr key={line.variantId} className="border-t border-border">
-                        <td className="px-4 py-2 font-medium">
+                      <tr key={line.variantId} className="border-t border-border hover:bg-muted/30">
+                        <td className="px-3 py-1 font-medium">
                           {line.productName}
                           {line.variantName && <p className="text-xs text-muted-foreground">{line.variantName}</p>}
                         </td>
-                        <td className="px-4 py-2 whitespace-nowrap">{line.sku ?? '—'}</td>
-                        <td className="px-4 py-2 text-right tabular-nums">
+                        <td className="px-3 py-1 whitespace-nowrap">{line.sku ?? '—'}</td>
+                        <td className="px-3 py-1 text-right tabular-nums">
                           {formatMoney(line.currentPrice, priceList.currencyCode)}
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums">
+                        <td className="px-3 py-1 text-right tabular-nums">
                           {formatMoney(line.newPrice, priceList.currencyCode)}
                         </td>
-                        <td className={`px-4 py-2 text-right tabular-nums ${diff < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                        <td className={`px-3 py-1 text-right tabular-nums ${diff < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                           {diff >= 0 ? '+' : ''}
                           {formatMoney(diff.toFixed(4), priceList.currencyCode)}
                         </td>

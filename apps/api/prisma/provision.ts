@@ -9,7 +9,7 @@ import { ALL_PERMISSION_CODES, SYSTEM_ROLES } from './system-roles';
  *
  * This is what the ERP Server installer runs on a customer's PC, and it is
  * deliberately not `seed.ts`. The seed exists to make the product
- * demonstrable: it creates "Distribuidora Horizonte", eight demo customers,
+ * demonstrable: it creates "ANRAS", eight demo customers,
  * seventeen products and ten fabricated sales. Shipping that to a paying
  * customer would mean their first login shows somebody else's invented
  * business, and every one of those rows would then have to be deleted by hand

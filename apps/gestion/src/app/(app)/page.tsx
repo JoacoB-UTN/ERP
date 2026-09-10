@@ -167,10 +167,10 @@ export default function DashboardPage() {
       {canReadSales && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-muted-foreground">Ventas recientes</h2>
+            <h2 className="text-base font-semibold text-foreground">Ventas recientes</h2>
             <Link
               href="/ventas"
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
             >
               Ver todas
               <ArrowRight className="size-3.5" />

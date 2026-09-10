@@ -56,13 +56,13 @@ Local/dev only — never use these values outside a local database.
   *required* to be overridden if `NODE_ENV=production`)
 
 This one admin user has access to both seeded companies. Use
-**Distribuidora Horizonte S.R.L.** for the demo — the second company
+**ANRAS** for the demo — the second company
 ("Second Demo Company") exists only for cross-company isolation tests
 and has no realistic demo data.
 
 ## 10–15 minute presentation
 
-Log into Gestión first, select **Distribuidora Horizonte S.R.L.** →
+Log into Gestión first, select **ANRAS** →
 **Casa Central**, and confirm the URL bar shows `localhost:3000`.
 
 ### 1. Gestión Dashboard
@@ -207,7 +207,7 @@ exact, up-to-date boundary; don't improvise beyond what it says.
 
 ## Data notes (for whoever runs this demo)
 
-- **Company:** Distribuidora Horizonte S.R.L. (CUIT `30-71876543-5`),
+- **Company:** ANRAS (CUIT `30-71876543-5`),
   branches Casa Central and Sucursal Norte. All seeded CUITs (company,
   customers, and suppliers) are fictional but carry a valid Argentine
   check digit — they're generated, never copied from a real entity (see

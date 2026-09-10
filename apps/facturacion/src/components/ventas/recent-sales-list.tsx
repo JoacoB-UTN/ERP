@@ -42,15 +42,15 @@ export function RecentSalesList({
   }
 
   return (
-    <div className="overflow-x-auto rounded-md border border-border bg-card">
+    <div className="overflow-x-auto rounded-md border border-border">
       <table className="w-full min-w-[46rem] text-sm">
-        <thead className="bg-muted/60 text-left text-[0.6875rem] font-semibold tracking-wide text-muted-foreground uppercase">
+        <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
           <tr>
-            <th className="h-9 px-3">Número</th>
-            <th className="h-9 px-3">Fecha</th>
-            <th className="h-9 px-3">Cliente</th>
-            <th className="h-9 px-3 text-right">Total</th>
-            <th className="h-9 px-3">Estado</th>
+            <th className="px-3 py-1.5">Número</th>
+            <th className="px-3 py-1.5">Fecha</th>
+            <th className="px-3 py-1.5">Cliente</th>
+            <th className="px-3 py-1.5 text-right">Total</th>
+            <th className="px-3 py-1.5">Estado</th>
           </tr>
         </thead>
         <tbody>
@@ -58,7 +58,7 @@ export function RecentSalesList({
             Array.from({ length: 6 }).map((_, row) => (
               <tr key={row} className="border-t border-border" aria-hidden="true">
                 {Array.from({ length: 5 }).map((__, column) => (
-                  <td key={column} className="h-11 px-3">
+                  <td key={column} className="px-3 py-1">
                     <div className={`h-3 animate-pulse rounded bg-muted ${column === 2 ? 'w-36' : 'w-20'}`} />
                   </td>
                 ))}
@@ -67,9 +67,9 @@ export function RecentSalesList({
           {items.map((s) => (
             <tr
               key={s.id}
-              className="border-t border-border transition-colors hover:bg-muted/40 focus-within:bg-accent/50"
+              className="border-t border-border hover:bg-muted/30"
             >
-              <td className="h-11 px-3 whitespace-nowrap">
+              <td className="px-3 py-1 whitespace-nowrap">
                 <Link
                   href={`/ventas/${s.id}`}
                   className="font-semibold text-primary underline-offset-4 hover:underline"
@@ -77,14 +77,14 @@ export function RecentSalesList({
                   {s.number}
                 </Link>
               </td>
-              <td className="h-11 px-3 whitespace-nowrap text-muted-foreground">
+              <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">
                 {formatDateTime(s.occurredAt)}
               </td>
-              <td className="h-11 px-3 font-medium">{s.customer.legalName}</td>
-              <td className="h-11 px-3 text-right font-medium tabular-nums">
+              <td className="px-3 py-1">{s.customer.legalName}</td>
+              <td className="px-3 py-1 text-right tabular-nums">
                 {formatMoney(s.total, s.currencyCode)}
               </td>
-              <td className="h-11 px-3">
+              <td className="px-3 py-1">
                 <StatusBadge status={s.status}>{salesDocumentStatusLabel(s.status)}</StatusBadge>
               </td>
             </tr>

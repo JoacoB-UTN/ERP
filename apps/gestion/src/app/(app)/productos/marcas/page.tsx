@@ -56,7 +56,7 @@ export default function MarcasPage() {
   const brands = brandsQuery.data?.brands ?? [];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2.5">
       <ProductosSubNav />
       <PageHeader
         title="Marcas"
@@ -87,19 +87,19 @@ export default function MarcasPage() {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Marca</th>
-              <th className="px-4 py-2">Estado</th>
-              <th className="px-4 py-2" />
+              <th className="px-3 py-1.5">Marca</th>
+              <th className="px-3 py-1.5">Estado</th>
+              <th className="px-3 py-1.5" />
             </tr>
           </thead>
           <tbody>
             {brands.map((brand) => (
-              <tr key={brand.id} className="border-t border-border">
-                <td className="px-4 py-2">
+              <tr key={brand.id} className="border-t border-border hover:bg-muted/30">
+                <td className="px-3 py-1">
                   {editingId === brand.id ? (
                     <div className="flex items-center gap-2">
                       <Input value={editName} onChange={(e) => setEditName(e.target.value)} className="max-w-48" />
@@ -117,14 +117,14 @@ export default function MarcasPage() {
                     </>
                   )}
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-3 py-1">
                   {brand.active ? (
                     <span className="text-emerald-600">Activo</span>
                   ) : (
                     <span className="text-muted-foreground">Inactivo</span>
                   )}
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="px-3 py-1 text-right">
                   {canUpdate &&
                     (editingId === brand.id ? (
                       <div className="flex justify-end gap-2">

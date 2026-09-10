@@ -72,7 +72,7 @@ export default function CargaInicialPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2.5">
       <Link
         href="/stock/ajustes"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

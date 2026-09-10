@@ -354,17 +354,17 @@ function PreciosTab({
         </Select>
       </div>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Código</th>
-              <th className="px-4 py-2">Producto</th>
-              <th className="px-4 py-2">SKU</th>
-              <th className="px-4 py-2">Categoría</th>
-              <th className="px-4 py-2 text-right">{isFixed ? 'Precio actual' : 'Precio calculado'}</th>
-              <th className="px-4 py-2">Vigente desde</th>
-              {isFixed && <th className="px-4 py-2" />}
+              <th className="px-3 py-1.5">Código</th>
+              <th className="px-3 py-1.5">Producto</th>
+              <th className="px-3 py-1.5">SKU</th>
+              <th className="px-3 py-1.5">Categoría</th>
+              <th className="px-3 py-1.5 text-right">{isFixed ? 'Precio actual' : 'Precio calculado'}</th>
+              <th className="px-3 py-1.5">Vigente desde</th>
+              {isFixed && <th className="px-3 py-1.5" />}
             </tr>
           </thead>
           <tbody>
@@ -475,16 +475,16 @@ function PriceRow({
   return (
     <>
       <tr className={`border-t border-border ${isDirty ? 'bg-amber-50 dark:bg-amber-950/20' : ''}`}>
-        <td className="px-4 py-2 whitespace-nowrap text-muted-foreground">{item.productCode}</td>
-        <td className="px-4 py-2 font-medium">
+        <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{item.productCode}</td>
+        <td className="px-3 py-1 font-medium">
           <Link href={`/productos/${item.productId}`} className="underline-offset-4 hover:underline">
             {item.productName}
           </Link>
           {item.variantName && <p className="text-xs text-muted-foreground">{item.variantName}</p>}
         </td>
-        <td className="px-4 py-2 whitespace-nowrap">{item.sku ?? '—'}</td>
-        <td className="px-4 py-2 whitespace-nowrap">{item.categoryName ?? '—'}</td>
-        <td className="px-4 py-2 text-right">
+        <td className="px-3 py-1 whitespace-nowrap">{item.sku ?? '—'}</td>
+        <td className="px-3 py-1 whitespace-nowrap">{item.categoryName ?? '—'}</td>
+        <td className="px-3 py-1 text-right">
           {editable ? (
             <input
               type="number"
@@ -504,9 +504,9 @@ function PriceRow({
             <span className="text-muted-foreground">Sin precio</span>
           )}
         </td>
-        <td className="px-4 py-2 whitespace-nowrap">{item.effectiveFrom ?? '—'}</td>
+        <td className="px-3 py-1 whitespace-nowrap">{item.effectiveFrom ?? '—'}</td>
         {showHistoryToggle && (
-          <td className="px-4 py-2 text-right">
+          <td className="px-3 py-1 text-right">
             <Button type="button" size="icon-sm" variant="ghost" onClick={onToggleHistory} title="Ver historial">
               <HistoryIcon className="size-4" />
             </Button>

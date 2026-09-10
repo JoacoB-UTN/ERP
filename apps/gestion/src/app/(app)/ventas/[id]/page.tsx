@@ -165,32 +165,32 @@ export default function VentaDetailPage() {
         </dl>
       </div>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Producto</th>
-              <th className="px-4 py-2 text-right">Cantidad</th>
-              <th className="px-4 py-2 text-right">Precio unit.</th>
-              <th className="px-4 py-2 text-right">Descuento</th>
-              <th className="px-4 py-2 text-right">Total línea</th>
+              <th className="px-3 py-1.5">Producto</th>
+              <th className="px-3 py-1.5 text-right">Cantidad</th>
+              <th className="px-3 py-1.5 text-right">Precio unit.</th>
+              <th className="px-3 py-1.5 text-right">Descuento</th>
+              <th className="px-3 py-1.5 text-right">Total línea</th>
             </tr>
           </thead>
           <tbody>
             {sale.lines.map((line) => (
-              <tr key={line.id} className="border-t border-border">
-                <td className="px-4 py-2">
+              <tr key={line.id} className="border-t border-border hover:bg-muted/30">
+                <td className="px-3 py-1">
                   {line.description}
                   {line.sku && <p className="text-xs text-muted-foreground">{line.sku}</p>}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums">{qty(line.quantity)}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{formatMoney(line.unitPrice, sale.currencyCode)}</td>
-                <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
+                <td className="px-3 py-1 text-right tabular-nums">{qty(line.quantity)}</td>
+                <td className="px-3 py-1 text-right tabular-nums">{formatMoney(line.unitPrice, sale.currencyCode)}</td>
+                <td className="px-3 py-1 text-right tabular-nums text-muted-foreground">
                   {Number(line.discountPercentage) > 0
                     ? `${formatDecimalDisplay(line.discountPercentage, 2)}% (${formatMoney(line.discountAmount, sale.currencyCode)})`
                     : '—'}
                 </td>
-                <td className="px-4 py-2 text-right font-medium tabular-nums">
+                <td className="px-3 py-1 text-right font-medium tabular-nums">
                   {formatMoney(line.totalAmount, sale.currencyCode)}
                 </td>
               </tr>
