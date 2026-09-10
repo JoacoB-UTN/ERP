@@ -8,7 +8,7 @@ import type { AgentEnv } from './config';
 import { connectionArgs, parseDatabaseUrl, resolvePgBinary, runPgTool } from './pg';
 import { buildArchiveName, isArchiveName } from './naming';
 import { planRetention } from './retention';
-import { recordRun } from './manifest';
+import { publishSettings, recordRun } from './manifest';
 import { uploadArchive } from './cloud';
 import type { Logger } from './logger';
 
@@ -108,6 +108,20 @@ export async function runBackup(
   };
 
   await fs.mkdir(env.ERP_BACKUP_DIR, { recursive: true });
+
+  // Publish the effective settings on every run, not only at service startup.
+  // Without this a manual `erp-backup now` on a machine where the service has
+  // never started leaves the manifest with runs but no schedule, and Gestión
+  // then shows "backups configured" next to an empty schedule and a retention
+  // of zero — technically true, and useless to the person reading it.
+  await publishSettings(env.ERP_BACKUP_DIR, {
+    times: env.ERP_BACKUP_TIMES,
+    retentionDays: env.ERP_BACKUP_RETENTION_DAYS,
+    keepMinimum: env.ERP_BACKUP_KEEP_MINIMUM,
+    cloudEnabled: env.ERP_BACKUP_CLOUD_ENABLED,
+    updatedAt: new Date().toISOString(),
+  });
+
   logger.info(`Starting ${options.trigger} backup of "${connection.database}".`);
 
   // ---- Dump ----

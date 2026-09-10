@@ -1,0 +1,51 @@
+<!--
+  WinSW definition for the ERP API service.
+
+  Rendered from this template by scripts/install.ps1, which substitutes the
+  double-brace placeholders below and writes the result beside a WinSW
+  executable named erp-api.exe (WinSW v2 finds its configuration by its own
+  executable name). %BASE% is WinSW's own variable for the directory holding
+  that executable, so the rendered file contains no absolute paths of its own
+  and the install directory can be moved.
+
+  This file ends up containing the database password and the JWT secret, which
+  is why scripts/install.ps1 restricts the install directory's ACL to
+  SYSTEM and Administrators. It must never be copied into a backup archive, a
+  support bundle, or a repository.
+-->
+<service>
+  <id>erp-api</id>
+  <name>ERP API</name>
+  <description>ERP backend API. The only process allowed to read or write the ERP database.</description>
+
+  <executable>%BASE%\..\node\node.exe</executable>
+  <arguments>%BASE%\..\server\apps\api\dist\main.js</arguments>
+  <workingdirectory>%BASE%\..\server</workingdirectory>
+
+  <!-- PostgreSQL must be accepting connections before the API tries to
+       migrate or serve; Windows only guarantees start ORDER, not readiness,
+       so the API additionally retries on its own. -->
+  <depend>erp-postgres</depend>
+
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+
+  <log mode="roll-by-size-time">
+    <sizeThreshold>10240</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <keepFiles>14</keepFiles>
+  </log>
+  <logpath>%BASE%\..\logs</logpath>
+
+  <env name="NODE_ENV" value="production"/>
+  <env name="API_PORT" value="{{API_PORT}}"/>
+  <env name="DATABASE_URL" value="{{DATABASE_URL}}"/>
+  <env name="REDIS_URL" value="{{REDIS_URL}}"/>
+  <env name="CORS_ORIGIN" value="{{CORS_ORIGIN}}"/>
+  <env name="AUTH_ACCESS_TOKEN_SECRET" value="{{AUTH_ACCESS_TOKEN_SECRET}}"/>
+  <env name="AUTH_COOKIE_SECURE" value="false"/>
+  <env name="ERP_BACKUP_DIR" value="{{ERP_BACKUP_DIR}}"/>
+  <env name="LOG_LEVEL" value="info"/>
+</service>
