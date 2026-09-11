@@ -171,32 +171,32 @@ export default function OrdenDeCompraDetailPage() {
         </dl>
       </div>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Producto</th>
-              <th className="px-4 py-2 text-right">Cantidad</th>
-              <th className="px-4 py-2 text-right">Costo unit.</th>
-              <th className="px-4 py-2 text-right">Total línea</th>
-              <th className="px-4 py-2 text-right">Recibido</th>
-              <th className="px-4 py-2 text-right">Pendiente</th>
+              <th className="px-3 py-1.5">Producto</th>
+              <th className="px-3 py-1.5 text-right">Cantidad</th>
+              <th className="px-3 py-1.5 text-right">Costo unit.</th>
+              <th className="px-3 py-1.5 text-right">Total línea</th>
+              <th className="px-3 py-1.5 text-right">Recibido</th>
+              <th className="px-3 py-1.5 text-right">Pendiente</th>
             </tr>
           </thead>
           <tbody>
             {order.lines.map((line) => (
-              <tr key={line.id} className="border-t border-border">
-                <td className="px-4 py-2">
+              <tr key={line.id} className="border-t border-border hover:bg-muted/30">
+                <td className="px-3 py-1">
                   {line.description}
                   {line.sku && <p className="text-xs text-muted-foreground">{line.sku}</p>}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums">{qty(line.quantity)}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{formatMoney(line.unitCost, order.currencyCode)}</td>
-                <td className="px-4 py-2 text-right font-medium tabular-nums">
+                <td className="px-3 py-1 text-right tabular-nums">{qty(line.quantity)}</td>
+                <td className="px-3 py-1 text-right tabular-nums">{formatMoney(line.unitCost, order.currencyCode)}</td>
+                <td className="px-3 py-1 text-right font-medium tabular-nums">
                   {formatMoney(line.lineTotal, order.currencyCode)}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums">{qty(line.receivedQuantity)}</td>
-                <td className="px-4 py-2 text-right tabular-nums">
+                <td className="px-3 py-1 text-right tabular-nums">{qty(line.receivedQuantity)}</td>
+                <td className="px-3 py-1 text-right tabular-nums">
                   <span className={Number(line.pendingQuantity) > 0 ? 'font-medium text-primary' : 'text-muted-foreground'}>
                     {qty(line.pendingQuantity)}
                   </span>
@@ -217,18 +217,18 @@ export default function OrdenDeCompraDetailPage() {
       {order.receipts.length > 0 && (
         <div className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold">Recepciones</h2>
-          <div className="overflow-x-auto rounded-md border border-border bg-card">
+          <div className="overflow-x-auto rounded-md border border-border">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2">Número</th>
-                  <th className="px-4 py-2">Estado</th>
+                  <th className="px-3 py-1.5">Número</th>
+                  <th className="px-3 py-1.5">Estado</th>
                 </tr>
               </thead>
               <tbody>
                 {order.receipts.map((receipt) => (
                   <tr key={receipt.id} className="border-t border-border hover:bg-muted/30">
-                    <td className="px-4 py-2">
+                    <td className="px-3 py-1">
                       <Link
                         href={`/compras/recepciones/${receipt.id}`}
                         className="font-medium underline-offset-4 hover:underline"
@@ -236,7 +236,7 @@ export default function OrdenDeCompraDetailPage() {
                         {receipt.number}
                       </Link>
                     </td>
-                    <td className="px-4 py-2">
+                    <td className="px-3 py-1">
                       <StatusBadge status={receipt.status}>{purchaseReceiptStatusLabel(receipt.status)}</StatusBadge>
                     </td>
                   </tr>

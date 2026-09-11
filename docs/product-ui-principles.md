@@ -87,12 +87,21 @@ usability, and touch usability over feature density or visual richness.
   minimum necessary interaction: product search → cart → customer → seller
   → totals → payment → confirm, no unnecessary intermediate screens.
 
-Facturación's shell is intentionally minimal: a single top bar (no
-sidebar) with two real modes, Ventas and POS, both functional — POS is a
-specialized fast-checkout mode inside Facturación, not a separate app (see
-docs/pos.md). The flat top bar is deliberate — a sidebar-and-tree
-navigation model is the wrong shape for a tool meant to be operated with a
-handful of keystrokes.
+Facturación's shell is intentionally minimal: a side panel with exactly
+two real modes, Ventas and POS, both functional — POS is a specialized
+fast-checkout mode inside Facturación, not a separate app (see
+docs/pos.md). It shares Gestión's panel *shape* so the two workspaces read
+as one product, but **not its navigation model**: no grouped sections, no
+nested tree. That restriction is the deliberate part — a sidebar-and-tree
+model is the wrong shape for a tool meant to be operated with a handful of
+keystrokes, and the panel's job here is to hold the workspace's identity
+and its operating context (branch, warehouse, price list), not to become a
+backoffice menu. Adding a third mode, or a section of sub-items under one,
+means re-reading this paragraph first.
+
+Neither app has a top bar. Identity, active company, workspace switching,
+sign-out and the theme switch live in one floating session control at the
+top-right of the content (`session-control.tsx`).
 
 ## Cross-cutting principles
 

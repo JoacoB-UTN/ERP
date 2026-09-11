@@ -92,7 +92,7 @@ export default function AjusteDetailPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2.5">
       <Link
         href="/stock/ajustes"
         className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -161,33 +161,33 @@ export default function AjusteDetailPage() {
         </dl>
       </div>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Producto</th>
-              <th className="px-4 py-2">SKU</th>
-              <th className="px-4 py-2 text-right">Cantidad</th>
-              <th className="px-4 py-2">Motivo de línea</th>
+              <th className="px-3 py-1.5">Producto</th>
+              <th className="px-3 py-1.5">SKU</th>
+              <th className="px-3 py-1.5 text-right">Cantidad</th>
+              <th className="px-3 py-1.5">Motivo de línea</th>
             </tr>
           </thead>
           <tbody>
             {adjustment.lines.map((line) => {
               const signed = Number(line.quantityDelta);
               return (
-                <tr key={line.id} className="border-t border-border">
-                  <td className="px-4 py-2">
+                <tr key={line.id} className="border-t border-border hover:bg-muted/30">
+                  <td className="px-3 py-1">
                     {line.productName}
                     {line.variantName && <p className="text-xs text-muted-foreground">{line.variantName}</p>}
                   </td>
-                  <td className="px-4 py-2 whitespace-nowrap">{line.sku ?? '—'}</td>
+                  <td className="px-3 py-1 whitespace-nowrap">{line.sku ?? '—'}</td>
                   <td
-                    className={`px-4 py-2 text-right tabular-nums ${signed < 0 ? 'text-red-600' : 'text-emerald-600'}`}
+                    className={`px-3 py-1 text-right tabular-nums ${signed < 0 ? 'text-red-600' : 'text-emerald-600'}`}
                   >
                     {signed > 0 ? '+' : ''}
                     {qty(line.quantityDelta)}
                   </td>
-                  <td className="px-4 py-2">{line.reason ?? '—'}</td>
+                  <td className="px-3 py-1">{line.reason ?? '—'}</td>
                 </tr>
               );
             })}

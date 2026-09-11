@@ -71,7 +71,7 @@ export default function BackupsPage() {
   const staleBackup = !!lastSuccess && hoursSince(lastSuccess.startedAt) >= 48;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-2.5">
       <PageHeader
         title="Backups del servidor"
         description="Estado de las copias de seguridad de la base de datos. Las copias se toman y se restauran desde el servidor, no desde esta pantalla."
@@ -221,12 +221,12 @@ export default function BackupsPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                      <th className="px-4 py-2 font-medium">Fecha</th>
-                      <th className="px-4 py-2 font-medium">Estado</th>
-                      <th className="px-4 py-2 font-medium">Verificada</th>
-                      <th className="px-4 py-2 font-medium">Copia externa</th>
-                      <th className="px-4 py-2 font-medium">Tamaño</th>
-                      <th className="px-4 py-2 font-medium">Origen</th>
+                      <th className="px-3 py-1.5 font-medium">Fecha</th>
+                      <th className="px-3 py-1.5 font-medium">Estado</th>
+                      <th className="px-3 py-1.5 font-medium">Verificada</th>
+                      <th className="px-3 py-1.5 font-medium">Copia externa</th>
+                      <th className="px-3 py-1.5 font-medium">Tamaño</th>
+                      <th className="px-3 py-1.5 font-medium">Origen</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -239,17 +239,17 @@ export default function BackupsPage() {
                     )}
                     {status.recentRuns.map((run) => (
                       <tr key={run.id} className="border-b border-border/60 last:border-0">
-                        <td className="px-4 py-2 whitespace-nowrap">
+                        <td className="px-3 py-1 whitespace-nowrap">
                           {formatDateTime(run.startedAt)}
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-3 py-1">
                           {run.status === 'success' ? (
                             <StatusBadge tone="success">Correcta</StatusBadge>
                           ) : (
                             <StatusBadge tone="danger">Falló</StatusBadge>
                           )}
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-3 py-1">
                           {/* A dump that pg_restore cannot read back is not a
                               backup — surfaced per run rather than hidden. */}
                           {run.verified ? (
@@ -258,13 +258,13 @@ export default function BackupsPage() {
                             <StatusBadge tone="neutral">No</StatusBadge>
                           )}
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-3 py-1">
                           <CloudCell run={run} />
                         </td>
-                        <td className="px-4 py-2 whitespace-nowrap">
+                        <td className="px-3 py-1 whitespace-nowrap">
                           {run.sizeBytes ? formatSize(run.sizeBytes) : '—'}
                         </td>
-                        <td className="px-4 py-2 text-muted-foreground">
+                        <td className="px-3 py-1 text-muted-foreground">
                           {run.trigger === 'scheduled' ? 'Programada' : 'Manual'}
                         </td>
                       </tr>

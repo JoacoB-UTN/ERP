@@ -67,7 +67,7 @@ API picks it up on restart.
 
 ## Why provisioning is not the seed
 
-`npm run db:seed` creates "Distribuidora Horizonte", eight demo customers,
+`npm run db:seed` creates "ANRAS", eight demo customers,
 seventeen products and ten fabricated sales. That exists to make the product
 demonstrable and it must never reach a paying customer — their first login
 would show somebody else's invented business, and every row would then have to

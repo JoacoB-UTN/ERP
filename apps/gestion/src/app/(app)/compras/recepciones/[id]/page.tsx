@@ -184,24 +184,24 @@ export default function RecepcionDetailPage() {
         </dl>
       </div>
 
-      <div className="overflow-x-auto rounded-md border border-border bg-card">
+      <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
-              <th className="px-4 py-2">Producto</th>
-              <th className="px-4 py-2 text-right">Cantidad</th>
-              <th className="px-4 py-2 text-right">Costo unit.</th>
+              <th className="px-3 py-1.5">Producto</th>
+              <th className="px-3 py-1.5 text-right">Cantidad</th>
+              <th className="px-3 py-1.5 text-right">Costo unit.</th>
             </tr>
           </thead>
           <tbody>
             {receipt.lines.map((line) => (
-              <tr key={line.id} className="border-t border-border">
-                <td className="px-4 py-2">
+              <tr key={line.id} className="border-t border-border hover:bg-muted/30">
+                <td className="px-3 py-1">
                   {line.description}
                   {line.sku && <p className="text-xs text-muted-foreground">{line.sku}</p>}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums">{qty(line.quantity)}</td>
-                <td className="px-4 py-2 text-right tabular-nums">
+                <td className="px-3 py-1 text-right tabular-nums">{qty(line.quantity)}</td>
+                <td className="px-3 py-1 text-right tabular-nums">
                   {formatMoney(line.unitCostSnapshot, receipt.currencyCode)}
                 </td>
               </tr>

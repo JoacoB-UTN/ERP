@@ -420,7 +420,7 @@ row), and confirming a sale snapshots each line's price via
 `SalesService`/`PricingService.getPrice` (see [sales.md](sales.md)) —
 never a second, frontend-side pricing calculation.
 
-A `PriceListSelector` sits in the topbar next to the warehouse selector,
+A `PriceListSelector` sits in Facturación's side panel next to the warehouse selector,
 backed by `useActivePriceList()` in `@erp/auth-client` — the same shape
 as `useActiveWarehouse()` (inventory.md), company-scoped rather than
 branch-scoped since a price list is never tied to a branch:

@@ -2509,22 +2509,26 @@ async function main() {
     },
   });
 
-  // A believable, clearly fictional Argentine SME — see docs/demo-guide.md.
-  // The CUIT/legalName/tradeName are entirely made up; no real company is
-  // referenced or implied. Renaming requires a fresh `taxId` (part of the
-  // upsert key) — see the reset workflow in docs/demo-guide.md, which
-  // always runs `prisma migrate reset` before reseeding, so this never
-  // creates a duplicate company row in normal use.
+  // The three companies the product is being built for. The CUITs below are
+  // still placeholders — only the names are real — so this stays demo data
+  // until real tax IDs replace them. Renaming is safe because `taxId` is the
+  // upsert key and it is unchanged; changing a taxId would create a second
+  // row instead of renaming, which is why the reset workflow in
+  // docs/demo-guide.md runs `prisma migrate reset` before reseeding.
+  //
+  // ANRAS carries all the illustrative data (customers, products, stock,
+  // prices, sales, purchases); the other two exist so company selection and
+  // isolation have something real to work against.
   const company = await prisma.company.upsert({
     where: { tenantId_taxId: { tenantId: tenant.id, taxId: '30-71876543-5' } },
     update: {
-      legalName: 'Distribuidora Horizonte S.R.L.',
-      tradeName: 'Distribuidora Horizonte',
+      legalName: 'ANRAS',
+      tradeName: 'ANRAS',
     },
     create: {
       tenantId: tenant.id,
-      legalName: 'Distribuidora Horizonte S.R.L.',
-      tradeName: 'Distribuidora Horizonte',
+      legalName: 'ANRAS',
+      tradeName: 'ANRAS',
       taxId: '30-71876543-5',
       countryCode: 'AR',
       timezone: 'America/Argentina/Buenos_Aires',
@@ -2556,15 +2560,15 @@ async function main() {
     },
   });
 
-  // A second company in the SAME tenant, also granted to the admin, so
-  // multi-company selection has something real to select between locally.
+  // Two more companies in the SAME tenant, also granted to the admin, so
+  // company selection has something real to select between locally.
   const secondCompany = await prisma.company.upsert({
     where: { tenantId_taxId: { tenantId: tenant.id, taxId: '00-00000001-0' } },
-    update: {},
+    update: { legalName: 'CABACO', tradeName: 'CABACO' },
     create: {
       tenantId: tenant.id,
-      legalName: 'Second Demo Company S.A.',
-      tradeName: 'Second Demo Company',
+      legalName: 'CABACO',
+      tradeName: 'CABACO',
       taxId: '00-00000001-0',
       countryCode: 'AR',
       timezone: 'America/Argentina/Buenos_Aires',
@@ -2577,6 +2581,31 @@ async function main() {
     create: {
       tenantId: tenant.id,
       companyId: secondCompany.id,
+      code: 'MAIN',
+      name: 'Casa Central',
+      status: 'ACTIVE',
+    },
+  });
+
+  const thirdCompany = await prisma.company.upsert({
+    where: { tenantId_taxId: { tenantId: tenant.id, taxId: '00-00000003-0' } },
+    update: { legalName: 'BLANCO BAHIA', tradeName: 'BLANCO BAHIA' },
+    create: {
+      tenantId: tenant.id,
+      legalName: 'BLANCO BAHIA',
+      tradeName: 'BLANCO BAHIA',
+      taxId: '00-00000003-0',
+      countryCode: 'AR',
+      timezone: 'America/Argentina/Buenos_Aires',
+      status: 'ACTIVE',
+    },
+  });
+  await prisma.branch.upsert({
+    where: { companyId_code: { companyId: thirdCompany.id, code: 'MAIN' } },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      companyId: thirdCompany.id,
       code: 'MAIN',
       name: 'Casa Central',
       status: 'ACTIVE',
@@ -2622,6 +2651,11 @@ async function main() {
     secondCompany.id,
     permissionIdByCode,
   );
+  const thirdCompanyRoles = await seedSystemRoles(
+    tenant.id,
+    thirdCompany.id,
+    permissionIdByCode,
+  );
   await seedSystemRoles(otherTenant.id, otherCompany.id, permissionIdByCode);
 
   // Illustrative customers for Demo Company only — see docs/customers.md.
@@ -2633,6 +2667,7 @@ async function main() {
   // Standard units for every seeded company (see docs/products.md);
   // illustrative products for Demo Company only.
   await seedProductUnits(tenant.id, secondCompany.id);
+  await seedProductUnits(tenant.id, thirdCompany.id);
   await seedProductUnits(otherTenant.id, otherCompany.id);
   await seedDemoProducts(tenant.id, company.id);
 
@@ -2716,11 +2751,24 @@ async function main() {
       active: true,
     },
   });
+  await prisma.userCompany.upsert({
+    where: {
+      userId_companyId: { userId: user.id, companyId: thirdCompany.id },
+    },
+    update: {},
+    create: {
+      userId: user.id,
+      tenantId: tenant.id,
+      companyId: thirdCompany.id,
+      active: true,
+    },
+  });
 
-  // The seeded admin gets the Administrador (ADMIN) system role in both
-  // demo companies, so manual testing works immediately after seeding.
+  // The seeded admin gets the Administrador (ADMIN) system role in all three
+  // companies, so manual testing works immediately after seeding.
   const adminRoleId = companyRoles.get('Administrador');
   const secondAdminRoleId = secondCompanyRoles.get('Administrador');
+  const thirdAdminRoleId = thirdCompanyRoles.get('Administrador');
   if (adminRoleId) {
     await prisma.userRole.upsert({
       where: {
@@ -2751,6 +2799,23 @@ async function main() {
       },
     });
   }
+  if (thirdAdminRoleId) {
+    await prisma.userRole.upsert({
+      where: {
+        userId_roleId_companyId: {
+          userId: user.id,
+          roleId: thirdAdminRoleId,
+          companyId: thirdCompany.id,
+        },
+      },
+      update: {},
+      create: {
+        userId: user.id,
+        roleId: thirdAdminRoleId,
+        companyId: thirdCompany.id,
+      },
+    });
+  }
 
   console.log('Seed complete:');
   console.log(`  Tenant:      ${tenant.name} (${tenant.slug})`);
@@ -2758,35 +2823,36 @@ async function main() {
     `  Company:     ${company.legalName} — branches: ${branchMain.name}, ${branchSecondary.name}`,
   );
   console.log(`  Company:     ${secondCompany.legalName}`);
+  console.log(`  Company:     ${thirdCompany.legalName}`);
   console.log(
     `  Other tenant (not granted to admin): ${otherTenant.name} / ${otherCompany.legalName}`,
   );
   console.log(
-    `  Admin:       ${user.email} (password set from SEED_ADMIN_PASSWORD) — access to both Demo companies`,
+    `  Admin:       ${user.email} (password set from SEED_ADMIN_PASSWORD) — access to all three companies`,
   );
   console.log(
-    `  Roles:       ${PERMISSION_CATALOG.length} permissions, ${SYSTEM_ROLES.length} system roles seeded per company; admin holds "Administrador" in both Demo companies`,
+    `  Roles:       ${PERMISSION_CATALOG.length} permissions, ${SYSTEM_ROLES.length} system roles seeded per company; admin holds "Administrador" in all three companies`,
   );
   console.log(
-    '  Customers:   16 demo customers (incl. Consumidor Final, Ferretería El Puente, 1 INACTIVE) + 3 categories in Distribuidora Horizonte',
+    '  Customers:   16 demo customers (incl. Consumidor Final, Ferretería El Puente, 1 INACTIVE) + 3 categories in ANRAS',
   );
   console.log(
-    '  Products:    8 units of measure per company; 17 demo products / 21 sellable variants (incl. Buzo con capucha [4 variants], 3 services, 1 INACTIVE, 1 zero-stock) + 6 categories + 1 brand in Distribuidora Horizonte',
+    '  Products:    8 units of measure per company; 17 demo products / 21 sellable variants (incl. Buzo con capucha [4 variants], 3 services, 1 INACTIVE, 1 zero-stock) + 6 categories + 1 brand in ANRAS',
   );
   console.log(
-    '  Inventory:   3 warehouses (Depósito Central, Salón de Ventas, Depósito Sucursal Norte) + initial stock via real StockMovement rows in Distribuidora Horizonte',
+    '  Inventory:   3 warehouses (Depósito Central, Salón de Ventas, Depósito Sucursal Norte) + initial stock via real StockMovement rows in ANRAS',
   );
   console.log(
-    '  Pricing:     3 currencies (ARS, USD, EUR) + 3 price lists (Minorista fija/predeterminada, Mayorista -10%, Distribuidor -15%) + initial prices via real PriceListItem rows in Distribuidora Horizonte',
+    '  Pricing:     3 currencies (ARS, USD, EUR) + 3 price lists (Minorista fija/predeterminada, Mayorista -10%, Distribuidor -15%) + initial prices via real PriceListItem rows in ANRAS',
   );
   console.log(
-    '  Suppliers:   5 demo suppliers (incl. 1 individual monotributista, 1 INACTIVE) in Distribuidora Horizonte',
+    '  Suppliers:   5 demo suppliers (incl. 1 individual monotributista, 1 INACTIVE) in ANRAS',
   );
   console.log(
-    `  Purchases:   ${purchasesSummary.orderCount} purchase orders (DRAFT/CONFIRMED/CANCELLED, incl. 1 partially received across 2 receipts) + ${purchasesSummary.receiptCount} goods receipts (incl. 1 direct receipt with no PO) in Distribuidora Horizonte`,
+    `  Purchases:   ${purchasesSummary.orderCount} purchase orders (DRAFT/CONFIRMED/CANCELLED, incl. 1 partially received across 2 receipts) + ${purchasesSummary.receiptCount} goods receipts (incl. 1 direct receipt with no PO) in ANRAS`,
   );
   console.log(
-    `  Sales:       ${salesSummary.confirmedCount} confirmed sales across ${salesSummary.distinctDays} days (${salesSummary.tenderCounts}) + ${salesSummary.draftCount} draft in Distribuidora Horizonte`,
+    `  Sales:       ${salesSummary.confirmedCount} confirmed sales across ${salesSummary.distinctDays} days (${salesSummary.tenderCounts}) + ${salesSummary.draftCount} draft in ANRAS`,
   );
 }
 

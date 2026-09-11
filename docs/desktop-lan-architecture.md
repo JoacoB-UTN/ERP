@@ -72,7 +72,7 @@ installer that bundled the full frontend builds would instead need a
 new installer pushed to every till whenever the UI changes, which
 defeats one of the main reasons to centralize on a server in the first
 place. The Electron shell's own release cadence (the thin shell itself:
-connection screen, workspace switcher chrome, native integrations)
+connection screen, session-control chrome, native integrations)
 is expected to be much slower than the server-hosted UI's.
 
 ## Components
@@ -299,7 +299,7 @@ URL — at runtime, from whatever host the page was actually loaded from**
 and both apps' `workspace-urls.ts`/`api.ts`). Loading Gestión from
 `http://192.168.1.50:3000` resolves its API calls and its Socket.IO
 connection (Prompt #19) to `http://192.168.1.50:3001` — and its
-Facturación workspace-switcher link to `http://192.168.1.50:3002` — with
+Facturación workspace link to `http://192.168.1.50:3002` — with
 **zero rebuild**. `NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_GESTION_URL`/
 `NEXT_PUBLIC_FACTURACION_URL` remain available as an explicit override
 (dev/test only) — set, they win outright; unset (the default, and now
@@ -468,7 +468,7 @@ hardening work already documented in implementation-status.md.
 | --- | --- |
 | **First load / not yet known** (the very first health check hasn't resolved yet) | A neutral, low-emphasis **"checking"** state ("Comprobando servidor…") — deliberately distinct from "disconnected," so a normal page load never flashes a false "Sin conexión" before the first check has had a chance to answer. Implemented in this PR — see `apps/gestion/src/lib/use-server-health.ts`. |
 | **Server unavailable** (client launched, no server configured or configured server unreachable) | A clear, unmistakable "No se pudo conectar al servidor ERP" state with the configured address shown, a "Reintentar" action, and a path to "Configurar servidor" — never a blank screen, never a spinner that never resolves. |
-| **Connection lost mid-session** | The shell's connection indicator (see desktop-ui-direction.md's status bar) flips to a "Sin conexión" state — never back to "checking," since a real prior result is already known (see `use-server-health.ts`'s comments). In-flight and new mutations surface their real failure (`ApiError` already propagates today — nothing new needed there); nothing is queued for silent later retry, since no offline-write queue exists or is proposed here. |
+| **Connection lost mid-session** | The session control's connection dot (see desktop-ui-direction.md's "Connection status") flips to a "Sin conexión" state — never back to "checking," since a real prior result is already known (see `use-server-health.ts`'s comments). In-flight and new mutations surface their real failure (`ApiError` already propagates today — nothing new needed there); nothing is queued for silent later retry, since no offline-write queue exists or is proposed here. |
 | **Connection restored** | Automatic. The existing `ApiError`/refetch machinery plus TanStack Query's reconnect handling already covers most of this; the shell's status indicator flips back to "Conectado" once a health check succeeds, and open screens refetch their visible queries (see "Reconnect behavior" under Realtime). |
 | **API starts slowly** (server machine just booted, Postgres still warming up) | `GET /health` already distinguishes exactly this: `status: 'degraded'` when Redis is down but Postgres is up, `status: 'error'` (HTTP 503) when Postgres itself isn't reachable yet (`apps/api/src/health/health.service.ts`). The client shell can poll this endpoint on a light interval and reflect it directly — no backend change required. |
 | **Database unavailable** (Postgres down, API process up) | Same `GET /health` response (`status: 'error'`, `services.database: 'error'`) — reused as-is, not re-implemented. |

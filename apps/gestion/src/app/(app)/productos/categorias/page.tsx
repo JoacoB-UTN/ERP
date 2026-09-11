@@ -175,7 +175,7 @@ export default function CategoriasPage() {
   const roots = childrenOf(null);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2.5">
       <ProductosSubNav />
       <PageHeader
         title="Categorías"

@@ -452,7 +452,7 @@ availability, and confirming a sale from either surface calls
 [sales.md](sales.md)), the same atomic upsert-increment path described
 above — never a parallel stock-mutation code path for Facturación/POS.
 
-A `WarehouseSelector` sits in the topbar next to the branch selector,
+A `WarehouseSelector` sits in Facturación's side panel next to the branch selector,
 backed by `useActiveWarehouse()` in `@erp/auth-client` — deliberately the
 same shape as `useActiveCompany()`/`useActiveBranch()`
 (load eligible warehouses → auto-select if exactly one → offer a picker if

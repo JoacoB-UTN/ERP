@@ -66,7 +66,7 @@ export default function NuevoAjustePage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2.5">
       <form onSubmit={handleSubmit} className="flex max-w-3xl flex-col gap-6" noValidate>
         <PageHeader
           title="Nuevo ajuste"

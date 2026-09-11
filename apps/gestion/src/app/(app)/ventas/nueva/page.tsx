@@ -82,7 +82,7 @@ export default function NuevaVentaPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-2.5">
       <form onSubmit={handleSubmit} className="flex max-w-5xl flex-col gap-6" noValidate>
         <PageHeader
           title="Nueva venta"
