@@ -164,9 +164,14 @@ jobs:
             choco install innosetup --no-progress -y
           }
           $version = Get-Content dist/erp-server/VERSION
+          # Inno resolves a relative Source: against the .iss file's own
+          # directory, not the working directory, so a repo-root-relative
+          # payload path silently becomes infrastructure/windows/dist/... and
+          # the compile aborts with "No files found matching". Pass it absolute.
+          $payloadDir = (Resolve-Path dist/erp-server).Path
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
             infrastructure/windows/erp-server.iss `
-            /DPayloadDir=dist/erp-server /DAppVersion=$version
+            /DPayloadDir=$payloadDir /DAppVersion=$version
 
       - name: Upload installer
         if: ${{ inputs.compile_installer }}
