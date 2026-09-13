@@ -129,7 +129,7 @@ contacts, categories, CUIT/document validation. See
 ## Products
 
 `src/products` + `src/warehouses`. Catalog master data
-(Product/ProductVariant/ProductCode/ProductCategory/Brand/UnitOfMeasure).
+(Product/ProductVariant/ProductCode/ProductCategory/ProductLine/UnitOfMeasure).
 See [products.md](products.md).
 
 ## Inventory
@@ -164,7 +164,7 @@ and [pos.md](pos.md).
 Next.js (App Router) + TypeScript + Tailwind + shadcn/ui + TanStack Query
 + React Hook Form + Zod. Sidebar + top-bar shell, session/company/
 permission-gated `(app)` route group. Current nav: Clientes, Productos
-(+ Categorías/Marcas/Unidades), Listas de precios, Ventas, Stock
+(+ Categorías/Líneas), Listas de precios, Ventas, Stock
 (Existencias/Movimientos/Ajustes/Depósitos), Administración
 (Usuarios/Roles/Auditoría).
 

@@ -310,7 +310,7 @@ one `UPDATE` audit event on the `PriceList` entity
 noise** — directly applying the same principle CLAUDE.md already states
 for `RolesService`'s `PERMISSIONS_CHANGE` pattern. `confirmBulkAdjust`
 writes **one** `PriceList` `UPDATE` audit record containing the full
-scope (`ALL`/`CATEGORY`/`BRAND` + the resolved `categoryId`/`brandId`),
+scope (`ALL`/`CATEGORY`/`LINE` + the resolved `categoryId`/`lineId`),
 the adjustment (`adjustmentType`/`value`), `effectiveFrom`,
 `affectedCount`, and `reason` — never one `AuditLog` row per affected
 variant. `PriceHistory` still gets one row per affected variant
@@ -388,7 +388,7 @@ Stock (only shown to `pricing.lists.read`):
     this is deliberately the *administrative* trail, not a duplicate of
     per-variant `PriceHistory`.
 - **`/listas-de-precios/:id/actualizacion-masiva`** (FIXED only, gated on
-  `pricing.prices.bulk_update`) — scope (todos/categoría/marca) → tipo de
+  `pricing.prices.bulk_update`) — scope (todos/categoría/línea) → tipo de
   ajuste + valor → vigente desde → **Vista previa** (no database writes)
   → **Confirmar actualización**. Changing any input after a preview was
   generated visibly marks it stale and disables Confirmar until a fresh

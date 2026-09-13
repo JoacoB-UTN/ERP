@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { formatDecimalDisplay, ProductStatus, type StockListQuery } from '@erp/shared';
-import { usePermissions, useStock, useWarehouses, useProductCategories, useBrands } from '@/lib/auth-client';
+import { usePermissions, useStock, useWarehouses, useProductCategories, useProductLines } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Unauthorized } from '@/components/layout/unauthorized';
@@ -28,14 +28,14 @@ export default function ExistenciasPage() {
   const { can, isLoading: permissionsLoading } = usePermissions();
   const warehousesQuery = useWarehouses();
   const categoriesQuery = useProductCategories();
-  const brandsQuery = useBrands();
+  const linesQuery = useProductLines();
 
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [status, setStatus] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [brandId, setBrandId] = useState('');
+  const [lineId, setLineId] = useState('');
   const [belowMinimum, setBelowMinimum] = useState(false);
   const [page, setPage] = useState(1);
 
@@ -52,7 +52,7 @@ export default function ExistenciasPage() {
     warehouseId: warehouseId || undefined,
     status: (status || undefined) as ProductStatus | undefined,
     categoryId: categoryId || undefined,
-    brandId: brandId || undefined,
+    lineId: lineId || undefined,
     belowMinimum: belowMinimum || undefined,
     page,
     pageSize: PAGE_SIZE,
@@ -68,7 +68,7 @@ export default function ExistenciasPage() {
   const items = stockQuery.data?.items ?? [];
   const pagination = stockQuery.data?.pagination;
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / pagination.pageSize)) : 1;
-  const hasActiveFilters = !!(search || warehouseId || status || categoryId || brandId || belowMinimum);
+  const hasActiveFilters = !!(search || warehouseId || status || categoryId || lineId || belowMinimum);
 
   function clearFilters() {
     setSearchInput('');
@@ -76,7 +76,7 @@ export default function ExistenciasPage() {
     setWarehouseId('');
     setStatus('');
     setCategoryId('');
-    setBrandId('');
+    setLineId('');
     setBelowMinimum(false);
     setPage(1);
   }
@@ -129,16 +129,16 @@ export default function ExistenciasPage() {
           ))}
         </Select>
         <Select
-          value={brandId}
+          value={lineId}
           onChange={(e) => {
-            setBrandId(e.target.value);
+            setLineId(e.target.value);
             setPage(1);
           }}
           className="h-8 max-w-44 py-1 text-sm"
-          aria-label="Marca"
+          aria-label="Línea"
         >
-          <option value="">Todas las marcas</option>
-          {brandsQuery.data?.brands.map((b) => (
+          <option value="">Todas las líneas</option>
+          {linesQuery.data?.lines.map((b) => (
             <option key={b.id} value={b.id}>
               {b.name}
             </option>

@@ -15,7 +15,6 @@ import type {
   ProductDetail,
   ProductVariantDto,
   ProductCodeDto,
-  UnitOfMeasureDto,
   ProductType,
   AuditEntityHistoryResponse,
 } from '@erp/shared';
@@ -29,8 +28,7 @@ import {
   ProductSkuAlreadyExistsException,
   ProductBarcodeAlreadyExistsException,
   ProductCategoryNotFoundException,
-  BrandNotFoundException,
-  UnitNotFoundException,
+  ProductLineNotFoundException,
   ProductVariantNotFoundException,
   ProductCodeNotFoundException,
   ProductInvalidInventoryConfigException,
@@ -41,18 +39,16 @@ import type {
   ProductVariant,
   ProductCode,
   ProductCategory,
-  Brand,
-  UnitOfMeasure,
+  ProductLine,
 } from '../generated/prisma/client';
 
 type VariantWithCodes = ProductVariant & { codes: ProductCode[] };
 type ProductWithSummaryRelations = Product & {
   variants: VariantWithCodes[];
   category: ProductCategory | null;
-  brand: Brand | null;
+  line: ProductLine | null;
 };
 type ProductWithDetailRelations = ProductWithSummaryRelations & {
-  baseUnit: UnitOfMeasure;
 };
 
 type AuditableProductFields = Record<
@@ -88,17 +84,6 @@ function toVariantDto(v: VariantWithCodes): ProductVariantDto {
     attributes: (v.attributes as Record<string, string> | null) ?? null,
     active: v.active,
     codes: v.codes.map(toCodeDto),
-  };
-}
-
-function toUnitDto(u: UnitOfMeasure): UnitOfMeasureDto {
-  return {
-    id: u.id,
-    code: u.code,
-    name: u.name,
-    symbol: u.symbol,
-    decimalPlaces: u.decimalPlaces,
-    active: u.active,
   };
 }
 
@@ -140,8 +125,8 @@ function toSummary(p: ProductWithSummaryRelations): ProductSummary {
     trackInventory: p.trackInventory,
     categoryId: p.categoryId,
     categoryName: p.category?.name ?? null,
-    brandId: p.brandId,
-    brandName: p.brand?.name ?? null,
+    lineId: p.lineId,
+    lineName: p.line?.name ?? null,
     ...computeVariantAggregate(p.variants),
   };
 }
@@ -150,7 +135,6 @@ function toDetail(p: ProductWithDetailRelations): ProductDetail {
   return {
     ...toSummary(p),
     description: p.description,
-    baseUnit: toUnitDto(p.baseUnit),
     trackLots: p.trackLots,
     trackSerials: p.trackSerials,
     allowNegativeStock: p.allowNegativeStock,
@@ -186,7 +170,7 @@ function toLookupItem(
   };
 }
 
-/** Only the fields worth diffing in a plain UPDATE audit record — category/brand changes get their own dedicated metadata events instead (see docs/products.md, "especially important fields" mirrors docs/customers.md). */
+/** Only the fields worth diffing in a plain UPDATE audit record — category/line changes get their own dedicated metadata events instead (see docs/products.md, "especially important fields" mirrors docs/customers.md). */
 function pickAuditFields(p: Product): AuditableProductFields {
   return {
     name: p.name,
@@ -220,13 +204,12 @@ function diffFields<T extends Record<string, unknown>>(
 
 const PRODUCT_SUMMARY_INCLUDE = {
   category: true,
-  brand: true,
+  line: true,
   variants: { include: { codes: true } },
 } satisfies Prisma.ProductInclude;
 
 const PRODUCT_DETAIL_INCLUDE = {
   ...PRODUCT_SUMMARY_INCLUDE,
-  baseUnit: true,
 } satisfies Prisma.ProductInclude;
 
 @Injectable()
@@ -245,7 +228,7 @@ export class ProductsService {
     if (query.status) where.status = query.status;
     if (query.productType) where.productType = query.productType;
     if (query.categoryId) where.categoryId = query.categoryId;
-    if (query.brandId) where.brandId = query.brandId;
+    if (query.lineId) where.lineId = query.lineId;
     if (query.trackInventory !== undefined)
       where.trackInventory = query.trackInventory;
     if (query.search) {
@@ -254,7 +237,7 @@ export class ProductsService {
         { code: { contains: term, mode: 'insensitive' } },
         { name: { contains: term, mode: 'insensitive' } },
         { description: { contains: term, mode: 'insensitive' } },
-        { brand: { name: { contains: term, mode: 'insensitive' } } },
+        { line: { name: { contains: term, mode: 'insensitive' } } },
         {
           variants: { some: { sku: { contains: term, mode: 'insensitive' } } },
         },
@@ -413,9 +396,8 @@ export class ProductsService {
         ctx.companyId,
         input.categoryId,
       );
-    if (input.brandId)
-      await this.assertBrandBelongsToCompany(ctx.companyId, input.brandId);
-    await this.assertUnitBelongsToCompany(ctx.companyId, input.baseUnitId);
+    if (input.lineId)
+      await this.assertProductLineBelongsToCompany(ctx.companyId, input.lineId);
 
     const manualCode = input.code?.trim();
     if (manualCode)
@@ -433,6 +415,7 @@ export class ProductsService {
 
     const created = await this.prisma.$transaction(async (tx) => {
       const code = manualCode || (await this.nextCode(tx, ctx.companyId));
+      const baseUnitId = await this.resolveBaseUnitId(tx, ctx);
 
       const product = await tx.product.create({
         data: {
@@ -443,8 +426,8 @@ export class ProductsService {
           description: input.description || null,
           productType: input.productType,
           categoryId: input.categoryId ?? null,
-          brandId: input.brandId ?? null,
-          baseUnitId: input.baseUnitId,
+          lineId: input.lineId ?? null,
+          baseUnitId,
           trackInventory: input.trackInventory,
           trackLots: input.trackLots,
           trackSerials: input.trackSerials,
@@ -533,10 +516,8 @@ export class ProductsService {
         ctx.companyId,
         input.categoryId,
       );
-    if (input.brandId)
-      await this.assertBrandBelongsToCompany(ctx.companyId, input.brandId);
-    if (input.baseUnitId !== undefined)
-      await this.assertUnitBelongsToCompany(ctx.companyId, input.baseUnitId);
+    if (input.lineId)
+      await this.assertProductLineBelongsToCompany(ctx.companyId, input.lineId);
 
     this.assertValidInventoryConfig({
       productType: input.productType ?? existing.productType,
@@ -553,8 +534,7 @@ export class ProductsService {
       data.description = input.description || null;
     if (input.productType !== undefined) data.productType = input.productType;
     if (input.categoryId !== undefined) data.categoryId = input.categoryId;
-    if (input.brandId !== undefined) data.brandId = input.brandId;
-    if (input.baseUnitId !== undefined) data.baseUnitId = input.baseUnitId;
+    if (input.lineId !== undefined) data.lineId = input.lineId;
     if (input.trackInventory !== undefined)
       data.trackInventory = input.trackInventory;
     if (input.trackLots !== undefined) data.trackLots = input.trackLots;
@@ -622,13 +602,13 @@ export class ProductsService {
         );
       }
 
-      if (input.brandId !== undefined && input.brandId !== existing.brandId) {
-        const [prevBrand, nextBrand] = await Promise.all([
-          existing.brandId
-            ? tx.brand.findUnique({ where: { id: existing.brandId } })
+      if (input.lineId !== undefined && input.lineId !== existing.lineId) {
+        const [prevLine, nextLine] = await Promise.all([
+          existing.lineId
+            ? tx.productLine.findUnique({ where: { id: existing.lineId } })
             : null,
-          input.brandId
-            ? tx.brand.findUnique({ where: { id: input.brandId } })
+          input.lineId
+            ? tx.productLine.findUnique({ where: { id: input.lineId } })
             : null,
         ]);
         await this.auditService.recordFromContext(
@@ -638,9 +618,9 @@ export class ProductsService {
             entityType: 'Product',
             entityId: id,
             metadata: {
-              change: 'brand_changed',
-              previousBrandName: prevBrand?.name ?? null,
-              newBrandName: nextBrand?.name ?? null,
+              change: 'line_changed',
+              previousLineName: prevLine?.name ?? null,
+              newLineName: nextLine?.name ?? null,
             },
           },
           tx,
@@ -1117,24 +1097,50 @@ export class ProductsService {
     if (!found) throw new ProductCategoryNotFoundException();
   }
 
-  private async assertBrandBelongsToCompany(
+  private async assertProductLineBelongsToCompany(
     companyId: string,
-    brandId: string,
+    lineId: string,
   ): Promise<void> {
-    const found = await this.prisma.brand.findFirst({
-      where: { id: brandId, companyId },
+    const found = await this.prisma.productLine.findFirst({
+      where: { id: lineId, companyId },
     });
-    if (!found) throw new BrandNotFoundException();
+    if (!found) throw new ProductLineNotFoundException();
   }
 
-  private async assertUnitBelongsToCompany(
-    companyId: string,
-    unitId: string,
-  ): Promise<void> {
-    const found = await this.prisma.unitOfMeasure.findFirst({
-      where: { id: unitId, companyId },
+  /**
+   * The company's single unit of measure, created on first use.
+   *
+   * Everything in this catalog is sold by the piece, so the unit stopped
+   * being something anyone picks: there is no unit field on the product
+   * form and no screen to manage units. It still exists as a row because
+   * `decimalPlaces` is what rejects a quantity with more precision than the
+   * unit allows, and that check runs on every stock movement, sale line,
+   * purchase line and adjustment (see docs/inventory.md). Deleting the row
+   * would delete the check with it; hiding it costs nothing.
+   *
+   * `upsert` rather than a seed lookup so a company created before this
+   * change — or by any path that does not run the seed — still gets one.
+   * `code: 'UN'` matches what the seed has always created, so an existing
+   * company finds its own row instead of gaining a second.
+   */
+  private async resolveBaseUnitId(
+    tx: Prisma.TransactionClient,
+    ctx: RequestContext,
+  ): Promise<string> {
+    const unit = await tx.unitOfMeasure.upsert({
+      where: { companyId_code: { companyId: ctx.companyId, code: 'UN' } },
+      update: {},
+      create: {
+        tenantId: ctx.tenantId,
+        companyId: ctx.companyId,
+        code: 'UN',
+        name: 'Unidad',
+        symbol: 'un',
+        decimalPlaces: 0,
+      },
+      select: { id: true },
     });
-    if (!found) throw new UnitNotFoundException();
+    return unit.id;
   }
 
   /**

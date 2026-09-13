@@ -558,7 +558,7 @@ export class PricingService {
       companyId,
       status: 'ACTIVE',
       ...(input.scope === 'CATEGORY' ? { categoryId: input.categoryId } : {}),
-      ...(input.scope === 'BRAND' ? { brandId: input.brandId } : {}),
+      ...(input.scope === 'LINE' ? { lineId: input.lineId } : {}),
     };
     const candidates = await this.prisma.productVariant.findMany({
       where: { active: true, product: productWhere },
@@ -655,7 +655,7 @@ export class PricingService {
             effectiveFrom: effectiveFrom.toISOString().slice(0, 10),
             scope: input.scope,
             categoryId: input.categoryId ?? null,
-            brandId: input.brandId ?? null,
+            lineId: input.lineId ?? null,
             affectedCount: lines.length,
             reason: input.reason ?? null,
           },

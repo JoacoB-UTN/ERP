@@ -477,53 +477,53 @@ async function seedDemoCustomers(tenantId: string, companyId: string) {
   }
 }
 
-const PRODUCT_UNIT_SEEDS: {
-  code: string;
-  name: string;
-  symbol: string;
-  decimalPlaces: number;
-}[] = [
-  { code: 'UN', name: 'Unidad', symbol: 'u', decimalPlaces: 0 },
-  { code: 'KG', name: 'Kilogramo', symbol: 'kg', decimalPlaces: 3 },
-  { code: 'G', name: 'Gramo', symbol: 'g', decimalPlaces: 0 },
-  { code: 'L', name: 'Litro', symbol: 'l', decimalPlaces: 3 },
-  { code: 'ML', name: 'Mililitro', symbol: 'ml', decimalPlaces: 0 },
-  { code: 'M', name: 'Metro', symbol: 'm', decimalPlaces: 2 },
-  { code: 'M2', name: 'Metro cuadrado', symbol: 'm²', decimalPlaces: 2 },
-  { code: 'M3', name: 'Metro cúbico', symbol: 'm³', decimalPlaces: 3 },
-];
+/**
+ * The one unit of measure every company gets.
+ *
+ * This used to seed eight (UN, KG, G, L, ML, M, M2, M3) behind a picker on
+ * the product form. There is no picker any more: everything in this catalog
+ * is sold by the piece, so the choice was noise on every single product.
+ *
+ * The row itself stays because `decimalPlaces: 0` is what rejects a
+ * fractional quantity on a stock movement, sale line, purchase line or
+ * adjustment (see docs/inventory.md). ProductsService.resolveBaseUnitId()
+ * upserts the same `code: 'UN'` row on demand, so a company that never ran
+ * this seed still gets one — and one that did finds this row rather than
+ * creating a second.
+ */
+const BASE_UNIT_SEED = {
+  code: 'UN',
+  name: 'Unidad',
+  symbol: 'u',
+  decimalPlaces: 0,
+} as const;
+
+async function seedBaseUnit(tenantId: string, companyId: string): Promise<string> {
+  const unit = await prisma.unitOfMeasure.upsert({
+    where: { companyId_code: { companyId, code: BASE_UNIT_SEED.code } },
+    update: {
+      name: BASE_UNIT_SEED.name,
+      symbol: BASE_UNIT_SEED.symbol,
+      decimalPlaces: BASE_UNIT_SEED.decimalPlaces,
+    },
+    create: { tenantId, companyId, ...BASE_UNIT_SEED },
+  });
+  return unit.id;
+}
 
 /**
- * Standard unit-of-measure set, seeded identically for every company (see
- * docs/products.md — units are always company-scoped, no global/null-
- * company rows). Deterministic upsert by companyId+code.
+ * The catalog's product lines. Everything sold here is the same brand, so
+ * the line — not a brand — is what distinguishes one product from another.
  */
-async function seedProductUnits(
-  tenantId: string,
-  companyId: string,
-): Promise<Map<string, string>> {
-  const unitIdByCode = new Map<string, string>();
-  for (const u of PRODUCT_UNIT_SEEDS) {
-    const unit = await prisma.unitOfMeasure.upsert({
-      where: { companyId_code: { companyId, code: u.code } },
-      update: {
-        name: u.name,
-        symbol: u.symbol,
-        decimalPlaces: u.decimalPlaces,
-      },
-      create: {
-        tenantId,
-        companyId,
-        code: u.code,
-        name: u.name,
-        symbol: u.symbol,
-        decimalPlaces: u.decimalPlaces,
-      },
-    });
-    unitIdByCode.set(u.code, unit.id);
-  }
-  return unitIdByCode;
-}
+const PRODUCT_LINE_SEEDS = [
+  'ORO',
+  'ORO PLUS',
+  'PLATA',
+  'PLATA PLUS',
+  'DUAL DUTY',
+  'INSPIRA',
+  'LEXUS',
+] as const;
 
 /**
  * A handful of illustrative products for Demo Company (see docs/products.md
@@ -534,11 +534,7 @@ async function seedProductUnits(
  * collides with seed data on name, SKU, or barcode.
  */
 async function seedDemoProducts(tenantId: string, companyId: string) {
-  const unitIdByCode = await seedProductUnits(tenantId, companyId);
-  const unUnitIdOrUndefined = unitIdByCode.get('UN');
-  if (!unUnitIdOrUndefined)
-    throw new Error('UN unit not seeded — cannot seed demo products.');
-  const unUnitId: string = unUnitIdOrUndefined;
+  const unUnitId = await seedBaseUnit(tenantId, companyId);
 
   async function ensureCategory(name: string): Promise<string> {
     const existing = await prisma.productCategory.findFirst({
@@ -550,21 +546,21 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
     });
     return created.id;
   }
-  async function ensureBrand(name: string): Promise<string> {
+  async function ensureProductLine(name: string): Promise<string> {
     const normalizedName = name.trim().toLowerCase();
-    const brand = await prisma.brand.upsert({
+    const line = await prisma.productLine.upsert({
       where: { companyId_normalizedName: { companyId, normalizedName } },
       update: {},
       create: { tenantId, companyId, name, normalizedName },
     });
-    return brand.id;
+    return line.id;
   }
   async function upsertProduct(params: {
     code: string;
     name: string;
     productType: 'PRODUCT' | 'SERVICE';
     categoryId?: string;
-    brandId?: string;
+    lineId?: string;
     trackInventory: boolean;
     status?: 'ACTIVE' | 'INACTIVE';
   }) {
@@ -578,7 +574,7 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
         name: params.name,
         productType: params.productType,
         categoryId: params.categoryId,
-        brandId: params.brandId,
+        lineId: params.lineId,
         baseUnitId: unUnitId,
         trackInventory: params.trackInventory,
         status: params.status ?? 'ACTIVE',
@@ -619,7 +615,12 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
   const libreriaId = await ensureCategory('Librería');
   const tecnologiaId = await ensureCategory('Tecnología');
   const indumentariaId = await ensureCategory('Indumentaria');
-  const marcaPropiaId = await ensureBrand('Marca Propia');
+  const lineIdByName = new Map<string, string>();
+  for (const name of PRODUCT_LINE_SEEDS) {
+    lineIdByName.set(name, await ensureProductLine(name));
+  }
+  const oroId = lineIdByName.get('ORO')!;
+  const plataId = lineIdByName.get('PLATA')!;
 
   // ---------- Bebidas / Alimentos ----------
   const gaseosa = await upsertProduct({
@@ -647,7 +648,7 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
     name: 'Café 1 kg',
     productType: 'PRODUCT',
     categoryId: alimentosId,
-    brandId: marcaPropiaId,
+    lineId: oroId,
     trackInventory: true,
   });
   await ensureVariant(cafe.id, null, 'CAFE-1KG');
@@ -657,7 +658,7 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
     name: 'Yerba mate 1 kg',
     productType: 'PRODUCT',
     categoryId: alimentosId,
-    brandId: marcaPropiaId,
+    lineId: plataId,
     trackInventory: true,
   });
   await ensureVariant(yerba.id, null, 'YERBA-1KG');
@@ -703,14 +704,14 @@ async function seedDemoProducts(tenantId: string, companyId: string) {
   });
   await ensureVariant(cinta.id, null, 'CINTA-ADH');
 
-  const marcador = await upsertProduct({
+  const líneador = await upsertProduct({
     code: '000009',
-    name: 'Marcador permanente',
+    name: 'Líneador permanente',
     productType: 'PRODUCT',
     categoryId: libreriaId,
     trackInventory: true,
   });
-  await ensureVariant(marcador.id, null, 'MARC-PERM');
+  await ensureVariant(líneador.id, null, 'MARC-PERM');
 
   // ---------- Indumentaria ----------
   const buzo = await upsertProduct({
@@ -978,7 +979,7 @@ async function seedWarehousesAndStock(
   const boliAzulId = await namedVariantId('000007', 'Azul'); // Bolígrafo
   const boliNegroId = await namedVariantId('000007', 'Negro');
   const cintaId = await firstVariantId('000008'); // Cinta adhesiva (INACTIVE product)
-  const marcadorId = await firstVariantId('000009'); // Marcador permanente
+  const líneadorId = await firstVariantId('000009'); // Líneador permanente
   const buzoNegroS = await namedVariantId('000010', 'Negro / S'); // Buzo con capucha
   const buzoNegroM = await namedVariantId('000010', 'Negro / M');
   const buzoNegroL = await namedVariantId('000010', 'Negro / L');
@@ -999,7 +1000,7 @@ async function seedWarehousesAndStock(
     [boliAzulId, '90'],
     [boliNegroId, '90'],
     [cintaId, '40'],
-    [marcadorId, '48'],
+    [líneadorId, '48'],
     [buzoNegroS, '10'],
     [buzoNegroM, '22'],
     [buzoNegroL, '18'],
@@ -1223,7 +1224,7 @@ async function seedDemoPricing(tenantId: string, companyId: string) {
   const boliAzulId = await namedVariantId('000007', 'Azul'); // Bolígrafo
   const boliNegroId = await namedVariantId('000007', 'Negro');
   const cintaId = await firstVariantId('000008'); // Cinta adhesiva (INACTIVE)
-  const marcadorId = await firstVariantId('000009'); // Marcador permanente
+  const líneadorId = await firstVariantId('000009'); // Líneador permanente
   const buzoNegroS = await namedVariantId('000010', 'Negro / S'); // Buzo con capucha
   const buzoNegroM = await namedVariantId('000010', 'Negro / M');
   const buzoNegroL = await namedVariantId('000010', 'Negro / L');
@@ -1249,7 +1250,7 @@ async function seedDemoPricing(tenantId: string, companyId: string) {
     [boliAzulId, '900'],
     [boliNegroId, '900'],
     [cintaId, '1500'],
-    [marcadorId, '1100'],
+    [líneadorId, '1100'],
     [buzoNegroS, '25000'],
     [buzoNegroM, '25000'],
     [buzoNegroL, '25000'],
@@ -2666,9 +2667,9 @@ async function main() {
 
   // Standard units for every seeded company (see docs/products.md);
   // illustrative products for Demo Company only.
-  await seedProductUnits(tenant.id, secondCompany.id);
-  await seedProductUnits(tenant.id, thirdCompany.id);
-  await seedProductUnits(otherTenant.id, otherCompany.id);
+  await seedBaseUnit(tenant.id, secondCompany.id);
+  await seedBaseUnit(tenant.id, thirdCompany.id);
+  await seedBaseUnit(otherTenant.id, otherCompany.id);
   await seedDemoProducts(tenant.id, company.id);
 
   // Warehouses + illustrative initial stock for Demo Company only — see docs/inventory.md.
@@ -2837,7 +2838,7 @@ async function main() {
     '  Customers:   16 demo customers (incl. Consumidor Final, Ferretería El Puente, 1 INACTIVE) + 3 categories in ANRAS',
   );
   console.log(
-    '  Products:    8 units of measure per company; 17 demo products / 21 sellable variants (incl. Buzo con capucha [4 variants], 3 services, 1 INACTIVE, 1 zero-stock) + 6 categories + 1 brand in ANRAS',
+    '  Products:    1 unit of measure per company; 17 demo products / 21 sellable variants (incl. Buzo con capucha [4 variants], 3 services, 1 INACTIVE, 1 zero-stock) + 6 categories + 7 product lines in ANRAS',
   );
   console.log(
     '  Inventory:   3 warehouses (Depósito Central, Salón de Ventas, Depósito Sucursal Norte) + initial stock via real StockMovement rows in ANRAS',

@@ -156,7 +156,7 @@ export class InventoryService {
         ...(query.productId ? { productId: query.productId } : {}),
         product: {
           ...(query.categoryId ? { categoryId: query.categoryId } : {}),
-          ...(query.brandId ? { brandId: query.brandId } : {}),
+          ...(query.lineId ? { lineId: query.lineId } : {}),
           ...(query.status ? { status: query.status } : {}),
           ...(query.search
             ? {

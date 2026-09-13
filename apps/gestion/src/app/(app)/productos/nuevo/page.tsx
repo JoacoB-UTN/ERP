@@ -13,8 +13,7 @@ import {
   usePermissions,
   useCreateProduct,
   useProductCategories,
-  useBrands,
-  useUnits,
+  useProductLines,
 } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,16 +39,14 @@ export default function NuevoProductoPage() {
   const { can, isLoading: permissionsLoading } = usePermissions();
   const createProduct = useCreateProduct();
   const categoriesQuery = useProductCategories();
-  const brandsQuery = useBrands();
-  const unitsQuery = useUnits();
+  const linesQuery = useProductLines();
 
   const [productType, setProductType] = useState<string>('PRODUCT');
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [brandId, setBrandId] = useState('');
-  const [baseUnitId, setBaseUnitId] = useState('');
+  const [lineId, setLineId] = useState('');
 
   const [trackInventory, setTrackInventory] = useState(true);
   const [allowNegativeStock, setAllowNegativeStock] = useState(false);
@@ -68,12 +65,6 @@ export default function NuevoProductoPage() {
   const [fieldErrors, setFieldErrors] = useState<{ general?: string; sku?: string; barcode?: string }>({});
 
   const isService = productType === 'SERVICE';
-
-  // Fast path: preselect "Unidad" once units load, so the common case never requires a choice.
-  // Derived at render time (no effect) — see CLAUDE.md's preference for handling this in the
-  // event that caused it rather than reacting to it afterward.
-  const defaultUnitId = unitsQuery.data?.units.find((u) => u.code === 'UN')?.id;
-  const effectiveBaseUnitId = baseUnitId || defaultUnitId || '';
 
   // A service should not accidentally participate in physical inventory (see CLAUDE.md) —
   // reset synchronously when the user picks "Servicio", not via an effect reacting to it.
@@ -103,8 +94,7 @@ export default function NuevoProductoPage() {
         description: description || undefined,
         productType: productType as ProductType,
         categoryId: categoryId || undefined,
-        brandId: brandId || undefined,
-        baseUnitId: effectiveBaseUnitId,
+        lineId: lineId || undefined,
         trackInventory,
         trackLots,
         trackSerials,
@@ -160,8 +150,8 @@ export default function NuevoProductoPage() {
         </div>
       </FormSection>
 
-      <FormSection title="Clasificación" description="Categoría, marca y unidad de medida">
-        <div className="grid gap-4 sm:grid-cols-3">
+      <FormSection title="Clasificación" description="Categoría y línea del producto">
+        <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="categoryId">Categoría</Label>
             <Select id="categoryId" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
@@ -174,23 +164,12 @@ export default function NuevoProductoPage() {
             </Select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="brandId">Marca</Label>
-            <Select id="brandId" value={brandId} onChange={(e) => setBrandId(e.target.value)}>
-              <option value="">Sin marca</option>
-              {brandsQuery.data?.brands.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="baseUnitId">Unidad</Label>
-            <Select id="baseUnitId" value={effectiveBaseUnitId} onChange={(e) => setBaseUnitId(e.target.value)} required>
-              <option value="">Elegir…</option>
-              {unitsQuery.data?.units.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
+            <Label htmlFor="lineId">Línea</Label>
+            <Select id="lineId" value={lineId} onChange={(e) => setLineId(e.target.value)}>
+              <option value="">Sin línea</option>
+              {linesQuery.data?.lines.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
                 </option>
               ))}
             </Select>
@@ -370,7 +349,7 @@ export default function NuevoProductoPage() {
       )}
 
       <div>
-        <Button type="submit" disabled={createProduct.isPending || !effectiveBaseUnitId}>
+        <Button type="submit" disabled={createProduct.isPending}>
           {createProduct.isPending ? 'Creando…' : 'Crear producto'}
         </Button>
       </div>

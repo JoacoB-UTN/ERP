@@ -7,11 +7,10 @@ import { cn } from '@/lib/utils';
 const LINKS = [
   { href: '/productos', label: 'Productos' },
   { href: '/productos/categorias', label: 'Categorías' },
-  { href: '/productos/marcas', label: 'Marcas' },
-  { href: '/productos/unidades', label: 'Unidades' },
+  { href: '/productos/lineas', label: 'Líneas' },
 ];
 
-/** Lightweight secondary nav for the Productos section — categories/brands/units are catalog configuration, not separate sidebar items (see docs/products.md). */
+/** Lightweight secondary nav for the Productos section — categories and lines are catalog configuration, not separate sidebar items (see docs/products.md). */
 export function ProductosSubNav() {
   const pathname = usePathname();
   return (

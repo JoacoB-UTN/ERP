@@ -82,11 +82,11 @@ export function ProductHistoryItem({ item }: { item: AuditLogDetail }) {
         {actor}: {String(metadata?.previousCategoryName ?? 'Sin categoría')} → {String(metadata?.newCategoryName ?? 'Sin categoría')}
       </p>
     );
-  } else if (change === 'brand_changed') {
-    title = 'Marca';
+  } else if (change === 'line_changed') {
+    title = 'Línea';
     detail = (
       <p className="text-sm text-muted-foreground">
-        {actor}: {String(metadata?.previousBrandName ?? 'Sin marca')} → {String(metadata?.newBrandName ?? 'Sin marca')}
+        {actor}: {String(metadata?.previousLineName ?? 'Sin línea')} → {String(metadata?.newLineName ?? 'Sin línea')}
       </p>
     );
   } else if (isPlainObject(item.beforeData) && isPlainObject(item.afterData)) {

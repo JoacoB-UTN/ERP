@@ -328,7 +328,7 @@ standard for any *new* Gestión list/index route, not just guidance:
   title.
 - **Now propagated to every Gestión route.** The pass that produced these
   standards left the secondary nested routes out (detail pages,
-  create/edit forms, categorías/marcas/unidades); they have since been
+  create/edit forms, categorías/líneas); they have since been
   brought in line — table cells at `px-3 py-1.5` / `px-3 py-1`, row
   `hover:bg-muted/30`, table wrappers without `bg-card`, and the outer
   page container at `gap-2.5`. There is no longer a "migrated" and an

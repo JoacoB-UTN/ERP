@@ -427,7 +427,7 @@ Administración (only shown to a user who can see at least one of
   ordinary adjustment), gated on `inventory.initial-balance.create`.
 - **`/stock/depositos`** — plain CRUD list for `Warehouse`, following the
   same "dedicated create/edit routes, deactivate/reactivate actions
-  inline" pattern as Customer/Product (rather than Brand/Category's
+  inline" pattern as Customer/Product (rather than ProductLine/Category's
   inline-edit-in-place pattern), since `Warehouse` has its own
   `/deactivate`+`/reactivate` action endpoints.
 

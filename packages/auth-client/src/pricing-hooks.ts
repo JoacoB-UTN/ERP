@@ -158,7 +158,7 @@ export function createPricingClient(config: PricingClientConfig) {
           `/pricing/lists/${priceListId}/items${buildQueryString({
             search: filters.search,
             categoryId: filters.categoryId,
-            brandId: filters.brandId,
+            lineId: filters.lineId,
             status: filters.status,
             hasPrice: filters.hasPrice,
             page: filters.page,

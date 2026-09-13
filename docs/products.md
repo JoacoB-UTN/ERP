@@ -29,7 +29,7 @@ manages. It is not inventory, not a price, and not a cost:
 - **No tax calculation.** Product doesn't know how to compute invoice
   taxes; that's a future Tax/Fiscal module's job.
 
-This task implements product identity, classification (category/brand/
+This task implements product identity, classification (category/line/
 unit), inventory *configuration* (not quantities), variants, and alternate
 codes (SKU/barcode/supplier/etc.) — enough for future Stock, Price List,
 Purchases, and Sales/POS modules to build on. See "Deferred" at the end
@@ -37,7 +37,7 @@ for the full list of what's intentionally not here yet.
 
 ## Company ownership
 
-`Product`, `ProductCategory`, `Brand`, `UnitOfMeasure`, and
+`Product`, `ProductCategory`, `ProductLine`, `UnitOfMeasure`, and
 `ProductCodeSequence` all carry `tenantId` + `companyId` and are scoped by
 the validated `RequestContext.companyId` on every read/write — never a
 client-supplied value, never an `id`-only lookup (see CLAUDE.md).
@@ -139,27 +139,47 @@ arbitrary-depth hierarchy. Cycle prevention (direct self-parent AND
 indirect cycles like `A → B → C → A`) is enforced in
 `ProductCategoriesService.assertNoCycle` by walking the proposed new
 parent's ancestor chain — Postgres has no way to express "no cycles" as a
-constraint. Unlike `Brand`, category **names are not required to be
-unique** — real catalogs commonly reuse a name under different parents
+constraint. Unlike `ProductLine`, category **names are not required to
+be unique** — real catalogs commonly reuse a name under different parents
 (e.g. two different "Accesorios" subcategories), and the task spec didn't
-request category name uniqueness the way it did for Brand. Categories are
-never physically deleted — `deactivate` only.
+request category name uniqueness the way it did for the line. Categories
+are never physically deleted — `deactivate` only.
 
-## Brands
+## Product lines
 
-`Brand` enforces `companyId + normalizedName` uniqueness
+`ProductLine` enforces `companyId + normalizedName` uniqueness
 (`normalizedName` = trimmed, lowercased `name`, stored alongside the
-display-cased `name`) — "Acme" and "acme" collide, "Acme" and "Acme "
+display-cased `name`) — "Oro" and "ORO" collide, "Oro" and "Oro "
 collide, but the original casing is preserved for display.
+
+This model **was** `Brand`, renamed in the
+`rename_brand_to_product_line` migration. Every product in this catalog
+carries the same brand, so a brand column only ever held one value and
+classified nothing; the line (ORO, ORO PLUS, PLATA, PLATA PLUS, DUAL
+DUTY, INSPIRA, LEXUS) is the axis that actually varies. The migration is
+a pure `ALTER ... RENAME` — table, column, constraints and indexes — so
+whatever a customer had already classified survives; a Prisma-generated
+diff would have dropped and recreated the table, silently discarding
+every row.
 
 ## Units of measure
 
-`UnitOfMeasure.decimalPlaces` is informational configuration for a future
-Inventory module's quantity precision (e.g. 0 for Unidad, 3 for
-Kilogramo) — nothing in this task performs quantity arithmetic yet.
-Deactivating a unit never invalidates existing `Product` references —
-only the "pick a unit for a *new* product" dropdown filters to active
-units.
+`UnitOfMeasure` still exists but is **no longer part of the product
+form, and has no management screen or endpoints**. Everything in this
+catalog is sold by the piece, so choosing a unit was a decision nobody
+made and every product had to answer.
+
+The row survives because `decimalPlaces` is what rejects a quantity with
+more precision than the unit allows, and that check runs on every stock
+movement, sale line, purchase line and adjustment (see
+[inventory.md](inventory.md)). Deleting the table would have deleted
+that check from four modules along with it.
+
+`ProductsService.resolveBaseUnitId()` upserts one row per company
+(`code: 'UN'`, `decimalPlaces: 0`) the first time a product is created,
+so quantities are whole numbers and a company that never ran the seed
+still works. `POST/PATCH /products` no longer accept `baseUnitId`, and
+`ProductDetail` no longer returns `baseUnit`.
 
 ## Inventory configuration (not inventory)
 
@@ -201,7 +221,7 @@ endpoint (see "Deferred" — nothing sells yet).
 
 Product search (`GET /products`, filtered/paginated) matches
 case-insensitively (Postgres `ILIKE` via Prisma's `contains` +
-`mode: 'insensitive'`) across internal code, name, description, brand
+`mode: 'insensitive'`) across internal code, name, description, line
 name, variant SKU, and alternate codes — the same approach already used
 for Customer search. Accent-folding (`unaccent`) and trigram indexes were
 deliberately **not** added: they'd require a new Postgres extension
@@ -235,8 +255,8 @@ products.deactivate   (covers both deactivate AND reactivate — one
                         same modeling as customers.deactivate)
 ```
 
-`ProductCategory`, `Brand`, and `UnitOfMeasure` management reuse these
-same three permissions (`read`/`create`/`update` — no dedicated
+`ProductCategory` and `ProductLine` management reuse these same three
+permissions (`read`/`create`/`update` — no dedicated
 `products.catalog.manage`) — the same anti-fragmentation decision made
 for `CustomerCategory` in Prompt #6.
 
@@ -249,24 +269,24 @@ ACCOUNTING (Contabilidad) and VIEWER (Solo lectura) get read-only.
 ## Audit
 
 Unlike `CustomerCategory` (which isn't separately audited),
-`ProductCategory` and `Brand` **are** audited under their own
-`entityType` (`'ProductCategory'`, `'Brand'`) — both have a real,
+`ProductCategory` and `ProductLine` **are** audited under their own
+`entityType` (`'ProductCategory'`, `'ProductLine'`) — both have a real,
 dedicated management screen and (for categories) cycle-prevention logic
 worth tracking independently of any one product.
 
 Everything that happens *through* a product — the product's own fields,
-its variants, their codes, and which category/brand it's assigned to —
+its variants, their codes, and which category/line it's assigned to —
 is recorded under `entityType: 'Product'`, `entityId: product.id`, with
 `metadata.change` as a discriminator
 (`variant_added`/`variant_updated`/`variant_deactivated`/
 `variant_reactivated`/`code_added`/`code_updated`/`code_removed`/
-`category_changed`/`brand_changed`). This exactly mirrors Customer's
+`category_changed`/`line_changed`). This exactly mirrors Customer's
 address/contact/category-assignment pattern from Prompt #6, and is what
 lets `GET /products/:id/history` reuse `AuditService.getEntityHistory`
 verbatim — the same reasoning is spelled out in
-[customers.md](customers.md). `category_changed`/`brand_changed` resolve
+[customers.md](customers.md). `category_changed`/`line_changed` resolve
 and store the *name* (not the raw id) of the previous and new
-category/brand, so the Historial tab never has to show a bare UUID.
+category/line, so the Historial tab never has to show a bare UUID.
 
 `PRODUCT_INACTIVE` is registered in the exception catalog for forward
 compatibility but is **not thrown anywhere in this task** — no
@@ -295,10 +315,8 @@ product. Same documented decision as `CUSTOMER_INACTIVE` in
 | DELETE | `/products/:id/variants/:variantId/codes/:codeId` | `products.update` |
 | GET/POST | `/product-categories` | `products.read` / `products.create` |
 | PATCH/POST `:id/deactivate` | `/product-categories/:id` | `products.update` |
-| GET/POST | `/brands` | `products.read` / `products.create` |
-| PATCH/POST `:id/deactivate` | `/brands/:id` | `products.update` |
-| GET/POST | `/units` | `products.read` / `products.create` |
-| PATCH/POST `:id/deactivate` | `/units/:id` | `products.update` |
+| GET/POST | `/product-lines` | `products.read` / `products.create` |
+| PATCH/POST `:id/deactivate` | `/product-lines/:id` | `products.update` |
 
 Create/update never accept `companyId`/`tenantId` from the request body —
 company ownership always comes from the validated `RequestContext` (see
@@ -318,9 +336,10 @@ product's SKU/codes are edited inline in the Variantes tab without any
 "variant" framing. `/productos/:id/editar` — dedicated edit page for
 product-level fields (variants/codes are managed from the detail page's
 tabs, mirroring how Customer addresses/contacts live on its detail page,
-not its edit form). `/productos/categorias`, `/productos/marcas`,
-`/productos/unidades` — lightweight catalog-configuration screens reached
-via a small secondary nav, not separate sidebar entries.
+not its edit form). `/productos/categorias` and `/productos/lineas` —
+lightweight catalog-configuration screens reached via a small secondary
+nav, not separate sidebar entries. There is no units screen: see "Units
+of measure" above.
 
 ## Facturación / future POS
 

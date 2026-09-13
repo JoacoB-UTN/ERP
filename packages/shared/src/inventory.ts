@@ -89,7 +89,7 @@ export const stockListQuerySchema = z.object({
   warehouseId: z.string().uuid().optional(),
   productId: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),
-  brandId: z.string().uuid().optional(),
+  lineId: z.string().uuid().optional(),
   status: z.enum(productStatusValues).optional(),
   /** AVAILABLE < Product.minimumStock — see docs/inventory.md for why AVAILABLE, not ON_HAND. */
   belowMinimum: z

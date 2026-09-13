@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import type { CreateBrandInput, UpdateBrandInput, BrandDto } from '@erp/shared';
+import type { CreateProductLineInput, UpdateProductLineInput, ProductLineDto } from '@erp/shared';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { RequestContext } from '../company-context/types';
-import { BrandNotFoundException } from './products.exceptions';
-import { BrandAlreadyExistsException } from './brands.exceptions';
-import type { Brand } from '../generated/prisma/client';
+import { ProductLineNotFoundException } from './products.exceptions';
+import { ProductLineAlreadyExistsException } from './product-lines.exceptions';
+import type { ProductLine } from '../generated/prisma/client';
 
-function toDto(b: Brand): BrandDto {
+function toDto(b: ProductLine): ProductLineDto {
   return {
     id: b.id,
     name: b.name,
@@ -21,20 +21,20 @@ function normalize(name: string): string {
 }
 
 /**
- * Brand master CRUD — `companyId + normalizedName` uniqueness (see
- * docs/products.md and schema.prisma's Brand model). Audited under its
- * own `entityType: 'Brand'`, same reasoning as ProductCategory. Reuses
+ * ProductLine master CRUD — `companyId + normalizedName` uniqueness (see
+ * docs/products.md and schema.prisma's ProductLine model). Audited under its
+ * own `entityType: 'ProductLine'`, same reasoning as ProductCategory. Reuses
  * products.read/create/update (no dedicated permission).
  */
 @Injectable()
-export class BrandsService {
+export class ProductLinesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
   ) {}
 
-  async list(companyId: string): Promise<BrandDto[]> {
-    const rows = await this.prisma.brand.findMany({
+  async list(companyId: string): Promise<ProductLineDto[]> {
+    const rows = await this.prisma.productLine.findMany({
       where: { companyId },
       orderBy: { name: 'asc' },
     });
@@ -43,18 +43,18 @@ export class BrandsService {
 
   async create(
     ctx: RequestContext,
-    input: CreateBrandInput,
-  ): Promise<BrandDto> {
+    input: CreateProductLineInput,
+  ): Promise<ProductLineDto> {
     const normalizedName = normalize(input.name);
-    const conflict = await this.prisma.brand.findUnique({
+    const conflict = await this.prisma.productLine.findUnique({
       where: {
         companyId_normalizedName: { companyId: ctx.companyId, normalizedName },
       },
     });
-    if (conflict) throw new BrandAlreadyExistsException();
+    if (conflict) throw new ProductLineAlreadyExistsException();
 
     const created = await this.prisma.$transaction(async (tx) => {
-      const brand = await tx.brand.create({
+      const line = await tx.productLine.create({
         data: {
           tenantId: ctx.tenantId,
           companyId: ctx.companyId,
@@ -67,13 +67,13 @@ export class BrandsService {
         ctx,
         {
           action: 'CREATE',
-          entityType: 'Brand',
-          entityId: brand.id,
-          after: { name: brand.name },
+          entityType: 'ProductLine',
+          entityId: line.id,
+          after: { name: line.name },
         },
         tx,
       );
-      return brand;
+      return line;
     });
     return toDto(created);
   }
@@ -81,12 +81,12 @@ export class BrandsService {
   async update(
     ctx: RequestContext,
     id: string,
-    input: UpdateBrandInput,
-  ): Promise<BrandDto> {
-    const existing = await this.prisma.brand.findFirst({
+    input: UpdateProductLineInput,
+  ): Promise<ProductLineDto> {
+    const existing = await this.prisma.productLine.findFirst({
       where: { id, companyId: ctx.companyId },
     });
-    if (!existing) throw new BrandNotFoundException();
+    if (!existing) throw new ProductLineNotFoundException();
 
     let normalizedName: string | undefined;
     if (
@@ -94,7 +94,7 @@ export class BrandsService {
       normalize(input.name) !== existing.normalizedName
     ) {
       normalizedName = normalize(input.name);
-      const conflict = await this.prisma.brand.findUnique({
+      const conflict = await this.prisma.productLine.findUnique({
         where: {
           companyId_normalizedName: {
             companyId: ctx.companyId,
@@ -102,11 +102,11 @@ export class BrandsService {
           },
         },
       });
-      if (conflict) throw new BrandAlreadyExistsException();
+      if (conflict) throw new ProductLineAlreadyExistsException();
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      const brand = await tx.brand.update({
+      const line = await tx.productLine.update({
         where: { id },
         data: {
           ...(input.name !== undefined
@@ -122,27 +122,27 @@ export class BrandsService {
         ctx,
         {
           action: 'UPDATE',
-          entityType: 'Brand',
+          entityType: 'ProductLine',
           entityId: id,
           before: { name: existing.name, active: existing.active },
-          after: { name: brand.name, active: brand.active },
+          after: { name: line.name, active: line.active },
         },
         tx,
       );
-      return brand;
+      return line;
     });
     return toDto(updated);
   }
 
-  async deactivate(ctx: RequestContext, id: string): Promise<BrandDto> {
-    const existing = await this.prisma.brand.findFirst({
+  async deactivate(ctx: RequestContext, id: string): Promise<ProductLineDto> {
+    const existing = await this.prisma.productLine.findFirst({
       where: { id, companyId: ctx.companyId },
     });
-    if (!existing) throw new BrandNotFoundException();
+    if (!existing) throw new ProductLineNotFoundException();
     if (!existing.active) return toDto(existing);
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      const brand = await tx.brand.update({
+      const line = await tx.productLine.update({
         where: { id },
         data: { active: false },
       });
@@ -150,14 +150,14 @@ export class BrandsService {
         ctx,
         {
           action: 'DEACTIVATE',
-          entityType: 'Brand',
+          entityType: 'ProductLine',
           entityId: id,
           before: { active: true },
           after: { active: false },
         },
         tx,
       );
-      return brand;
+      return line;
     });
     return toDto(updated);
   }

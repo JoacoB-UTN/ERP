@@ -23,7 +23,7 @@ import {
   useDeactivatePriceList,
   useReactivatePriceList,
   useProductCategories,
-  useBrands,
+  useProductLines,
 } from '@/lib/auth-client';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -203,13 +203,13 @@ function PreciosTab({
   canBulkUpdate: boolean;
 }) {
   const categoriesQuery = useProductCategories();
-  const brandsQuery = useBrands();
+  const linesQuery = useProductLines();
   const setPrices = useSetPrices();
 
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [brandId, setBrandId] = useState('');
+  const [lineId, setLineId] = useState('');
   const [hasPrice, setHasPrice] = useState('');
   const [page, setPage] = useState(1);
   const [pending, setPending] = useState<Record<string, string>>({});
@@ -237,7 +237,7 @@ function PreciosTab({
   const itemsQuery = usePriceListItems(priceList.id, {
     search: search || undefined,
     categoryId: categoryId || undefined,
-    brandId: brandId || undefined,
+    lineId: lineId || undefined,
     hasPrice: hasPrice === '' ? undefined : hasPrice === 'true',
     page,
     pageSize: PAGE_SIZE,
@@ -324,16 +324,16 @@ function PreciosTab({
           ))}
         </Select>
         <Select
-          value={brandId}
+          value={lineId}
           onChange={(e) => {
-            setBrandId(e.target.value);
+            setLineId(e.target.value);
             setPage(1);
           }}
           className="max-w-44"
-          aria-label="Marca"
+          aria-label="Línea"
         >
-          <option value="">Todas las marcas</option>
-          {brandsQuery.data?.brands.map((b) => (
+          <option value="">Todas las líneas</option>
+          {linesQuery.data?.lines.map((b) => (
             <option key={b.id} value={b.id}>
               {b.name}
             </option>

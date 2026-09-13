@@ -41,7 +41,7 @@ type PriceListWithRelations = PriceList & {
 type VariantWithCatalog = ProductVariant & {
   product: Product & {
     category: { name: string } | null;
-    brand: { name: string } | null;
+    line: { name: string } | null;
   };
 };
 
@@ -54,7 +54,7 @@ const VARIANT_CATALOG_INCLUDE = {
   product: {
     include: {
       category: { select: { name: true } },
-      brand: { select: { name: true } },
+      line: { select: { name: true } },
     },
   },
 } satisfies Prisma.ProductVariantInclude;
@@ -414,7 +414,7 @@ export class PriceListsService {
       product: {
         companyId,
         ...(query.categoryId ? { categoryId: query.categoryId } : {}),
-        ...(query.brandId ? { brandId: query.brandId } : {}),
+        ...(query.lineId ? { lineId: query.lineId } : {}),
         ...(query.status ? { status: query.status } : {}),
       },
       ...(searchOr ? { OR: searchOr } : {}),
@@ -484,7 +484,7 @@ export class PriceListsService {
       productName: variant.product.name,
       variantName: variant.name,
       categoryName: variant.product.category?.name ?? null,
-      brandName: variant.product.brand?.name ?? null,
+      lineName: variant.product.line?.name ?? null,
       price: resolved ? resolved.price.toString() : null,
       effectiveFrom: resolved?.effectiveFrom ?? null,
       source: resolved?.source ?? 'FIXED',

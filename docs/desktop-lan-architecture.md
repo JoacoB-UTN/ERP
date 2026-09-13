@@ -545,7 +545,7 @@ or rolls back. Current producers:
 | `price.changed` | `PricingService.setPrice()` / `.setPrices()` (one event for the whole batch, not one per line) / `.confirmBulkAdjust()` |
 
 Deliberately **not** wired to an event in this milestone: category/
-brand/unit-of-measure master data, and `deactivateVariant`/
+product-line master data, and `deactivateVariant`/
 `reactivateVariant` on products — scoped out to avoid event-name
 proliferation for lower-traffic master data; REST remains correct for
 these, they simply don't push a live invalidation hint yet.

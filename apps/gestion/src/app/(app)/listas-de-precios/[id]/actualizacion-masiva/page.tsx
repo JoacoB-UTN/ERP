@@ -9,7 +9,7 @@ import {
   usePermissions,
   usePriceList,
   useProductCategories,
-  useBrands,
+  useProductLines,
   usePreviewBulkAdjust,
   useConfirmBulkAdjust,
 } from '@/lib/auth-client';
@@ -23,11 +23,11 @@ import { Unauthorized } from '@/components/layout/unauthorized';
 import { pricingErrorMessage } from '@/components/pricing/pricing-errors';
 
 const ADJUSTMENT_TYPES = Object.values(AdjustmentType);
-const SCOPES = ['ALL', 'CATEGORY', 'BRAND'] as const;
+const SCOPES = ['ALL', 'CATEGORY', 'LINE'] as const;
 const SCOPE_LABELS: Record<(typeof SCOPES)[number], string> = {
   ALL: 'Todos los productos',
   CATEGORY: 'Una categoría',
-  BRAND: 'Una marca',
+  LINE: 'Una línea',
 };
 
 function today(): string {
@@ -39,13 +39,13 @@ export default function ActualizacionMasivaPage() {
   const { can, isLoading: permissionsLoading } = usePermissions();
   const priceListQuery = usePriceList(id ?? null);
   const categoriesQuery = useProductCategories();
-  const brandsQuery = useBrands();
+  const linesQuery = useProductLines();
   const previewBulkAdjust = usePreviewBulkAdjust();
   const confirmBulkAdjust = useConfirmBulkAdjust();
 
   const [scope, setScope] = useState<(typeof SCOPES)[number]>('ALL');
   const [categoryId, setCategoryId] = useState('');
-  const [brandId, setBrandId] = useState('');
+  const [lineId, setLineId] = useState('');
   const [adjustmentType, setAdjustmentType] = useState<string>(AdjustmentType.PERCENTAGE_INCREASE);
   const [value, setValue] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState(today());
@@ -70,7 +70,7 @@ export default function ActualizacionMasivaPage() {
     );
   }
 
-  const currentKey = JSON.stringify({ scope, categoryId, brandId, adjustmentType, value, effectiveFrom });
+  const currentKey = JSON.stringify({ scope, categoryId, lineId, adjustmentType, value, effectiveFrom });
   const previewIsStale = preview !== null && previewKey !== currentKey;
 
   function buildInput() {
@@ -81,7 +81,7 @@ export default function ActualizacionMasivaPage() {
       reason: reason || undefined,
       scope,
       categoryId: scope === 'CATEGORY' ? categoryId : undefined,
-      brandId: scope === 'BRAND' ? brandId : undefined,
+      lineId: scope === 'LINE' ? lineId : undefined,
     };
   }
 
@@ -156,12 +156,12 @@ export default function ActualizacionMasivaPage() {
               </Select>
             </div>
           )}
-          {scope === 'BRAND' && (
+          {scope === 'LINE' && (
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="brandId">Marca</Label>
-              <Select id="brandId" value={brandId} onChange={(e) => setBrandId(e.target.value)} required>
-                <option value="">Elegí una marca</option>
-                {brandsQuery.data?.brands.map((b) => (
+              <Label htmlFor="lineId">Línea</Label>
+              <Select id="lineId" value={lineId} onChange={(e) => setLineId(e.target.value)} required>
+                <option value="">Elegí una línea</option>
+                {linesQuery.data?.lines.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
                   </option>
@@ -223,7 +223,7 @@ export default function ActualizacionMasivaPage() {
               !value ||
               !effectiveFrom ||
               (scope === 'CATEGORY' && !categoryId) ||
-              (scope === 'BRAND' && !brandId)
+              (scope === 'LINE' && !lineId)
             }
           >
             {previewBulkAdjust.isPending ? 'Calculando…' : 'Vista previa'}

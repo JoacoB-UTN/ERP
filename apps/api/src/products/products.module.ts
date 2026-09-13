@@ -6,12 +6,10 @@ import { AuditModule } from '../audit/audit.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { ProductsController } from './products.controller';
 import { ProductCategoriesController } from './product-categories.controller';
-import { BrandsController } from './brands.controller';
-import { UnitsController } from './units.controller';
+import { ProductLinesController } from './product-lines.controller';
 import { ProductsService } from './products.service';
 import { ProductCategoriesService } from './product-categories.service';
-import { BrandsService } from './brands.service';
-import { UnitsService } from './units.service';
+import { ProductLinesService } from './product-lines.service';
 
 @Module({
   imports: [
@@ -24,14 +22,12 @@ import { UnitsService } from './units.service';
   controllers: [
     ProductsController,
     ProductCategoriesController,
-    BrandsController,
-    UnitsController,
+    ProductLinesController,
   ],
   providers: [
     ProductsService,
     ProductCategoriesService,
-    BrandsService,
-    UnitsService,
+    ProductLinesService,
   ],
 })
 export class ProductsModule {}

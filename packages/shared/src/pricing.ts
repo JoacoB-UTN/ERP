@@ -31,7 +31,7 @@ export interface CurrenciesResponse {
 
 // ---------- Price lists ----------
 
-const bulkAdjustScopeValues = ['ALL', 'CATEGORY', 'BRAND'] as const;
+const bulkAdjustScopeValues = ['ALL', 'CATEGORY', 'LINE'] as const;
 
 export const createPriceListSchema = z
   .object({
@@ -123,7 +123,7 @@ export interface PriceListDetailResponse {
 export const priceListItemsQuerySchema = z.object({
   search: z.string().trim().min(1).max(200).optional(),
   categoryId: z.string().uuid().optional(),
-  brandId: z.string().uuid().optional(),
+  lineId: z.string().uuid().optional(),
   status: z.enum(productStatusValues).optional(),
   hasPrice: z
     .enum(['true', 'false'])
@@ -143,7 +143,7 @@ export interface PriceListItemRowDto {
   productName: string;
   variantName: string | null;
   categoryName: string | null;
-  brandName: string | null;
+  lineName: string | null;
   price: string | null;
   effectiveFrom: string | null;
   source: 'FIXED' | 'DERIVED';
@@ -195,14 +195,14 @@ export const bulkAdjustSchema = z
     reason: z.string().trim().max(300).optional(),
     scope: z.enum(bulkAdjustScopeValues).default('ALL'),
     categoryId: z.string().uuid().optional(),
-    brandId: z.string().uuid().optional(),
+    lineId: z.string().uuid().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.scope === 'CATEGORY' && !data.categoryId) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Elegí una categoría.', path: ['categoryId'] });
     }
-    if (data.scope === 'BRAND' && !data.brandId) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Elegí una marca.', path: ['brandId'] });
+    if (data.scope === 'LINE' && !data.lineId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Elegí una línea.', path: ['lineId'] });
     }
   });
 export type BulkAdjustInput = z.infer<typeof bulkAdjustSchema>;

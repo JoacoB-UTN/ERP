@@ -73,8 +73,8 @@ customer administration UI (by design — see
 **Status: DONE**
 `apps/api/src/products` + `src/warehouses` (warehouse is master data,
 covered under Inventory below for the stock side). Product/
-ProductVariant/ProductCode/ProductCategory/Brand/UnitOfMeasure. Gestión:
-`/productos` list/create/detail/edit + categorías/marcas/unidades. `GET
+ProductVariant/ProductCode/ProductCategory/ProductLine/UnitOfMeasure.
+Gestión: `/productos` list/create/detail/edit + categorías/líneas. `GET
 /products/lookup` still has no caller — Facturación's product search uses
 `GET /inventory/lookup` instead (see [facturacion.md](facturacion.md)),
 since it already returns warehouse-scoped availability alongside product
@@ -324,7 +324,7 @@ architecture" section for the full design, including the exact
   `StockAdjustmentsService`, `InventoryService.createInitialBalance`),
   `customer.updated` (`CustomersService`), `product.updated`
   (`ProductsService`), `price.changed` (`PricingService`). Deliberately
-  **not** wired yet: product category/brand/unit-of-measure master
+  **not** wired yet: product category/product-line master
   data, and product variant deactivate/reactivate.
   **This does not mean "all ERP data is realtime"** — only the flows
   above push a live invalidation hint; every other read is still only
