@@ -1,10 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { formatMoney, salesDocumentStatusLabel, type SalesListQuery } from '@erp/shared';
 import { useSales } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { LinkedRow, RowLink } from '@/components/ui/table-support';
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' });
@@ -65,17 +65,12 @@ export function RecentSalesList({
               </tr>
             ))}
           {items.map((s) => (
-            <tr
-              key={s.id}
-              className="border-t border-border hover:bg-muted/30"
-            >
+            <LinkedRow key={s.id}>
               <td className="px-3 py-1 whitespace-nowrap">
-                <Link
-                  href={`/ventas/${s.id}`}
-                  className="font-semibold text-primary underline-offset-4 hover:underline"
-                >
-                  {s.number}
-                </Link>
+                {/* Plain RowLink, not the primary-coloured semibold this row
+                    used to carry: Gestión's sales list draws the same row and
+                    the two are meant to be indistinguishable. */}
+                <RowLink href={`/ventas/${s.id}`}>{s.number}</RowLink>
               </td>
               <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">
                 {formatDateTime(s.occurredAt)}
@@ -87,7 +82,7 @@ export function RecentSalesList({
               <td className="px-3 py-1">
                 <StatusBadge status={s.status}>{salesDocumentStatusLabel(s.status)}</StatusBadge>
               </td>
-            </tr>
+            </LinkedRow>
           ))}
         </tbody>
       </table>
