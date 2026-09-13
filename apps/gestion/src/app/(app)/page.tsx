@@ -1,23 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import {
-  ArrowRight,
-  CircleAlert,
-  FilePen,
-  FileText,
-  PackageSearch,
-  Receipt,
-  Tags,
-  UserPlus,
-  Users,
-  Wallet,
-  Warehouse,
-} from 'lucide-react';
+import { ArrowRight, FileText, PackageSearch, Tags, UserPlus, Warehouse } from 'lucide-react';
 import { formatMoney, salesDocumentStatusLabel } from '@erp/shared';
 import { usePermissions, useDashboardSummary } from '@/lib/auth-client';
 import { SalesOverview } from '@/components/dashboard/sales-overview';
-import { StatCard } from '@/components/dashboard/stat-card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -104,151 +91,73 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Sales first and full width: it is the only block that answers "how
-          is the business going" rather than "how many of X are there", and
-          the chart needs the width to be readable at 30 buckets. */}
       {canReadSales && <SalesOverview />}
 
       {summaryQuery.isError && (
         <div className="flex items-center justify-between gap-4 rounded-xl border border-destructive/25 bg-destructive-muted px-4 py-3">
-          <p className="text-sm text-destructive">No pudimos cargar el resumen del panel.</p>
+          <p className="text-sm text-destructive">No pudimos cargar las ventas recientes.</p>
           <Button type="button" variant="outline" size="sm" onClick={() => summaryQuery.refetch()}>
             Reintentar
           </Button>
         </div>
       )}
 
-      {/* Recent sales on the left, today's counters on the right. Below xl
-          they stack with the counters first — on a short screen the summary
-          should not sit underneath a table. */}
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_17rem] xl:items-start">
-        {canReadSales && (
-          <section className="order-2 flex flex-col gap-2 xl:order-1">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold text-foreground">Ventas recientes</h2>
-              <Link
-                href="/ventas"
-                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-              >
-                Ver todas
-                <ArrowRight className="size-3.5" />
-              </Link>
-            </div>
+      {canReadSales && (
+        <section className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-foreground">Ventas recientes</h2>
+            <Link
+              href="/ventas"
+              className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+            >
+              Ver todas
+              <ArrowRight className="size-3.5" />
+            </Link>
+          </div>
 
-            <div className="overflow-x-auto rounded-md border border-border">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-1.5">Número</th>
-                    <th className="px-3 py-1.5">Fecha</th>
-                    <th className="px-3 py-1.5">Cliente</th>
-                    <th className="px-3 py-1.5 text-right">Total</th>
-                    <th className="px-3 py-1.5">Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading && <TableRowsSkeleton columns={5} rows={4} />}
-                  {!loading &&
-                    summary?.recentSales?.map((s) => (
-                      <LinkedRow key={s.id}>
-                        <td className="px-3 py-1 whitespace-nowrap">
-                          <RowLink href={`/ventas/${s.id}`}>{s.number}</RowLink>
-                        </td>
-                        <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">
-                          {formatDate(s.occurredAt)}
-                        </td>
-                        <td className="px-3 py-1">{s.customer.legalName}</td>
-                        <td className="px-3 py-1 text-right tabular-nums">
-                          {formatMoney(s.total, s.currencyCode)}
-                        </td>
-                        <td className="px-3 py-1">
-                          <StatusBadge status={s.status}>{salesDocumentStatusLabel(s.status)}</StatusBadge>
-                        </td>
-                      </LinkedRow>
-                    ))}
-                  {!loading && summary?.recentSales?.length === 0 && (
-                    <TableMessage
-                      columns={5}
-                      title="No hay ventas confirmadas todavía"
-                      description="Las ventas confirmadas aparecerán acá como referencia rápida."
-                    />
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-
-        {hasAnyAccess && !summaryQuery.isError && (
-          <section aria-label="Indicadores operativos" className="order-1 flex flex-col gap-2 xl:order-2">
-            {loading ? (
-              // Two placeholders rather than one per possible card: how many
-              // there will be depends on permissions and on the data itself
-              // (the low-stock card exists only when something is low), so a
-              // skeleton that guessed the count would jump on arrival.
-              <>
-                <div className="h-[4.5rem] animate-pulse rounded-md bg-muted" aria-hidden="true" />
-                <div className="h-[4.5rem] animate-pulse rounded-md bg-muted" aria-hidden="true" />
-              </>
-            ) : (
-              <>
-                {summary?.salesToday != null && (
-                  <StatCard
-                    href="/ventas"
-                    icon={Receipt}
-                    label={summary.salesToday.count === 1 ? 'Venta confirmada hoy' : 'Ventas confirmadas hoy'}
-                    value={String(summary.salesToday.count)}
-                  />
-                )}
-                {summary?.salesToday != null &&
-                  summary.salesToday.count > 0 &&
-                  summary.salesToday.totalsByCurrency.map((t) => (
-                    <StatCard
-                      key={t.currencyCode}
-                      icon={Wallet}
-                      label="Total operado hoy"
-                      value={formatMoney(t.total, t.currencyCode)}
-                    />
+          <div className="overflow-x-auto rounded-md border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-1.5">Número</th>
+                  <th className="px-3 py-1.5">Fecha</th>
+                  <th className="px-3 py-1.5">Cliente</th>
+                  <th className="px-3 py-1.5 text-right">Total</th>
+                  <th className="px-3 py-1.5">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && <TableRowsSkeleton columns={5} rows={4} />}
+                {!loading &&
+                  summary?.recentSales?.map((s) => (
+                    <LinkedRow key={s.id}>
+                      <td className="px-3 py-1 whitespace-nowrap">
+                        <RowLink href={`/ventas/${s.id}`}>{s.number}</RowLink>
+                      </td>
+                      <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">
+                        {formatDate(s.occurredAt)}
+                      </td>
+                      <td className="px-3 py-1">{s.customer.legalName}</td>
+                      <td className="px-3 py-1 text-right tabular-nums">
+                        {formatMoney(s.total, s.currencyCode)}
+                      </td>
+                      <td className="px-3 py-1">
+                        <StatusBadge status={s.status}>{salesDocumentStatusLabel(s.status)}</StatusBadge>
+                      </td>
+                    </LinkedRow>
                   ))}
-                {summary?.openDraftSales != null && (
-                  <StatCard
-                    href="/ventas"
-                    icon={FilePen}
-                    label={summary.openDraftSales === 1 ? 'Borrador abierto' : 'Borradores abiertos'}
-                    value={String(summary.openDraftSales)}
+                {!loading && summary?.recentSales?.length === 0 && (
+                  <TableMessage
+                    columns={5}
+                    title="No hay ventas confirmadas todavía"
+                    description="Las ventas confirmadas aparecerán acá como referencia rápida."
                   />
                 )}
-                {summary?.activeCustomers != null && (
-                  <StatCard
-                    href="/clientes"
-                    icon={Users}
-                    label="Clientes activos"
-                    value={String(summary.activeCustomers)}
-                  />
-                )}
-                {summary?.activeProducts != null && (
-                  <StatCard
-                    href="/productos"
-                    icon={PackageSearch}
-                    label="Productos activos"
-                    value={String(summary.activeProducts)}
-                  />
-                )}
-                {summary?.belowMinimumStockCount != null && summary.belowMinimumStockCount > 0 && (
-                  <StatCard
-                    href="/stock"
-                    icon={CircleAlert}
-                    label="Bajo stock mínimo"
-                    value={String(summary.belowMinimumStockCount)}
-                    hint="Revisá existencias"
-                    tone="warning"
-                  />
-                )}
-              </>
-            )}
-          </section>
-        )}
-      </div>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

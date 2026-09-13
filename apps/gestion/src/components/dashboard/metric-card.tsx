@@ -42,8 +42,7 @@ function ChangeChip({ percent }: { percent: number | null }) {
  * behind it.
  *
  * `href` is optional and the card only looks clickable when it has one — an
- * average that has no screen of its own stays flat rather than pretending
- * (the same rule as StatCard).
+ * average that has no screen of its own stays flat rather than pretending.
  */
 export function MetricCard({
   label,
