@@ -151,12 +151,6 @@ export default function OrdenesDeCompraPage() {
                 columns={5}
                 title="Todavía no hay órdenes de compra"
                 description="Creá una orden para empezar a comprometer mercadería con un proveedor."
-                action={canCreate && (
-                  <Link href="/compras/ordenes/nueva" className={`${buttonVariants()} mt-4`}>
-                    <Plus className="size-4" />
-                    Nueva orden de compra
-                  </Link>
-                )}
               />
             )}
             {!ordersQuery.isLoading && !ordersQuery.isError && items.length === 0 && hasActiveFilters && (

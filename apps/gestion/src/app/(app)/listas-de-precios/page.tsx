@@ -150,12 +150,6 @@ export default function ListasDePreciosPage() {
                 columns={8}
                 title="Todavía no hay listas de precios"
                 description="Creá una lista fija o derivada para comenzar."
-                action={canCreate && (
-                  <Link href="/listas-de-precios/nueva" className={buttonVariants()}>
-                    <Plus className="size-4" />
-                    Nueva lista
-                  </Link>
-                )}
               />
             )}
           </tbody>

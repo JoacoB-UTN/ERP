@@ -167,12 +167,6 @@ export default function VentasPage() {
                 columns={7}
                 title="Todavía no hay ventas registradas"
                 description="Creá un borrador para comenzar el flujo comercial."
-                action={canCreate && (
-                  <Link href="/ventas/nueva" className={buttonVariants()}>
-                    <Plus className="size-4" />
-                    Nueva venta
-                  </Link>
-                )}
               />
             )}
             {!salesQuery.isLoading && !salesQuery.isError && items.length === 0 && hasActiveFilters && (

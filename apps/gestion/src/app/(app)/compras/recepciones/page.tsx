@@ -164,12 +164,6 @@ export default function RecepcionesPage() {
                 columns={6}
                 title="Todavía no hay recepciones"
                 description="Registrá la primera recepción de mercadería, con o sin orden de compra."
-                action={canCreate && (
-                  <Link href="/compras/recepciones/nueva" className={`${buttonVariants()} mt-4`}>
-                    <Plus className="size-4" />
-                    Nueva recepción
-                  </Link>
-                )}
               />
             )}
             {!receiptsQuery.isLoading && !receiptsQuery.isError && items.length === 0 && hasActiveFilters && (

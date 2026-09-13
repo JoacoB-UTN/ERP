@@ -150,12 +150,6 @@ export default function AjustesPage() {
                 kind={warehouseId || status ? 'filtered' : 'empty'}
                 title={warehouseId || status ? 'No encontramos ajustes' : 'Todavía no hay ajustes registrados'}
                 description={warehouseId || status ? 'Probá con otros filtros.' : 'Creá un ajuste cuando necesites corregir existencias.'}
-                action={!warehouseId && !status && canCreate && (
-                  <Link href="/stock/ajustes/nuevo" className={buttonVariants()}>
-                    <Plus className="size-4" />
-                    Nuevo ajuste
-                  </Link>
-                )}
               />
             )}
           </tbody>

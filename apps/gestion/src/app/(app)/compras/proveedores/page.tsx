@@ -150,12 +150,6 @@ export default function ProveedoresPage() {
                 columns={5}
                 title="Todavía no hay proveedores"
                 description="Creá el primer proveedor para comenzar a generar órdenes de compra."
-                action={canCreate && (
-                  <Link href="/compras/proveedores/nuevo" className={`${buttonVariants()} mt-4`}>
-                    <Plus className="size-4" />
-                    Nuevo proveedor
-                  </Link>
-                )}
               />
             )}
             {!suppliersQuery.isLoading && !suppliersQuery.isError && items.length === 0 && hasActiveFilters && (

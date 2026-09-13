@@ -200,12 +200,6 @@ export default function ClientesPage() {
                 columns={6}
                 title="Todavía no hay clientes"
                 description="Creá el primer cliente para comenzar."
-                action={canCreate && (
-                    <Link href="/clientes/nuevo" className={`${buttonVariants()} mt-4`}>
-                      <Plus className="size-4" />
-                      Nuevo cliente
-                    </Link>
-                )}
               />
             )}
             {!customersQuery.isLoading && !customersQuery.isError && items.length === 0 && hasActiveFilters && (

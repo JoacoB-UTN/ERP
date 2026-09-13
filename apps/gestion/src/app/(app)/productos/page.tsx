@@ -201,12 +201,6 @@ export default function ProductosPage() {
                 columns={7}
                 title="Todavía no hay productos"
                 description="Creá el primer producto para comenzar."
-                action={canCreate && (
-                    <Link href="/productos/nuevo" className={buttonVariants()}>
-                      <Plus className="size-4" />
-                      Nuevo producto
-                    </Link>
-                )}
               />
             )}
             {!productsQuery.isLoading && !productsQuery.isError && items.length === 0 && hasActiveFilters && (
