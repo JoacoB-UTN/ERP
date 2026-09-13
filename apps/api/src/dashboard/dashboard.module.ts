@@ -6,6 +6,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { SalesModule } from '../sales/sales.module';
 import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
+import { SalesSeriesService } from './sales-series.service';
 
 @Module({
   imports: [
@@ -16,6 +17,6 @@ import { DashboardService } from './dashboard.service';
     SalesModule,
   ],
   controllers: [DashboardController],
-  providers: [DashboardService],
+  providers: [DashboardService, SalesSeriesService],
 })
 export class DashboardModule {}

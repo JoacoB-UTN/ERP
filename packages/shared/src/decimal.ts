@@ -92,6 +92,25 @@ export function formatMoney(value: string, currencyCode: string, decimalPlaces =
   return `${currencyCode} ${amount}`;
 }
 
+/**
+ * The same number `formatMoney` prints, without the currency code —
+ * formatAmount('18500') -> "18.500,00".
+ *
+ * For places that state the currency once somewhere else, such as a
+ * dashboard card whose label already says (ARS). Repeating the code inside
+ * a large figure costs about 45px, which is what pushed "ARS 305.500,00"
+ * past the edge of its card. Never use this where the currency is not
+ * already unambiguous on screen.
+ */
+export function formatAmount(value: string, decimalPlaces = 2): string {
+  const num = Number(value);
+  if (Number.isNaN(num)) return value;
+  return num.toLocaleString('es-AR', {
+    minimumFractionDigits: decimalPlaces,
+    maximumFractionDigits: decimalPlaces,
+  });
+}
+
 /** Counts the fractional digits of a numeric string (e.g. "1.250" -> 3, "5" -> 0). */
 export function countDecimalPlaces(value: string): number {
   const parts = value.split('.');

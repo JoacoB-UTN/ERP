@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { formatMoney, salesDocumentStatusLabel } from '@erp/shared';
 import { usePermissions, useDashboardSummary } from '@/lib/auth-client';
+import { SalesOverview } from '@/components/dashboard/sales-overview';
 import { StatCard } from '@/components/dashboard/stat-card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ListHeader } from '@/components/ui/page-header';
@@ -78,7 +79,7 @@ export default function DashboardPage() {
   const hasAnyAccess = canReadSales || canReadCustomers || canReadProducts || canReadStock;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <ListHeader title="Inicio" />
 
       {!hasAnyAccess && (
@@ -86,15 +87,6 @@ export default function DashboardPage() {
           Todavía no tenés acceso a información del panel. Consultá con un administrador si esperabas ver
           datos acá.
         </p>
-      )}
-
-      {summaryQuery.isError && (
-        <div className="flex items-center justify-between gap-4 rounded-md border border-destructive/25 bg-destructive-muted px-3 py-2">
-          <p className="text-sm text-destructive">No pudimos cargar el resumen del panel.</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => summaryQuery.refetch()}>
-            Reintentar
-          </Button>
-        </div>
       )}
 
       {quickActions.length > 0 && (
@@ -112,11 +104,23 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Sales on the left, figures on the right. The list is what an operator
-          scans on arrival and it grows; the figures are few and each is one
-          short line, so a narrow fixed column suits them and leaves the table
-          its width. Below xl they stack with the figures first — on a short
-          screen the summary should not sit underneath a table. */}
+      {/* Sales first and full width: it is the only block that answers "how
+          is the business going" rather than "how many of X are there", and
+          the chart needs the width to be readable at 30 buckets. */}
+      {canReadSales && <SalesOverview />}
+
+      {summaryQuery.isError && (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-destructive/25 bg-destructive-muted px-4 py-3">
+          <p className="text-sm text-destructive">No pudimos cargar el resumen del panel.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => summaryQuery.refetch()}>
+            Reintentar
+          </Button>
+        </div>
+      )}
+
+      {/* Recent sales on the left, today's counters on the right. Below xl
+          they stack with the counters first — on a short screen the summary
+          should not sit underneath a table. */}
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_17rem] xl:items-start">
         {canReadSales && (
           <section className="order-2 flex flex-col gap-2 xl:order-1">

@@ -144,5 +144,6 @@ export const {
   useConfirmPurchaseReceipt,
   useCancelPurchaseReceipt,
   useDashboardSummary,
+  useDashboardSalesSeries,
   useRealtimeSync,
 } = authClient;
