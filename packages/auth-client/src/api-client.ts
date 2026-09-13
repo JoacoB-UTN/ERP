@@ -31,9 +31,49 @@ export interface ApiClientConfig {
 export interface ApiFetchOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   json?: unknown;
+  /**
+   * Multipart body, for file uploads. Mutually exclusive with `json`.
+   *
+   * `Content-Type` is deliberately NOT set for these: the browser has to
+   * write it itself so it can include the multipart boundary, and setting it
+   * by hand produces a request the server cannot parse. Safe to retry after
+   * a token refresh — a FormData is a value, not a consumed stream.
+   */
+  formData?: FormData;
+  /** `blob` for endpoints that return a file rather than JSON. */
+  responseType?: 'json' | 'blob';
+}
+
+/** A downloaded file: its bytes plus the name the server asked us to use. */
+export interface ApiFileResponse {
+  blob: Blob;
+  fileName: string | null;
 }
 
 const NO_REFRESH_PATHS = new Set(['/auth/login', '/auth/refresh']);
+
+/**
+ * The server's suggested filename, out of `Content-Disposition`.
+ *
+ * Returns null rather than guessing when the header is missing or unparsable
+ * — the caller then falls back to a name of its own. Only reachable
+ * cross-origin because the API marks the header with
+ * `Access-Control-Expose-Headers`; without that, `headers.get` sees nothing
+ * even though the browser received it.
+ */
+function fileNameFromDisposition(value: string | null): string | null {
+  if (!value) return null;
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(value);
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8[1]);
+    } catch {
+      // A malformed encoding is not worth failing a download over.
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(value);
+  return plain ? plain[1] : null;
+}
 
 /** Company/branch context errors the client should react to by clearing local selection — see CLAUDE.md. */
 const COMPANY_CONTEXT_INVALIDATING_CODES = new Set(['COMPANY_ACCESS_DENIED', 'COMPANY_INACTIVE']);
@@ -71,11 +111,14 @@ export function createApiClient(config: ApiClientConfig) {
       headers[BRANCH_ID_HEADER] = branchId;
     }
 
+    const hasBody = options.json !== undefined || options.formData !== undefined;
     return fetch(`${config.baseUrl}${path}`, {
-      method: options.method ?? (options.json !== undefined ? 'POST' : 'GET'),
+      method: options.method ?? (hasBody ? 'POST' : 'GET'),
       credentials: 'include',
       headers,
-      body: options.json !== undefined ? JSON.stringify(options.json) : undefined,
+      body:
+        options.formData ??
+        (options.json !== undefined ? JSON.stringify(options.json) : undefined),
     });
   }
 
@@ -130,6 +173,12 @@ export function createApiClient(config: ApiClientConfig) {
 
     if (res.status === 204) {
       return undefined as T;
+    }
+    if (options.responseType === 'blob') {
+      return {
+        blob: await res.blob(),
+        fileName: fileNameFromDisposition(res.headers.get('Content-Disposition')),
+      } as T;
     }
     return (await res.json()) as T;
   }

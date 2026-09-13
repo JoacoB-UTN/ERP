@@ -32,6 +32,7 @@ import { Unauthorized } from '@/components/layout/unauthorized';
 import { pricingErrorMessage } from '@/components/pricing/pricing-errors';
 import { PriceListHistoryItem } from '@/components/pricing/price-list-history-item';
 import { PageHeader } from '@/components/ui/page-header';
+import { PriceFileDialog } from '@/components/pricing/price-file-dialog';
 import { StatusBadge } from '@/components/ui/status-badge';
 
 type TabKey = 'resumen' | 'precios' | 'historial';
@@ -216,6 +217,22 @@ function PreciosTab({
   const [error, setError] = useState<string | undefined>();
   const [saved, setSaved] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /**
+   * Rows ticked for export. Kept across pagination and filter changes on
+   * purpose — someone assembling a list of prices to update walks several
+   * pages to do it, and clearing the selection under them would make the
+   * feature unusable for exactly the case it exists for.
+   */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  function toggleSelected(variantId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(variantId)) next.delete(variantId);
+      else next.add(variantId);
+      return next;
+    });
+  }
 
   function toggleExpanded(variantId: string) {
     setExpanded((prev) => {
@@ -288,7 +305,30 @@ function PreciosTab({
       )}
 
       {isFixed && canBulkUpdate && (
-        <div className="flex justify-end">
+        <div className="flex flex-wrap justify-end gap-2">
+          {/* The export mirrors the filters below, so what comes out of the
+              file is what the person is looking at right now. */}
+          {selected.size > 0 && (
+            <div className="mr-auto flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">
+                {selected.size} {selected.size === 1 ? 'seleccionado' : 'seleccionados'}
+              </span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+                Limpiar
+              </Button>
+            </div>
+          )}
+          <PriceFileDialog
+            priceListId={priceList.id}
+            isFixedList={isFixed}
+            filters={{
+              search: search || undefined,
+              categoryId: categoryId || undefined,
+              lineId: lineId || undefined,
+              hasPrice: hasPrice === '' ? undefined : hasPrice === 'true',
+            }}
+            selectedVariantIds={[...selected]}
+          />
           <Link
             href={`/listas-de-precios/${priceList.id}/actualizacion-masiva`}
             className={buttonVariants({ variant: 'outline' })}
@@ -358,6 +398,38 @@ function PreciosTab({
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
             <tr>
+              {isFixed && (
+                <th className="w-9 px-3 py-1.5">
+                  {/* Selects the rows on THIS page only, and says so through
+                      the indeterminate state when the selection spans pages.
+                      A "select all 6.000" that silently included rows the
+                      person never saw is how the wrong prices get exported. */}
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-border align-middle"
+                    aria-label="Seleccionar todos los de esta página"
+                    checked={items.length > 0 && items.every((i) => selected.has(i.variantId))}
+                    ref={(el) => {
+                      if (el) {
+                        el.indeterminate =
+                          items.some((i) => selected.has(i.variantId)) &&
+                          !items.every((i) => selected.has(i.variantId));
+                      }
+                    }}
+                    onChange={(e) => {
+                      const pageIds = items.map((i) => i.variantId);
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        for (const id of pageIds) {
+                          if (e.target.checked) next.add(id);
+                          else next.delete(id);
+                        }
+                        return next;
+                      });
+                    }}
+                  />
+                </th>
+              )}
               <th className="px-3 py-1.5">Código</th>
               <th className="px-3 py-1.5">Producto</th>
               <th className="px-3 py-1.5">SKU</th>
@@ -380,11 +452,14 @@ function PreciosTab({
                 onToggleHistory={() => toggleExpanded(item.variantId)}
                 pendingValue={pending[item.variantId]}
                 onChange={(value) => setPendingPrice(item.variantId, value)}
+                selectable={isFixed}
+                selected={selected.has(item.variantId)}
+                onToggleSelected={() => toggleSelected(item.variantId)}
               />
             ))}
             {!itemsQuery.isLoading && items.length === 0 && (
               <tr>
-                <td colSpan={isFixed ? 7 : 6} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={isFixed ? 8 : 6} className="px-4 py-10 text-center text-muted-foreground">
                   No encontramos productos con esos criterios.
                 </td>
               </tr>
@@ -458,6 +533,9 @@ function PriceRow({
   onToggleHistory,
   pendingValue,
   onChange,
+  selectable,
+  selected,
+  onToggleSelected,
 }: {
   priceListId: string;
   item: PriceListItemRowDto;
@@ -468,6 +546,9 @@ function PriceRow({
   onToggleHistory: () => void;
   pendingValue: string | undefined;
   onChange: (value: string) => void;
+  selectable: boolean;
+  selected: boolean;
+  onToggleSelected: () => void;
 }) {
   const isDirty = pendingValue !== undefined;
   const displayValue = pendingValue ?? item.price ?? '';
@@ -475,6 +556,17 @@ function PriceRow({
   return (
     <>
       <tr className={`border-t border-border ${isDirty ? 'bg-amber-50 dark:bg-amber-950/20' : ''}`}>
+        {selectable && (
+          <td className="px-3 py-1">
+            <input
+              type="checkbox"
+              className="size-4 rounded border-border align-middle"
+              aria-label={`Seleccionar ${item.productName}`}
+              checked={selected}
+              onChange={onToggleSelected}
+            />
+          </td>
+        )}
         <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{item.productCode}</td>
         <td className="px-3 py-1 font-medium">
           <Link href={`/productos/${item.productId}`} className="underline-offset-4 hover:underline">
@@ -515,7 +607,10 @@ function PriceRow({
       </tr>
       {showHistoryToggle && historyExpanded && (
         <tr className="border-t border-border bg-muted/20">
-          <td colSpan={7} className="px-4 py-3">
+          {/* 8 now that the row carries a selection checkbox: the history
+              panel is only ever rendered for a FIXED list, which is exactly
+              when that column exists. */}
+          <td colSpan={8} className="px-4 py-3">
             <PriceHistoryPanel priceListId={priceListId} variantId={item.variantId} currencyCode={currencyCode} />
           </td>
         </tr>
