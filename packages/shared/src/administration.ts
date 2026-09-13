@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { emailSchema, passwordSchema } from './auth';
+
 /**
  * Roles/permissions/user-administration DTOs and response shapes shared
  * between apps/api and both frontends. See docs/authorization.md.
@@ -22,6 +24,36 @@ export const updateRolePermissionsSchema = z.object({
   permissionCodes: z.array(z.string()).default([]),
 });
 export type UpdateRolePermissionsInput = z.infer<typeof updateRolePermissionsSchema>;
+
+/**
+ * Creating a user from the administration screen.
+ *
+ * The initial password is set by the administrator rather than emailed as
+ * an invitation because this product ships as a LAN install with no mail
+ * transport of any kind (there is no mailer in apps/api — password reset
+ * is the same story). An invite flow that cannot deliver its invite is
+ * worse than none. The administrator hands the password over in person and
+ * the user changes it from their profile.
+ *
+ * `roleIds` is optional and may be empty: a user with company access and no
+ * role is a legitimate, useful state — they can sign in and see nothing
+ * until someone decides what they should do.
+ *
+ * The password rule is `passwordSchema`, the same one login, reset and
+ * change-password use — the policy lives in exactly one place (CLAUDE.md).
+ */
+export const createUserSchema = z.object({
+  firstName: z.string().trim().min(1, 'El nombre es obligatorio.').max(100, 'El nombre es demasiado largo.'),
+  lastName: z
+    .string()
+    .trim()
+    .min(1, 'El apellido es obligatorio.')
+    .max(100, 'El apellido es demasiado largo.'),
+  email: emailSchema,
+  password: passwordSchema,
+  roleIds: z.array(z.string().uuid('Identificador de rol inválido.')).default([]),
+});
+export type CreateUserInput = z.infer<typeof createUserSchema>;
 
 export const assignRoleSchema = z.object({
   roleId: z.string().uuid('Identificador de rol inválido.'),
@@ -60,6 +92,10 @@ export interface CompanyUserSummary {
 
 export interface CompanyUsersResponse {
   users: CompanyUserSummary[];
+}
+
+export interface CompanyUserDetailResponse {
+  user: CompanyUserSummary;
 }
 
 export interface UserRolesResponse {

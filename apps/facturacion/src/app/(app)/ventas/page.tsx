@@ -26,19 +26,18 @@ export default function VentasPage() {
       {/* Same heading and toolbar shape as every Gestión list screen: no
           uppercase eyebrow, no explanatory subtitle, and filters in the page
           flow rather than a bordered band — see docs/desktop-ui-direction.md. */}
-      <ListHeader
-        title="Ventas"
+      <ListHeader title="Ventas" />
+
+      <Toolbar
         actions={
           can('sales.documents.create') && (
-            <Link href="/ventas/nueva" className={buttonVariants()}>
+            <Link href="/ventas/nueva" className={buttonVariants({ size: 'sm' })}>
               <Plus className="size-4" />
               Nueva venta
             </Link>
           )
         }
-      />
-
-      <Toolbar>
+      >
         <Select
           value={status}
           onChange={(e) => setStatus(e.target.value)}

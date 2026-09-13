@@ -3,18 +3,20 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
-import {
-  ProductStatus,
-  ProductType,
-  productTypeLabel,
-} from '@erp/shared';
+import { ProductStatus, ProductType, productTypeLabel } from '@erp/shared';
 import { usePermissions, useProducts, useProductCategories } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import {
+  LinkedRow,
+  Pagination,
+  RowLink,
+  TableMessage,
+  TableRowsSkeleton,
+} from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { ProductosSubNav } from '@/components/productos/productos-sub-nav';
@@ -78,15 +80,18 @@ export default function ProductosPage() {
       <ListHeader
         title="Productos"
         meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'producto' : 'productos'}`}
-        actions={canCreate && (
-          <Link href="/productos/nuevo" className={buttonVariants({ size: 'sm' })}>
-            <Plus className="size-4" />
-            Nuevo producto
-          </Link>
-        )}
       />
 
-      <Toolbar>
+      <Toolbar
+        actions={
+          canCreate && (
+            <Link href="/productos/nuevo" className={buttonVariants({ size: 'sm' })}>
+              <Plus className="size-4" />
+              Nuevo producto
+            </Link>
+          )
+        }
+      >
         <Input
           placeholder="Buscar por nombre, código, SKU, código de barras…"
           value={searchInput}
@@ -157,15 +162,10 @@ export default function ProductosPage() {
           <tbody>
             {productsQuery.isLoading && <TableRowsSkeleton columns={7} />}
             {items.map((product) => (
-              <tr key={product.id} className="border-t border-border hover:bg-muted/30">
+              <LinkedRow key={product.id}>
                 <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{product.code}</td>
                 <td className="px-3 py-1">
-                  <Link
-                    href={`/productos/${product.id}`}
-                    className="font-medium underline-offset-4 hover:underline"
-                  >
-                    {product.name}
-                  </Link>
+                  <RowLink href={`/productos/${product.id}`}>{product.name}</RowLink>
                   {product.hasVariants && (
                     <p className="text-xs text-muted-foreground">
                       {product.variantCount} variante{product.variantCount === 1 ? '' : 's'}
@@ -181,7 +181,7 @@ export default function ProductosPage() {
                     {product.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}
                   </StatusBadge>
                 </td>
-              </tr>
+              </LinkedRow>
             ))}
             {productsQuery.isError && (
               <TableMessage
@@ -196,26 +196,31 @@ export default function ProductosPage() {
                 }
               />
             )}
-            {!productsQuery.isLoading && !productsQuery.isError && items.length === 0 && !hasActiveFilters && (
-              <TableMessage
-                columns={7}
-                title="Todavía no hay productos"
-                description="Creá el primer producto para comenzar."
-              />
-            )}
+            {!productsQuery.isLoading &&
+              !productsQuery.isError &&
+              items.length === 0 &&
+              !hasActiveFilters && (
+                <TableMessage
+                  columns={7}
+                  title="Todavía no hay productos"
+                  description="Creá el primer producto para comenzar."
+                />
+              )}
             {!productsQuery.isLoading && !productsQuery.isError && items.length === 0 && hasActiveFilters && (
               <TableMessage
                 columns={7}
                 kind="filtered"
                 title="No encontramos productos"
                 description="Probá con otros criterios o limpiá los filtros."
-                action={<button
+                action={
+                  <button
                     type="button"
                     onClick={clearFilters}
                     className="text-sm font-medium text-primary underline-offset-4 hover:underline"
                   >
                     Limpiar filtros
-                  </button>}
+                  </button>
+                }
               />
             )}
           </tbody>

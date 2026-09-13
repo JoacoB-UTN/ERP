@@ -10,7 +10,13 @@ import { Select } from '@/components/ui/select';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import {
+  LinkedRow,
+  Pagination,
+  RowLink,
+  TableMessage,
+  TableRowsSkeleton,
+} from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
@@ -64,15 +70,18 @@ export default function ProveedoresPage() {
       <ListHeader
         title="Proveedores"
         meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'proveedor' : 'proveedores'}`}
-        actions={canCreate && (
-          <Link href="/compras/proveedores/nuevo" className={buttonVariants({ size: 'sm' })}>
-            <Plus className="size-4" />
-            Nuevo proveedor
-          </Link>
-        )}
       />
 
-      <Toolbar>
+      <Toolbar
+        actions={
+          canCreate && (
+            <Link href="/compras/proveedores/nuevo" className={buttonVariants({ size: 'sm' })}>
+              <Plus className="size-4" />
+              Nuevo proveedor
+            </Link>
+          )
+        }
+      >
         <Input
           placeholder="Buscar por nombre, código, CUIT…"
           value={searchInput}
@@ -112,15 +121,10 @@ export default function ProveedoresPage() {
           <tbody>
             {suppliersQuery.isLoading && <TableRowsSkeleton columns={5} />}
             {items.map((supplier) => (
-              <tr key={supplier.id} className="border-t border-border hover:bg-muted/30">
+              <LinkedRow key={supplier.id}>
                 <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{supplier.code}</td>
                 <td className="px-3 py-1">
-                  <Link
-                    href={`/compras/proveedores/${supplier.id}`}
-                    className="font-medium underline-offset-4 hover:underline"
-                  >
-                    {supplier.displayName}
-                  </Link>
+                  <RowLink href={`/compras/proveedores/${supplier.id}`}>{supplier.displayName}</RowLink>
                   {supplier.tradeName && (
                     <p className="text-xs text-muted-foreground">{supplier.legalName}</p>
                   )}
@@ -130,7 +134,7 @@ export default function ProveedoresPage() {
                 <td className="px-3 py-1">
                   <StatusBadge status={supplier.status}>{supplierStatusLabel(supplier.status)}</StatusBadge>
                 </td>
-              </tr>
+              </LinkedRow>
             ))}
             {suppliersQuery.isError && (
               <TableMessage
@@ -145,30 +149,36 @@ export default function ProveedoresPage() {
                 }
               />
             )}
-            {!suppliersQuery.isLoading && !suppliersQuery.isError && items.length === 0 && !hasActiveFilters && (
-              <TableMessage
-                columns={5}
-                title="Todavía no hay proveedores"
-                description="Creá el primer proveedor para comenzar a generar órdenes de compra."
-              />
-            )}
-            {!suppliersQuery.isLoading && !suppliersQuery.isError && items.length === 0 && hasActiveFilters && (
-              <TableMessage
-                columns={5}
-                kind="filtered"
-                title="No encontramos proveedores"
-                description="Probá con otros criterios o limpiá los filtros."
-                action={
-                  <button
-                    type="button"
-                    onClick={clearFilters}
-                    className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-                  >
-                    Limpiar filtros
-                  </button>
-                }
-              />
-            )}
+            {!suppliersQuery.isLoading &&
+              !suppliersQuery.isError &&
+              items.length === 0 &&
+              !hasActiveFilters && (
+                <TableMessage
+                  columns={5}
+                  title="Todavía no hay proveedores"
+                  description="Creá el primer proveedor para comenzar a generar órdenes de compra."
+                />
+              )}
+            {!suppliersQuery.isLoading &&
+              !suppliersQuery.isError &&
+              items.length === 0 &&
+              hasActiveFilters && (
+                <TableMessage
+                  columns={5}
+                  kind="filtered"
+                  title="No encontramos proveedores"
+                  description="Probá con otros criterios o limpiá los filtros."
+                  action={
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      Limpiar filtros
+                    </button>
+                  }
+                />
+              )}
           </tbody>
         </table>
       </div>

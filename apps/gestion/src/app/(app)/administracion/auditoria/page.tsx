@@ -1,20 +1,20 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import {
-  AUDITABLE_ENTITY_TYPES,
-  AuditAction,
-  auditActionLabel,
-  auditEntityLabel,
-} from '@erp/shared';
+import { AUDITABLE_ENTITY_TYPES, AuditAction, auditActionLabel, auditEntityLabel } from '@erp/shared';
 import { usePermissions, useAuditLog, useCompanyUsers } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { ListHeader } from '@/components/ui/page-header';
-import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import {
+  LinkedRow,
+  Pagination,
+  RowLink,
+  TableMessage,
+  TableRowsSkeleton,
+} from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
@@ -113,9 +113,20 @@ export default function AuditoriaPage() {
             <label htmlFor="dateTo" className="text-xs text-muted-foreground">
               Hasta
             </label>
-            <Input id="dateTo" type="date" value={dateTo} onChange={(e) => onDateTo(e.target.value)} className="h-8 py-1 text-sm" />
+            <Input
+              id="dateTo"
+              type="date"
+              value={dateTo}
+              onChange={(e) => onDateTo(e.target.value)}
+              className="h-8 py-1 text-sm"
+            />
           </div>
-          <Select value={action} onChange={(e) => onAction(e.target.value)} className="h-8 max-w-44 py-1 text-sm" aria-label="Acción">
+          <Select
+            value={action}
+            onChange={(e) => onAction(e.target.value)}
+            className="h-8 max-w-44 py-1 text-sm"
+            aria-label="Acción"
+          >
             <option value="">Todas las acciones</option>
             {Object.values(AuditAction).map((value) => (
               <option key={value} value={value}>
@@ -135,7 +146,12 @@ export default function AuditoriaPage() {
 
         {showMoreFilters && (
           <Toolbar>
-            <Select value={userId} onChange={(e) => onUserId(e.target.value)} className="h-8 max-w-48 py-1 text-sm" aria-label="Usuario">
+            <Select
+              value={userId}
+              onChange={(e) => onUserId(e.target.value)}
+              className="h-8 max-w-48 py-1 text-sm"
+              aria-label="Usuario"
+            >
               <option value="">Todos los usuarios</option>
               {(usersQuery.data?.users ?? []).map((u) => (
                 <option key={u.id} value={u.id}>
@@ -143,7 +159,12 @@ export default function AuditoriaPage() {
                 </option>
               ))}
             </Select>
-            <Select value={entityType} onChange={(e) => onEntityType(e.target.value)} className="h-8 max-w-48 py-1 text-sm" aria-label="Tipo de entidad">
+            <Select
+              value={entityType}
+              onChange={(e) => onEntityType(e.target.value)}
+              className="h-8 max-w-48 py-1 text-sm"
+              aria-label="Tipo de entidad"
+            >
               <option value="">Todas las entidades</option>
               {AUDITABLE_ENTITY_TYPES.map((type) => (
                 <option key={type} value={type}>
@@ -169,7 +190,7 @@ export default function AuditoriaPage() {
           <tbody>
             {auditQuery.isLoading && <TableRowsSkeleton columns={5} />}
             {items.map((entry) => (
-              <tr key={entry.id} className="border-t border-border hover:bg-muted/30">
+              <LinkedRow key={entry.id}>
                 <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">
                   {formatDateTime(entry.occurredAt)}
                 </td>
@@ -177,14 +198,11 @@ export default function AuditoriaPage() {
                 <td className="px-3 py-1">{auditActionLabel(entry.action)}</td>
                 <td className="px-3 py-1">{auditEntityLabel(entry.entityType)}</td>
                 <td className="px-3 py-1">
-                  <Link
-                    href={`/administracion/auditoria/${entry.id}`}
-                    className="underline-offset-4 hover:underline"
-                  >
+                  <RowLink href={`/administracion/auditoria/${entry.id}`}>
                     {auditActionLabel(entry.action)} {auditEntityLabel(entry.entityType).toLowerCase()}
-                  </Link>
+                  </RowLink>
                 </td>
-              </tr>
+              </LinkedRow>
             ))}
             {auditQuery.isError && (
               <TableMessage
@@ -204,16 +222,22 @@ export default function AuditoriaPage() {
                 columns={5}
                 kind={hasActiveFilters ? 'filtered' : 'empty'}
                 title={hasActiveFilters ? 'No encontramos eventos' : 'Todavía no hay eventos de auditoría'}
-                description={hasActiveFilters ? 'Probá con otro período o limpiá los filtros.' : 'Los cambios auditables aparecerán acá.'}
-                action={hasActiveFilters && (
-                  <button
-                    type="button"
-                    onClick={clearFilters}
-                    className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-                  >
-                    Limpiar filtros
-                  </button>
-                )}
+                description={
+                  hasActiveFilters
+                    ? 'Probá con otro período o limpiá los filtros.'
+                    : 'Los cambios auditables aparecerán acá.'
+                }
+                action={
+                  hasActiveFilters && (
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      Limpiar filtros
+                    </button>
+                  )
+                }
               />
             )}
           </tbody>

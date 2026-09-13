@@ -10,7 +10,13 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import {
+  LinkedRow,
+  Pagination,
+  RowLink,
+  TableMessage,
+  TableRowsSkeleton,
+} from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 
 const PAGE_SIZE = 25;
@@ -52,23 +58,29 @@ export default function AjustesPage() {
       <ListHeader
         title="Ajustes"
         meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'ajuste' : 'ajustes'}`}
-        actions={<>
-          {canCreateInitialBalance && (
-            <Link href="/stock/ajustes/carga-inicial" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-              <ClipboardPlus className="size-4" />
-              Carga inicial
-            </Link>
-          )}
-          {canCreate && (
-            <Link href="/stock/ajustes/nuevo" className={buttonVariants({ size: 'sm' })}>
-              <Plus className="size-4" />
-              Nuevo ajuste
-            </Link>
-          )}
-        </>}
       />
 
-      <Toolbar>
+      <Toolbar
+        actions={
+          <>
+            {canCreateInitialBalance && (
+              <Link
+                href="/stock/ajustes/carga-inicial"
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                <ClipboardPlus className="size-4" />
+                Carga inicial
+              </Link>
+            )}
+            {canCreate && (
+              <Link href="/stock/ajustes/nuevo" className={buttonVariants({ size: 'sm' })}>
+                <Plus className="size-4" />
+                Nuevo ajuste
+              </Link>
+            )}
+          </>
+        }
+      >
         <Select
           value={warehouseId}
           onChange={(e) => {
@@ -116,20 +128,20 @@ export default function AjustesPage() {
           <tbody>
             {adjustmentsQuery.isLoading && <TableRowsSkeleton columns={6} />}
             {items.map((a) => (
-              <tr key={a.id} className="border-t border-border hover:bg-muted/30">
+              <LinkedRow key={a.id}>
                 <td className="px-3 py-1 whitespace-nowrap">
-                  <Link href={`/stock/ajustes/${a.id}`} className="font-medium underline-offset-4 hover:underline">
-                    {a.number}
-                  </Link>
+                  <RowLink href={`/stock/ajustes/${a.id}`}>{a.number}</RowLink>
                 </td>
-                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{formatDate(a.occurredAt)}</td>
+                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">
+                  {formatDate(a.occurredAt)}
+                </td>
                 <td className="px-3 py-1 whitespace-nowrap">{a.warehouseName}</td>
                 <td className="px-3 py-1">{a.reason}</td>
                 <td className="px-3 py-1">{a.lineCount}</td>
                 <td className="px-3 py-1">
                   <StatusBadge status={a.status}>{stockAdjustmentStatusLabel(a.status)}</StatusBadge>
                 </td>
-              </tr>
+              </LinkedRow>
             ))}
             {adjustmentsQuery.isError && (
               <TableMessage
@@ -138,7 +150,12 @@ export default function AjustesPage() {
                 title="No pudimos cargar los ajustes"
                 description="Revisá la conexión e intentá nuevamente."
                 action={
-                  <Button type="button" variant="outline" size="sm" onClick={() => adjustmentsQuery.refetch()}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => adjustmentsQuery.refetch()}
+                  >
                     Reintentar
                   </Button>
                 }
@@ -148,8 +165,14 @@ export default function AjustesPage() {
               <TableMessage
                 columns={6}
                 kind={warehouseId || status ? 'filtered' : 'empty'}
-                title={warehouseId || status ? 'No encontramos ajustes' : 'Todavía no hay ajustes registrados'}
-                description={warehouseId || status ? 'Probá con otros filtros.' : 'Creá un ajuste cuando necesites corregir existencias.'}
+                title={
+                  warehouseId || status ? 'No encontramos ajustes' : 'Todavía no hay ajustes registrados'
+                }
+                description={
+                  warehouseId || status
+                    ? 'Probá con otros filtros.'
+                    : 'Creá un ajuste cuando necesites corregir existencias.'
+                }
               />
             )}
           </tbody>

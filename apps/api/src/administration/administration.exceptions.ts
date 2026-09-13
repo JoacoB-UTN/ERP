@@ -92,3 +92,18 @@ export class UnsupportedAuditEntityTypeException extends BadRequestException {
     });
   }
 }
+
+/**
+ * Deliberately a plain conflict with no detail about the other account.
+ * `User.email` is globally unique, so this can fire for an address that
+ * belongs to a different company — saying anything more would turn the
+ * create-user form into a way to probe for registered addresses.
+ */
+export class EmailAlreadyRegisteredException extends ConflictException {
+  constructor() {
+    super({
+      message: 'Ya existe un usuario con ese email.',
+      code: 'EMAIL_ALREADY_REGISTERED',
+    });
+  }
+}

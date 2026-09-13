@@ -35,6 +35,7 @@ export const {
   useDeleteRole,
   useReplaceRolePermissions,
   useCompanyUsers,
+  useCreateUser,
   useUserRoles,
   useAssignRole,
   useRemoveRoleAssignment,
