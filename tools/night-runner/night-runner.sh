@@ -103,7 +103,10 @@ LOG_DIR="$STATE_DIR/runs/$RUN_ID"
 CLAIMED_FILE="$STATE_DIR/claimed.txt"
 STOP_FILE="$STATE_DIR/STOP"
 
-log() { printf '%s  %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$LOG_DIR/runner.log"; }
+# Va a stderr, nunca a stdout: varias funciones devuelven su resultado por
+# stdout y se capturan con $(...). Si log escribiera ahí, un mensaje suelto
+# terminaría dentro de un nombre de archivo o de rama.
+log() { printf '%s  %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$LOG_DIR/runner.log" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 
 trap 'log "ERROR inesperado en la línea ${BASH_LINENO[0]}."' ERR
