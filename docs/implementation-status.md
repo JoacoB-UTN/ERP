@@ -1,8 +1,18 @@
 # Implementation Status
 
-Last verified: 2026-08-16, after Prompt #13 (end-to-end Sale/Inventory/
-Pricing hardening) — against the code, migrations, and test suite in
-this repository, not against prior chat history or documentation intent.
+Last verified: 2026-09-14, against `main` at `6225928` — the code,
+migrations, and test suite in this repository, not prior chat history or
+documentation intent. Every "DONE" below was re-checked against the
+source; the counts come from a full run of the suites on a real
+PostgreSQL + Redis (61 API unit, 267 API e2e, 59 Facturación, 81 desktop,
+38 server-agent — 506 total, all passing), a clean production build, and
+a browser pass over the Gestión/Facturación/POS screens.
+
+Between the previous verification (2026-08-16, after Prompt #13) and this
+one, the following landed and had never been recorded here: Purchases,
+Current accounts, Backups/restore, the Windows ERP Server installer, the
+Gestión sales chart, Tango/Excel price import, user creation, and the
+Brand → ProductLine rename.
 
 This file is authoritative for "what exists right now." If it disagrees
 with a domain doc, the domain doc is stale — fix it. If it disagrees with
@@ -49,7 +59,36 @@ Role/Permission/RolePermission/UserRole, `@RequirePermissions()` guard,
 assignment. 8 system roles seeded per company (Administrador, Gerente,
 Ventas, Depósito, Compras, Tesorería, Contabilidad, Solo lectura).
 Frontend `usePermissions()`/`can()`/`canAny()`/`canAll()`. Covered by
-`authorization.e2e-spec.ts` (9 mandatory scenarios).
+`authorization.e2e-spec.ts` (9 mandatory scenarios). The seeded catalogue
+is 88 permissions — the length of `PERMISSION_CATALOG` in
+`packages/shared`, which is the single source both `seed.ts` and
+`provision.ts` iterate, cross-checked against the row count in a seeded
+database.
+
+**User creation: DONE.** `POST /administration/users` creates the
+account, its membership in the *active* company and its initial roles in
+one transaction, recording a single `CREATE` audit event that describes
+the account including its roles — not a `CREATE` plus N `ASSIGN`, since
+the roles chosen on the form are part of what was created rather than a
+later change. Gestión exposes it as a dialog on `/administracion/usuarios`.
+The administrator sets the initial password directly (minimum 12
+characters, same policy as the rest of the system) and the account is
+born `ACTIVE`: the product installs on a LAN and has no mail transport of
+any kind — neither does password reset — so an invitation that cannot be
+delivered would be worse than none.
+
+**Company selection is no longer inherited.** Logging in always asks
+which company to work in, except where there is no question to ask (a
+user with exactly one company still goes straight in). Implemented by
+clearing the remembered selection in `useLogin` rather than by adding a
+screen: with nothing stored, `useActiveCompany()` auto-selects only for a
+single company and otherwise reports `needsSelection`, which is the
+condition that already rendered the selector. Logging out already did
+this, but a logout is not the only way a session ends — an expired
+refresh token, a cleared cookie, or a second person at the same
+workstation all lead to a fresh login with the previous selection still
+in `localStorage`, and which company gets invoiced is not something to
+inherit from whoever used the browser last.
 
 ### Audit / Traceability
 **Status: DONE**
@@ -79,6 +118,22 @@ Gestión: `/productos` list/create/detail/edit + categorías/líneas. `GET
 `GET /inventory/lookup` instead (see [facturacion.md](facturacion.md)),
 since it already returns warehouse-scoped availability alongside product
 identity in one call. Covered by `products.e2e-spec.ts`.
+
+**Brand → ProductLine.** `Brand` was renamed to `ProductLine` in migration
+`20260913120000_rename_brand_to_product_line`, written by hand as pure
+`ALTER ... RENAME` statements on the table, column, constraints and
+indexes — the diff Prisma generates for a renamed model is
+`DROP TABLE` + `CREATE TABLE`, which would discard every row and null out
+each product's `brandId`. The rename propagates through the bulk
+price-update scope (`BRAND` → `LINE`), the stock and price-list-item
+filters (`lineId`), audit (`entityType: 'ProductLine'`, `line_changed`),
+the routes (`/brands` → `/product-lines`) and the Gestión screen
+(`/productos/marcas` → `/productos/lineas`). **Units of measure were
+removed from the UI, not from the engine**: the Unidades screen, the
+Unidad field on the create/edit forms, the product-detail value, the
+`/units` endpoints and their hooks are gone, and `baseUnitId` is no
+longer accepted on `POST`/`PATCH /products`; `UnitOfMeasure` still exists
+in the schema and still drives quantity precision in Inventory.
 
 ### Inventory
 **Status: DONE**
@@ -110,6 +165,23 @@ selector now drives real cart pricing (`POST /pricing/lookup/batch`,
 batched across the search results and cart lines — see
 [facturacion.md](facturacion.md)), including a reprice-and-notify on
 price-list change. Covered by `pricing.e2e-spec.ts`.
+
+**Tango import and Excel round-trip: DONE.** The "Precios por Excel"
+dialog on a FIXED price list's Precios tab offers two flows over one
+engine — *Importar de Tango*, which reads Tango's own "Lista de precios"
+export as it comes out, and *Editar en Excel*, which downloads the rows
+currently in view (or only the ticked ones), takes the edited file back,
+and shows an analysis before applying. Verified in a browser on `main`:
+the export downloads as `precios-<CODE>-<date>.xlsx`. Both flows end in
+`PricingService.setPrices` and never write `PriceListItem` directly, so
+the validity-range close, the `PriceHistory` row and the overlap
+rejection in `applyPriceChange` apply identically to an import and to a
+hand edit. Matching is internal id first, then barcode, then code against
+`ProductVariant.sku`, with both sides normalised because Tango pads the
+variant part of its code with spaces; a key resolving to more than one
+variant is reported as AMBIGUOUS rather than silently resolved. This is
+**price import only — it is not the Tango data migration** (see "Not
+implemented" below).
 
 ### Sales (demo core)
 **Status: DONE — demo core only, see [sales.md](sales.md) for the exact
@@ -153,10 +225,62 @@ document currencies; no FX conversion. Gestión: `/compras/proveedores`,
 partial receipts, over-receipt rejection under genuine concurrency,
 permissions, audit, currency validation, realtime-after-commit).
 
-Explicitly NOT implemented as part of this: supplier current-account/
-accounts payable, fiscal purchase invoices/ARCA, accounting entries, FX
-conversion, lots/batches, AI document ingestion, imports — see
-purchases.md's "Deferred"/"Extension points" sections for the full list.
+Explicitly NOT implemented as part of this: fiscal purchase invoices/
+ARCA, accounting entries, FX conversion, lots/batches, AI document
+ingestion, imports — see purchases.md's "Deferred"/"Extension points"
+sections for the full list. (Supplier current accounts / accounts payable
+*were* listed here as not implemented; they landed afterwards — see
+Current accounts below.)
+
+### Current accounts, Collections and Supplier payments
+**Status: DONE — see [current-accounts.md](current-accounts.md) for the
+exact scope.** `apps/api/src/accounts`, migration
+`20260827045116_add_current_accounts`. Two **immutable ledgers** — one per
+customer, one per supplier: rows are never `UPDATE`d or `DELETE`d after
+insert, and a correction is a new, reversing movement. On top of them,
+two documents: `CustomerCollection` (Cobros) and `SupplierPayment`
+(Pagos), each DRAFT/CONFIRMED/CANCELLED, with applications
+(`imputaciones`) against the sales documents or goods receipts they
+settle. Applying is optional — money can arrive before there is anything
+to apply it to, and the remainder stays as unapplied credit. Balances are
+**per currency and never collapsed into one number**: there is no
+exchange rate anywhere in this system, so a customer owing ARS 100,000
+while holding USD 200 in credit is two facts, and the UI shows one line
+per currency. The statement's running balance is computed by the backend
+and never recomputed in the browser. Concurrency and refusal rules are in
+current-accounts.md. Covered by `current-accounts.e2e-spec.ts`.
+
+Gestión (ten screens, added 2026-09-13): `/cuentas-corrientes/clientes`
+and `/cuentas-corrientes/proveedores` (list with balance and last
+movement; detail with the statement — debit/credit/running balance — plus
+the documents pending collection or payment), and `/cobros` and `/pagos`
+(list with status filter, create, and a detail that can confirm or
+cancel). Backed by `accounts-hooks.ts` in `auth-client` and
+`sumDecimalStrings` in `packages/shared` — the form's applied total is
+summed with exact decimal-string arithmetic, never `+`, because it is
+compared against the document amount and shown to the user as money.
+
+**Historical backfill, and the gap it leaves.**
+`npm run db:backfill-current-accounts --workspace=apps/api` posts
+movements for sales and receipts confirmed *outside* the live service
+path (genuinely historical data, or seed fixtures inserted directly). It
+is idempotent by construction rather than by a flag — every insert is
+`createMany({ skipDuplicates: true })` against the same unique constraint
+the live path uses. **Nothing makes an upgrade run it**: an existing Local
+ERP installation that upgrades into this module gets the tables and the
+code and a completely empty ledger against sales that already exist, so
+every customer reads as owing nothing until an administrator knows to run
+the script by hand. Whether that becomes a migration step, a startup
+check or an installer prompt is an open decision and is **not** closed —
+see "Not implemented / incomplete" below.
+
+Explicitly NOT implemented as part of this: editing a draft from Gestión
+(`PATCH` exists and is wired, but the UI only confirms or cancels), date
+filters in the UI (the endpoints accept `dateFrom`/`dateTo`), any UI
+tests for the ten screens, anything in Facturación/POS (a cashier cannot
+take a payment against an account; the POS tender path posts
+`TENDER_SETTLEMENT` and stops), credit-limit enforcement, and an aging
+report.
 
 ### Facturación MVP
 **Status: DONE — MVP scope only, see [facturacion.md](facturacion.md) for
@@ -304,6 +428,27 @@ placeholders" long after real navigation/modes existed). No schema
 change, no new business logic — see dashboard.md for why the one new
 aggregate endpoint was justified.
 
+**Superseded on 2026-09-13 by the sales chart.** The six-counter column
+("Ventas confirmadas hoy", "Total operado hoy", "Borradores abiertos",
+"Clientes activos", "Productos activos", "Bajo stock mínimo") was removed
+and `StatCard` deleted with it; Ventas recientes now spans the full
+width. In its place: three headline figures — facturado, ventas
+confirmadas and ticket promedio — each with its variation against the
+previous period and a sparkline, plus an area chart and a 7 días / 30
+días / 12 meses control. All four read the same window, so the control
+sits above the whole block rather than over the chart alone. New endpoint
+`GET /dashboard/sales-series?period=`, in its own service rather than
+`DashboardService`, because that one answers "how much is there now" with
+one number per question while this answers "how did it move" and needs a
+window, buckets and a comparison. The series covers the single currency
+with the most confirmed sales in the window and names the others in
+`otherCurrencyCodes` — there is no exchange rate to combine them with.
+Verified in a browser on `main`: the three periods recompute the figures
+and re-label the axis, and the variation is correctly hidden when the
+previous period had no sales (a percentage against zero is not a fact).
+`useDashboardSummary` is kept — the recent-sales list still comes from
+it.
+
 ### Realtime (LAN notification foundation)
 **Status: DONE for the transport and the events listed below; most
 company data is still not wired to a realtime event.** A company-scoped
@@ -395,18 +540,122 @@ client (Electron thin shell)" for the full design.
   this session had no screen-recording/accessibility permission for
   native macOS UI automation), and the unreachable-server safe-fallback
   path (launcher shown, never a blank remote window).
-- **Not yet implemented**: an ERP Server installer/service, TLS/
-  certificate provisioning, LAN auto-discovery, offline writes, branded
-  installer/icon, printer/fiscal hardware integration — see the
-  architecture doc's "Explicitly not part of this phase".
+- **Not yet implemented**: TLS/certificate provisioning, LAN
+  auto-discovery, offline writes, branded installer/icon, printer/fiscal
+  hardware integration — see the architecture doc's "Explicitly not part
+  of this phase". (An ERP Server installer/service was listed here as
+  missing; it landed afterwards — see below.)
+
+### Backups and restore
+**Status: DONE — see [backups.md](backups.md) for the full design.**
+Scheduled `pg_dump` backups of the whole PostgreSQL instance, run by the
+`apps/server-agent` maintenance agent, with retention, SHA-256 checksums
+recorded in a manifest and re-checked at restore time, and verification
+via `pg_restore --list` against the archive just written (a `pg_dump`
+that exits 0 can still produce an archive `pg_restore` cannot read;
+finding that out during a real restore is the failure this prevents).
+Optional offsite copy. Read-only status is exposed to Gestión at
+`GET /system/backups/status` (`/administracion/backups`), gated by
+`system.backups.read`.
+
+**Restore is CLI-only and deliberately not in the API.** `erp-backup
+restore <archive>` defaults to restoring *beside* the running system into
+`<database>_restore_<timestamp>`; overwriting in place requires an
+explicit `--overwrite`, and the restore itself runs
+`--single-transaction`. A dump covers every company in the instance, so
+exposing take/download/restore over a company-scoped API would hand one
+company's administrator another company's data — that is why the
+permission grants status only. Covered by `system-backups.e2e-spec.ts`
+(8 tests: authorization, unconfigured state, agent-published schedule,
+archive counting, corrupt-manifest tolerance, no path/secret leakage, and
+that no write operation is exposed) and by the server-agent suite (38
+tests).
+
+### ERP Server installer (Windows)
+**Status: PARTIAL — the payload is built and proven and the `.exe`
+compiles in CI; installing it anywhere is not.** See
+[server-installer.md](server-installer.md) for the full matrix of what
+was and was not exercised.
+
+Verified by actually running it: the payload builds (503 MB, 25,451 files
+after pruning dev dependencies); the packaged API boots in production
+mode against a real PostgreSQL 16 and serves, reporting `degraded` rather
+than hanging when Redis is absent; provisioning produces a real empty
+installation (1 company, 1 administrator, 8 system roles, 88 permissions,
+2 currencies, 0 customers/products/sales) and is idempotent across runs;
+the provisioned administrator can log in and holds every permission; the
+packaged agent takes a verified backup and the packaged API reports it;
+packaged Gestión serves the real UI and resolves the API from the page's
+own host with no rebuild; and all five WinSW service definitions are
+accepted by the real WinSW 2.12.0 binary, a check CI now runs on every
+change. Four real bugs were found by running it rather than reading it
+and are fixed — including one where every installation would have aborted
+because a template's own comment contained the literal
+`{{PLACEHOLDER}}` that the unreplaced-placeholder guard matched.
+
+(The permission figure is not a constant maintained by hand:
+`provision.ts` iterates `PERMISSION_CATALOG` from `packages/shared` and
+prints its `.length`, so provisioning creates exactly the catalogue —
+88 entries as of this verification, counted from the built catalogue and
+matching a seeded database. Earlier notes recording 78 predate the
+permissions added by Purchases and Current accounts.
+`docs/server-installer.md` still carries that older figure in two places
+and should be reconciled separately.)
+
+**The installer compiles in CI — verified.** PR #25 fixed the last thing
+blocking it (Inno Setup resolves a relative `Source:` against the `.iss`
+file's own directory, not the working directory, so the payload path had
+to be passed absolute) and the workflow then ran and produced
+**`ERPServerSetup-0.1.0.exe`, 89.3 MB**, uploaded as a build artifact.
+That is the first time the installer existed as a file. Two caveats that
+matter when reading "the installer builds": the compile step is
+`workflow_dispatch` input `compile_installer`, **default `false`**, so it
+is opt-in and does not run on every payload build; and the artifact it
+produces carries **no bundled PostgreSQL**, because the job deliberately
+runs `build-payload.ps1` without `-PostgresDir` (bundling adds ~200 MB to
+every run). A release installer has to include it.
+
+**Still not verified, and needing a clean Windows PC** — this is the gate
+before any customer install. Compiling the `.exe` says nothing about
+whether it installs:
+
+- **Installation on a clean Windows machine.** The `.exe` has never been
+  run anywhere.
+- **PostgreSQL bundled into the installer.** It is bundled *by design* —
+  the ERP ships and supervises its own instance, loopback-only — and the
+  scripting exists, but every artifact produced so far is Node-only, so
+  this is designed and scripted, not proven.
+- **Code signing.** The artifact is unsigned, so Windows SmartScreen
+  will flag it.
+- **Service registration.** WinSW service definitions parse and the
+  executables run — CI checks that on every change — but `install`/
+  `start` against the real Service Control Manager, the start order and
+  the failure/restart behaviour are untested. Note the PostgreSQL service
+  runs `postgres.exe` directly rather than `pg_ctl runservice`, which
+  would register itself with the SCM and collide with WinSW.
+- **`initdb` under a Windows service account** (locale and directory
+  permissions — the most likely place to find the next problem).
+- **ACL hardening** against a real non-administrator user.
+- **Upgrade over an existing installation, and the uninstall path.**
+
+Redis is deliberately not bundled.
 
 ## Foundation-only (deliberately incomplete)
 
 ### Gestión (as a product)
 **Status: DONE for what exists, growing.** Every implemented backoffice
-module above has a real Gestión UI. No sales/purchases/treasury/
-accounting/reporting UI exists yet because those backend modules don't
-exist yet either.
+module above has a real Gestión UI. As of this verification that includes
+Ventas, Compras (proveedores/órdenes/recepciones), Cuentas corrientes
+(clientes/proveedores/cobros/pagos), Stock, Listas de precios, Clientes,
+Productos and Administración (usuarios/roles/auditoría/backups) — 35
+routes, all of which were opened in a browser against seeded data with no
+console, network or render errors. No treasury/accounting/reporting UI
+exists, because those backend modules do not exist either.
+
+(This paragraph previously claimed no sales or purchases UI existed. That
+was true when it was written and had been false since Prompts #10 and the
+Purchases milestone; it is the specific staleness that prompted this
+revision.)
 
 ## Not implemented
 
@@ -432,11 +681,50 @@ any kind.
 ledger posting.
 
 ### Reporting
-**Status: NOT IMPLEMENTED.** No dedicated reporting/BI module — Gestión's
+**Status: NOT IMPLEMENTED.** No dedicated reporting/BI module. Gestión's
 home dashboard (see "Demo Dashboard / UX polish" above and
-[dashboard.md](dashboard.md)) is a compact operational summary, not a
-reporting surface: no historical trends, exports, or configurable
-widgets.
+[dashboard.md](dashboard.md)) now shows a sales trend over 7 days / 30
+days / 12 months, but it remains one fixed operational summary, not a
+reporting surface: no configurable widgets, no report builder, no
+exports, no aging or stock valuation reports, and a single currency per
+series. The only export anywhere in the product is the price-list
+spreadsheet described under Pricing.
+
+### Warehouse transfers
+**Status: NOT IMPLEMENTED.** `MovementType` reserves `TRANSFER_IN` and
+`TRANSFER_OUT` for forward compatibility, but no service, endpoint,
+screen or test produces them — `grep -ri transfer apps/api/src` returns
+nothing outside the generated Prisma client. Moving stock between
+warehouses today requires an adjustment out of one and into the other,
+which records two unrelated adjustments instead of one transfer.
+
+### Returns and credit/debit notes
+**Status: NOT IMPLEMENTED.** `MovementType.SALE_RETURN` /
+`PURCHASE_RETURN` and `CustomerAccountMovementType.CREDIT_NOTE` /
+`DEBIT_NOTE` exist as reserved enum values so a later module can add the
+behaviour without a schema migration. Only the purchase-receipt reversal
+path (`CONFIRMED -> CANCELLED`, see Purchases) actually reverses
+anything; there is no returns document, no credit note, no debit note,
+and no way to reverse a confirmed sale.
+
+### Migration from Tango
+**Status: NOT IMPLEMENTED — and not to be confused with the price
+importer.** The Tango *price-list* import described under Pricing is a
+single-purpose importer for one spreadsheet. There is no migration of
+customers, suppliers, products, stock balances, historical sales,
+purchases or account balances out of Tango, and no mapping,
+reconciliation or cut-over tooling. This is planned work, not existing
+work.
+
+### Physical printing
+**Status: NOT VALIDATED.** `print-receipt.tsx` renders a non-fiscal
+internal receipt (`Comprobante interno de venta`, footer "Documento
+interno. No constituye comprobante fiscal.") hidden on screen and wired
+into both the Facturación and POS confirmation screens, and it correctly
+never implies fiscal validity — no CAE, no ARCA, no invoice number. What
+has **not** been done is validation against real hardware: no thermal or
+fiscal printer has been tested, there is no paper-width or driver
+handling, and no fiscal-printer integration of any kind exists.
 
 ## Known technical debt
 
@@ -466,6 +754,44 @@ widgets.
   previously verified only in-session, not in git. This is now fixed;
   see [multi-agent-workflow.md](multi-agent-workflow.md) for the
   branch/PR workflow going forward.
+- **The current-accounts backfill is not automated.** Nothing in a
+  migration, a startup check or the installer runs
+  `db:backfill-current-accounts`, so upgrading an existing installation
+  into the module leaves an empty ledger against sales that already
+  exist. Documented above and in current-accounts.md; the decision on
+  where it belongs is open.
+- **`apps/api/src/modules/*` is still 16 README-only folders**
+  (`accounting`, `accounts-payable`, `accounts-receivable`, `audit`,
+  `auth`, `core`, `customers`, `integrations`, `inventory`,
+  `organizations`, `pricing`, `products`, `reporting`, `sales`, `tax`,
+  `treasury`) — verified: they contain nothing but `README.md`. Several
+  of those domains are now implemented for real at a *different* path
+  (`apps/api/src/<module>`), and `accounts-payable`/`accounts-receivable`
+  in particular are misleading now that `src/accounts` exists. They
+  should be deleted for the domains that have a real implementation.
+- **Reserved enum values with no code path.** `MovementType`
+  (`TRANSFER_IN`, `TRANSFER_OUT`, `SALE_RETURN`, `DELIVERY`,
+  `PRODUCTION_IN`, `PRODUCTION_OUT`) and `CustomerAccountMovementType`
+  (`CREDIT_NOTE`, `DEBIT_NOTE`, `OPENING_BALANCE`, `ADJUSTMENT`,
+  `WRITE_OFF`) are deliberate forward compatibility, documented as such
+  in the schema. They are listed here so nobody reads an enum value as
+  evidence that the feature exists.
+- **The e2e suites share one database and one permission catalogue.**
+  They isolate their own data by creating a tenant/company per run with a
+  `Date.now()` suffix, which holds; the contention is resource-level, not
+  logical. Two consequences were fixed on 2026-09-14 (see the PR for
+  `chore/stabilize-bootstrap-and-e2e`): the suite had no `testTimeout`,
+  so Jest's 5 s default applied to `beforeAll` hooks that boot the whole
+  `AppModule`, and under 17-way parallelism a different suite lost that
+  race on each run; and `system-backups.e2e-spec.ts` read
+  `system.backups.read` with `findUniqueOrThrow`, silently depending on
+  `db:seed` having run. Both are resolved, and the whole suite was then
+  proven independent of the seed: 267/267 against a database that had
+  been migrated and never seeded (0 rows in `permissions`).
+  `system-backups` was the only suite carrying that dependency. CI still
+  seeds before `test:e2e`, which is worth keeping — it verifies the seed
+  script itself runs cleanly against a fresh database — but the e2e run
+  no longer *needs* it.
 
 ## Next recommended milestone
 
@@ -479,7 +805,24 @@ above), with integration/concurrency test coverage proving all three
 entry points share one Sales domain, one pricing engine, and one
 inventory ledger. See [sales.md](sales.md), [facturacion.md](facturacion.md),
 [pos.md](pos.md), and [dashboard.md](dashboard.md) (Prompt #14, demo
-dashboard/UX polish — see above). The next milestone is demo data/
-presentation flow (Prompt #15) before any advanced ERP module
-(accounting, fiscal, treasury). See [roadmap.md](roadmap.md) for the full
-milestone breakdown.
+dashboard/UX polish — see above). See [roadmap.md](roadmap.md) for the
+full milestone breakdown.
+
+Since that was written, Purchases, Current accounts, Backups, the Windows
+installer payload, realtime, the Electron client and the Gestión sales
+chart have all landed. The binding constraint is no longer feature
+coverage — it is that **nothing has been installed on a clean Windows
+VM**. The recommended order from here:
+
+1. **Install the ERP Server on a clean Windows VM.** Everything under
+   "ERP Server installer (Windows)" that is marked unverified is the gate
+   before any customer install, and `initdb` under a service account is
+   the most likely place to find the next problem.
+2. **Close the backfill-on-upgrade gap**, or decide deliberately that it
+   stays a documented manual step.
+3. **Plan the Tango data migration** — customers, suppliers, products,
+   stock and balances. The price importer is not this.
+4. **Then** the fiscal work (ARCA, IVA), which is what turns an internal
+   management system into one that can invoice.
+
+Accounting, treasury and reporting remain behind all four.

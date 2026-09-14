@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "postinstall": "npm run build:packages",
+    "postinstall": "npm run db:generate --workspace=apps/api && npm run build:packages",
     "build:packages": "npm run build --workspace=packages/config && npm run build --workspace=packages/shared && npm run build --workspace=packages/auth-client",
     "predev": "npm run build:packages",
     "dev": "npm run dev --workspace=apps/api & npm run dev --workspace=apps/gestion & npm run dev --workspace=apps/facturacion & wait",

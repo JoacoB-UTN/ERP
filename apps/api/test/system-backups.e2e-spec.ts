@@ -78,8 +78,25 @@ describe('System backups (e2e)', () => {
     });
     companyId = company.id;
 
-    const permission = await prisma.permission.findUniqueOrThrow({
+    // Upsert rather than read: the permission catalogue is written by the demo
+    // seed, so `findUniqueOrThrow` made this suite silently depend on
+    // `db:seed` having run first. CI happens to seed before `test:e2e`, so the
+    // coupling never showed there — but the suite failed outright on a freshly
+    // migrated database, which is exactly what a developer runs it against.
+    // Every other suite that needs a permission creates it the same way (see
+    // authorization/audit/current-accounts `makePermission`), so this also
+    // stops the file being the odd one out. `upsert` keeps the real row when
+    // the seed did run, so the authorization assertions below still exercise
+    // the genuine `system.backups.read` grant either way.
+    const permission = await prisma.permission.upsert({
       where: { code: 'system.backups.read' },
+      update: {},
+      create: {
+        code: 'system.backups.read',
+        module: 'system',
+        resource: 'backups',
+        action: 'read',
+      },
     });
 
     const roleAllowed = await prisma.role.create({
