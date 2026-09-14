@@ -25,9 +25,29 @@ describe('Health (e2e)', () => {
     const response = await request(app.getHttpServer()).get('/api/v1/health');
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({
-      status: 'ok',
-      services: { database: 'ok', redis: 'ok' },
-    });
+
+    const body = response.body as {
+      status: string;
+      services: { database: string; redis: string };
+      currentAccountsBackfill: string;
+    };
+
+    expect(body.status).toBe('ok');
+    expect(body.services).toEqual({ database: 'ok', redis: 'ok' });
+
+    // The backfill state is reported, but its VALUE is not asserted: it is a
+    // fact about the whole database, and nineteen suites share one. Pinning
+    // it to 'complete' here would make this suite fail whenever a sibling's
+    // fixtures happen to be waiting — which says nothing about health.
+    expect(['pending', 'running', 'complete', 'failed', 'disabled']).toContain(
+      body.currentAccountsBackfill,
+    );
+
+    // And nothing else leaked into an unauthenticated endpoint.
+    expect(Object.keys(body).sort()).toEqual([
+      'currentAccountsBackfill',
+      'services',
+      'status',
+    ]);
   });
 });
