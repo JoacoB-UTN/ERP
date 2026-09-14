@@ -368,35 +368,23 @@ fixed:
    service definitions. The comment no longer spells it out, and the CI check
    above would now catch a recurrence.
 
-### Open risk: which PostgreSQL ends up in the payload, and whether it is intact
+### Resolved: which PostgreSQL ends up in the payload, and whether it is intact
 
-Two separate problems, both open on this branch:
+Both halves of this used to be open, and both are closed above; the entry is
+kept because it names what to re-check if `Stage PostgreSQL` is ever
+rewritten. The step used to prefer whatever PostgreSQL the runner carried and
+fall back to a download nothing verified, so the exact build that shipped was
+decided by GitHub's image that week, two runs of the same commit could bundle
+different binaries, nothing checked a hash, and nothing recorded what went
+in. It now downloads one pinned `POSTGRES_VERSION`, fails on a `POSTGRES_SHA256`
+mismatch, refuses a release compile with no pin at all, and writes version,
+digest and source URL into `pgsql/POSTGRES-SOURCE.txt`.
 
-**Version.** `Stage PostgreSQL` prefers any PostgreSQL already on the GitHub
-runner whose *major* matches `POSTGRES_MAJOR`, and only downloads
-`POSTGRES_FALLBACK_VERSION` when it finds none. So the exact build that ships
-is decided by whatever GitHub happens to have installed that week. Two runs
-of the **same commit** can bundle different binaries, and the one a customer
-gets may be a build no test ever exercised. A major check is not a pin.
-
-**Integrity.** When the fallback download does run, nothing verifies it. The
-archive is fetched over HTTPS and unzipped, with no checksum and no
-signature, and whatever comes out is copied into the payload and shipped.
-TLS says the bytes came from that host; it says nothing about the bytes
-being the ones that host was supposed to serve, and nothing at all if the
-build is ever pointed at a mirror.
-
-**Neither is recorded.** Nothing in the payload, the artifact or the job
-output says which PostgreSQL went in, so an installed machine cannot answer
-the question either — which is the one that matters during a support call
-about a database that will not start.
-
-This is fixed in a separate PR (`fix/post-merge-review-corrections`): the
-version gets pinned exactly, the download gets a SHA-256 check that fails the
-build on mismatch and blocks release compiles while unset, and version +
-digest + source URL are recorded in `pgsql/POSTGRES-SOURCE.txt` inside the
-payload. Until that lands, treat the bundled engine as unpinned and
-unverified, and do not ship an installer from this branch to anyone.
+**What is still open** is narrower and stated above: the pin is
+trust-on-first-use, not a vendor-published checksum, because EnterpriseDB
+publishes none next to that artifact. Cross-checking against a vendor-signed
+digest, or building PostgreSQL from source, is worth doing before shipping to
+customers.
 
 **Not verified, and needing a clean Windows VM:**
 
