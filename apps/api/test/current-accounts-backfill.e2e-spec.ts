@@ -59,17 +59,65 @@ describe('Current Accounts backfill on startup (e2e)', () => {
 
   const apps: INestApplication<App>[] = [];
 
-  async function bootApp(): Promise<INestApplication<App>> {
+  /**
+   * Boots the API the way the mechanism under test actually runs.
+   *
+   * `ensureLoaded` exists because of the e2e harness, not the product. The
+   * backfill takes ONE advisory lock for the whole database, and all 19 e2e
+   * suites boot `AppModule` in parallel against the same database. So a
+   * sibling suite can hold the lock while this one boots: this instance then
+   * skips its own pass and records `pending` — which is correct, and on a
+   * real LAN is exactly what should happen, since the winner does the work
+   * for everyone.
+   *
+   * What makes it a problem *here* is that the sibling's pass may have
+   * started BEFORE this suite inserted its fixtures, so it posted nothing for
+   * this company either, and nobody did the work. That is how this suite
+   * failed intermittently with "expected 2 charges, received 0" while the
+   * very same commit passed on a re-run.
+   *
+   * Retrying the pass — `run('startup')`, the same method
+   * `onApplicationBootstrap` calls, never `backfillCurrentAccounts` directly
+   * — removes the race without weakening what is being tested: the FIRST
+   * attempt is still `app.init()` and nothing else, and the retry only ever
+   * fires when a sibling stole the lock. No sleeps: each retry either wins
+   * the lock or observes that someone else finished the job.
+   *
+   * Pass `ensureLoaded: false` when the raw outcome of the race is the point.
+   */
+  async function bootApp({
+    ensureLoaded = true,
+  }: { ensureLoaded?: boolean } = {}): Promise<INestApplication<App>> {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    const app = moduleFixture.createNestApplication();
+    // Annotated rather than inferred: createNestApplication() is typed
+    // INestApplication<any>, and every later use of `app` then counts as an
+    // unsafe argument.
+    const app: INestApplication<App> = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api/v1');
     // This is the whole mechanism under test: init() runs
     // onApplicationBootstrap, which runs the backfill.
     await app.init();
     apps.push(app);
+
+    if (ensureLoaded) await ensureBackfillRan(app);
+
     return app;
+  }
+
+  /**
+   * Retries the pass until the ledger is loaded — see `bootApp`'s note on why
+   * a sibling suite can leave it unloaded. Bounded, so a genuinely broken
+   * backfill fails the assertions that follow instead of looping forever;
+   * contention is with a handful of sibling suites, not thousands.
+   */
+  async function ensureBackfillRan(app: INestApplication<App>): Promise<void> {
+    const service = app.get(CurrentAccountsBackfillService);
+    for (let attempt = 0; attempt < 10; attempt++) {
+      if ((await service.refreshIfPending()) === 'complete') return;
+      await service.run('startup');
+    }
   }
 
   async function customerMovements() {
@@ -409,7 +457,18 @@ describe('Current Accounts backfill on startup (e2e)', () => {
     expect(cleared.count).toBeGreaterThan(0);
     await seed.supplierAccountMovement.deleteMany({ where: { companyId } });
 
-    const [first, second] = await Promise.all([bootApp(), bootApp()]);
+    // Deliberately NOT `ensureLoaded`: the outcome of the race is the point
+    // here, and retrying would paper over the very thing being asserted.
+    const [first, second] = await Promise.all([
+      bootApp({ ensureLoaded: false }),
+      bootApp({ ensureLoaded: false }),
+    ]);
+
+    // The race above is what this test is for; whether a THIRD party (a
+    // sibling e2e suite) happened to hold the lock through both boots is
+    // not, and would leave nothing posted. Settle that first — the retry is
+    // idempotent, so it cannot manufacture the "exactly once" result below.
+    await ensureBackfillRan(first);
 
     const movements = await customerMovements();
     const charges = movements.filter((m) => m.movementType === 'SALE_CHARGE');
@@ -488,8 +547,10 @@ describe('Current Accounts backfill on startup (e2e)', () => {
       spy.mockRestore();
     }
 
-    // And it recovers: the next pass finds the work and completes.
-    await service.run('startup');
+    // And it recovers: the next pass finds the work and completes. Retried
+    // for the same reason as everywhere else here — a sibling suite holding
+    // the lock would make one call skip, which is not what is being tested.
+    await ensureBackfillRan(app);
     expect(service.getState()).toBe('complete');
     expect(
       (await request(app.getHttpServer()).get('/api/v1/customer-accounts'))
