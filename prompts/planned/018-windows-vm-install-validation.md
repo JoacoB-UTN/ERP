@@ -1,11 +1,43 @@
 # Task 018 — Validate the ERP Server installer on a clean Windows VM
 
-Status: PLANNED
+Status: ON HOLD — see "Why this is on hold" below
 Depends on: —
 Agent: UNASSIGNED
 Base branch: main
 Branch:
 PR:
+
+## Why this is on hold
+
+This task validates the **ERP Server installer** — the executable that
+installs PostgreSQL, the API, both frontends and the backup agent as
+Windows services **on a machine at the premises**. It is the direct
+replacement for the physical server a business runs today.
+
+The business direction has since been stated as **moving the server to
+the cloud**. If that holds, this task validates a deployment shape the
+product would be leaving behind, and the "clean Windows VM install" stops
+being the binding constraint that `docs/roadmap.md` and
+`docs/implementation-status.md` currently call it.
+
+It is **on hold rather than cancelled** for two reasons: the decision has
+not been written down and reconciled with the "Local-first, Cloud-ready"
+rule in `AGENTS.md`, and a transition period — or customers who want
+their data on their own premises — could still need exactly this.
+
+Do not delete this file to "clean up". If the cloud direction is
+confirmed and on-premises deployment is dropped, close it deliberately
+with that reason recorded, the way `prompts/README.md` asks.
+
+**Not to be confused with the other executable.** The thing that opens
+the system on each store's and the factory's PCs is `ERP.exe`, the
+Electron thin client in `apps/desktop` — a shell that points at a server
+and opens Gestión or Facturación. That one stays relevant whatever the
+server's address is, though it currently assumes a LAN server: it
+rejects a port outright and composes fixed ports 3000/3001/3002
+(`apps/desktop/src/config.ts`), which a cloud deployment on 443 behind
+one hostname per workspace cannot express. That gap is its own task and
+is not this one.
 
 Before making changes:
 
