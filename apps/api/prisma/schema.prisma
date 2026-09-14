@@ -36,28 +36,29 @@ model Tenant {
   createdAt DateTime     @default(now()) @db.Timestamptz(6)
   updatedAt DateTime     @updatedAt @db.Timestamptz(6)
 
-  companies          Company[]
-  branches           Branch[]
-  userCompanies      UserCompany[]
-  roles              Role[]
-  auditLogs          AuditLog[]
-  customers          Customer[]
-  customerCategories CustomerCategory[]
-  products           Product[]
-  productCategories  ProductCategory[]
-  productLines       ProductLine[]
-  unitsOfMeasure     UnitOfMeasure[]
-  warehouses         Warehouse[]
-  stockMovements     StockMovement[]
-  stockReservations  StockReservation[]
-  stockAdjustments   StockAdjustment[]
-  priceLists         PriceList[]
-  priceListItems     PriceListItem[]
-  priceHistory       PriceHistory[]
-  salesDocuments     SalesDocument[]
-  suppliers          Supplier[]
-  purchaseOrders     PurchaseOrder[]
-  purchaseReceipts   PurchaseReceipt[]
+  companies                Company[]
+  branches                 Branch[]
+  userCompanies            UserCompany[]
+  roles                    Role[]
+  auditLogs                AuditLog[]
+  customers                Customer[]
+  customerCategories       CustomerCategory[]
+  products                 Product[]
+  productCategories        ProductCategory[]
+  productLines             ProductLine[]
+  unitsOfMeasure           UnitOfMeasure[]
+  warehouses               Warehouse[]
+  stockMovements           StockMovement[]
+  stockReservations        StockReservation[]
+  stockAdjustments         StockAdjustment[]
+  stockTransfers           StockTransfer[]
+  priceLists               PriceList[]
+  priceListItems           PriceListItem[]
+  priceHistory             PriceHistory[]
+  salesDocuments           SalesDocument[]
+  suppliers                Supplier[]
+  purchaseOrders           PurchaseOrder[]
+  purchaseReceipts         PurchaseReceipt[]
   customerAccountMovements CustomerAccountMovement[]
   supplierAccountMovements SupplierAccountMovement[]
   customerCollections      CustomerCollection[]
@@ -84,37 +85,39 @@ model Company {
   createdAt   DateTime      @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime      @updatedAt @db.Timestamptz(6)
 
-  tenant                  Tenant                   @relation(fields: [tenantId], references: [id])
-  branches                Branch[]
-  userCompanies           UserCompany[]
-  roles                   Role[]
-  userRoles               UserRole[]
-  auditLogs               AuditLog[]
-  customers               Customer[]
-  customerCategories      CustomerCategory[]
-  customerCodeSequence    CustomerCodeSequence?
-  products                Product[]
-  productCategories       ProductCategory[]
-  productLines            ProductLine[]
-  unitsOfMeasure          UnitOfMeasure[]
-  productCodeSequence     ProductCodeSequence?
-  warehouses              Warehouse[]
-  stockMovements          StockMovement[]
-  stockReservations       StockReservation[]
-  inventoryBalances       InventoryBalance[]
-  stockAdjustments        StockAdjustment[]
-  stockAdjustmentSequence StockAdjustmentSequence?
-  priceLists              PriceList[]
-  priceListItems          PriceListItem[]
-  priceHistory            PriceHistory[]
-  salesDocuments          SalesDocument[]
-  salesDocumentSequence   SalesDocumentSequence?
-  suppliers               Supplier[]
-  supplierCodeSequence    SupplierCodeSequence?
-  purchaseOrders          PurchaseOrder[]
-  purchaseOrderSequence   PurchaseOrderSequence?
-  purchaseReceipts        PurchaseReceipt[]
-  purchaseReceiptSequence PurchaseReceiptSequence?
+  tenant                     Tenant                      @relation(fields: [tenantId], references: [id])
+  branches                   Branch[]
+  userCompanies              UserCompany[]
+  roles                      Role[]
+  userRoles                  UserRole[]
+  auditLogs                  AuditLog[]
+  customers                  Customer[]
+  customerCategories         CustomerCategory[]
+  customerCodeSequence       CustomerCodeSequence?
+  products                   Product[]
+  productCategories          ProductCategory[]
+  productLines               ProductLine[]
+  unitsOfMeasure             UnitOfMeasure[]
+  productCodeSequence        ProductCodeSequence?
+  warehouses                 Warehouse[]
+  stockMovements             StockMovement[]
+  stockReservations          StockReservation[]
+  inventoryBalances          InventoryBalance[]
+  stockAdjustments           StockAdjustment[]
+  stockAdjustmentSequence    StockAdjustmentSequence?
+  stockTransfers             StockTransfer[]
+  stockTransferSequence      StockTransferSequence?
+  priceLists                 PriceList[]
+  priceListItems             PriceListItem[]
+  priceHistory               PriceHistory[]
+  salesDocuments             SalesDocument[]
+  salesDocumentSequence      SalesDocumentSequence?
+  suppliers                  Supplier[]
+  supplierCodeSequence       SupplierCodeSequence?
+  purchaseOrders             PurchaseOrder[]
+  purchaseOrderSequence      PurchaseOrderSequence?
+  purchaseReceipts           PurchaseReceipt[]
+  purchaseReceiptSequence    PurchaseReceiptSequence?
   customerAccountMovements   CustomerAccountMovement[]
   supplierAccountMovements   SupplierAccountMovement[]
   customerCollections        CustomerCollection[]
@@ -150,6 +153,7 @@ model Branch {
   warehouses          Warehouse[]
   stockMovements      StockMovement[]
   stockAdjustments    StockAdjustment[]
+  stockTransfers      StockTransfer[]
   salesDocuments      SalesDocument[]
   purchaseOrders      PurchaseOrder[]
   purchaseReceipts    PurchaseReceipt[]
@@ -784,6 +788,7 @@ model ProductVariant {
   stockReservations    StockReservation[]
   inventoryBalances    InventoryBalance[]
   adjustmentLines      StockAdjustmentLine[]
+  transferLines        StockTransferLine[]
   priceListItems       PriceListItem[]
   priceHistory         PriceHistory[]
   salesDocumentLines   SalesDocumentLine[]
@@ -973,6 +978,17 @@ enum StockAdjustmentStatus {
   CANCELLED
 }
 
+/// Same three states as a stock adjustment, and for the same reason: a
+/// draft moves nothing, only a confirmation writes to the ledger. Unlike
+/// an adjustment, CANCELLED is reachable from CONFIRMED — cancelling a
+/// confirmed transfer posts compensating movements rather than editing
+/// or deleting the originals. See docs/inventory.md.
+enum StockTransferStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
 /// A Warehouse belongs to exactly one company and optionally one branch
 /// — see CLAUDE.md's company-scoping rule and docs/inventory.md. Never
 /// physically deleted; deactivate/reactivate flip `status` instead, and
@@ -1010,6 +1026,8 @@ model Warehouse {
   stockReservations StockReservation[]
   inventoryBalances InventoryBalance[]
   stockAdjustments  StockAdjustment[]
+  transfersOut      StockTransfer[]    @relation("StockTransferSource")
+  transfersIn       StockTransfer[]    @relation("StockTransferDestination")
   salesDocuments    SalesDocument[]
   purchaseReceipts  PurchaseReceipt[]
 
@@ -1204,6 +1222,88 @@ model StockAdjustmentLine {
   @@index([stockAdjustmentId])
   @@index([productVariantId])
   @@map("stock_adjustment_lines")
+}
+
+model StockTransferSequence {
+  companyId String @id @db.Uuid
+  lastValue Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("stock_transfer_sequences")
+}
+
+/// Moving stock between two warehouses of the SAME company — see
+/// docs/inventory.md. A draft moves nothing; confirming writes one
+/// TRANSFER_OUT from the source and one TRANSFER_IN into the destination
+/// per line, in a single transaction, so the two halves can never exist
+/// apart. Confirmed transfers are never edited or deleted: cancelling one
+/// posts compensating movements and leaves the originals untouched, which
+/// is the ledger rule in CLAUDE.md.
+///
+/// There is no cross-company transfer and there never will be through
+/// this model: both warehouses hang off the same `companyId`, and the
+/// service re-validates both against the request context.
+model StockTransfer {
+  id                     String  @id @default(uuid()) @db.Uuid
+  tenantId               String  @db.Uuid
+  companyId              String  @db.Uuid
+  branchId               String? @db.Uuid
+  sourceWarehouseId      String  @db.Uuid
+  destinationWarehouseId String  @db.Uuid
+
+  number String
+
+  reason String?
+  notes  String?
+
+  status StockTransferStatus @default(DRAFT)
+
+  occurredAt DateTime @db.Timestamptz(6)
+
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(6)
+  createdBy   String?   @db.Uuid
+  confirmedAt DateTime? @db.Timestamptz(6)
+  confirmedBy String?   @db.Uuid
+  cancelledAt DateTime? @db.Timestamptz(6)
+  cancelledBy String?   @db.Uuid
+
+  tenant               Tenant    @relation(fields: [tenantId], references: [id])
+  company              Company   @relation(fields: [companyId], references: [id])
+  branch               Branch?   @relation(fields: [branchId], references: [id])
+  sourceWarehouse      Warehouse @relation("StockTransferSource", fields: [sourceWarehouseId], references: [id])
+  destinationWarehouse Warehouse @relation("StockTransferDestination", fields: [destinationWarehouseId], references: [id])
+
+  lines StockTransferLine[]
+
+  @@unique([companyId, number])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([sourceWarehouseId])
+  @@index([destinationWarehouseId])
+  @@map("stock_transfers")
+}
+
+model StockTransferLine {
+  id               String @id @default(uuid()) @db.Uuid
+  stockTransferId  String @db.Uuid
+  productVariantId String @db.Uuid
+
+  /// Always POSITIVE — a transfer has a direction of its own (source →
+  /// destination), so a signed amount here would be a second, redundant
+  /// way to say it and a way to say the opposite by accident. The sign is
+  /// applied when the movements are written.
+  quantity Decimal @db.Decimal(19, 6)
+
+  notes String?
+
+  stockTransfer StockTransfer  @relation(fields: [stockTransferId], references: [id])
+  variant       ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@index([stockTransferId])
+  @@index([productVariantId])
+  @@map("stock_transfer_lines")
 }
 
 // ---------- Pricing (see docs/pricing.md) ----------

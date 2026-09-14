@@ -145,6 +145,16 @@ export const StockAdjustmentStatus = {
 } as const;
 export type StockAdjustmentStatus = (typeof StockAdjustmentStatus)[keyof typeof StockAdjustmentStatus];
 
+/// See docs/inventory.md. Same three states as an adjustment, but
+/// CANCELLED is reachable from CONFIRMED: cancelling a confirmed transfer
+/// posts compensating movements instead of editing the originals.
+export const StockTransferStatus = {
+  DRAFT: 'DRAFT',
+  CONFIRMED: 'CONFIRMED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type StockTransferStatus = (typeof StockTransferStatus)[keyof typeof StockTransferStatus];
+
 /** See docs/pricing.md. FIXED = explicit PriceListItem rows; DERIVED = computed at read time from basePriceListId + adjustment, never materialized. */
 export const PricingMode = {
   FIXED: 'FIXED',

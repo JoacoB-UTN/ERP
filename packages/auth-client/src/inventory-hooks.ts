@@ -18,6 +18,11 @@ import type {
   StockAdjustmentListQuery,
   StockAdjustmentListResponse,
   StockAdjustmentDetailResponse,
+  CreateStockTransferInput,
+  UpdateStockTransferInput,
+  StockTransferListQuery,
+  StockTransferListResponse,
+  StockTransferDetailResponse,
 } from '@erp/shared';
 import type { ApiFetchOptions } from './api-client';
 
@@ -237,6 +242,88 @@ export function createInventoryClient(config: InventoryClientConfig) {
     });
   }
 
+  // ---------- Stock transfers ----------
+
+  function useStockTransfers(filters: Partial<StockTransferListQuery>) {
+    const companyId = useActiveCompanyId();
+    return useQuery({
+      queryKey: ['company', companyId, 'inventory', 'transfers', 'list', filters],
+      queryFn: () =>
+        apiFetch<StockTransferListResponse>(
+          `/inventory/transfers${buildQueryString({
+            warehouseId: filters.warehouseId,
+            status: filters.status,
+            page: filters.page,
+            pageSize: filters.pageSize,
+          })}`,
+        ),
+      enabled: !!companyId,
+      placeholderData: keepPreviousData,
+    });
+  }
+
+  function useStockTransfer(id: string | null) {
+    const companyId = useActiveCompanyId();
+    return useQuery({
+      queryKey: ['company', companyId, 'inventory', 'transfers', 'detail', id],
+      queryFn: () => apiFetch<StockTransferDetailResponse>(`/inventory/transfers/${id}`),
+      enabled: !!companyId && !!id,
+    });
+  }
+
+  function useCreateStockTransfer() {
+    const queryClient = useQueryClient();
+    const companyId = useActiveCompanyId();
+    return useMutation({
+      mutationFn: (input: CreateStockTransferInput) =>
+        apiFetch<StockTransferDetailResponse>('/inventory/transfers', { json: input }),
+      onSuccess: () => invalidateInventory(queryClient, companyId),
+    });
+  }
+
+  function useUpdateStockTransfer() {
+    const queryClient = useQueryClient();
+    const companyId = useActiveCompanyId();
+    return useMutation({
+      mutationFn: ({ id, input }: { id: string; input: UpdateStockTransferInput }) =>
+        apiFetch<StockTransferDetailResponse>(`/inventory/transfers/${id}`, {
+          method: 'PATCH',
+          json: input,
+        }),
+      onSuccess: () => invalidateInventory(queryClient, companyId),
+    });
+  }
+
+  /**
+   * Confirming moves stock in TWO warehouses at once, so the blanket
+   * inventory invalidation above is doing real work here — a per-warehouse
+   * invalidation would have to remember both ends.
+   */
+  function useConfirmStockTransfer() {
+    const queryClient = useQueryClient();
+    const companyId = useActiveCompanyId();
+    return useMutation({
+      mutationFn: (id: string) =>
+        apiFetch<StockTransferDetailResponse>(`/inventory/transfers/${id}/confirm`, {
+          method: 'POST',
+        }),
+      onSuccess: () => invalidateInventory(queryClient, companyId),
+    });
+  }
+
+  /** Cancelling a CONFIRMED transfer writes compensating movements, so it moves stock too. */
+  function useCancelStockTransfer() {
+    const queryClient = useQueryClient();
+    const companyId = useActiveCompanyId();
+    return useMutation({
+      mutationFn: (id: string) =>
+        apiFetch<StockTransferDetailResponse>(`/inventory/transfers/${id}/cancel`, {
+          method: 'POST',
+        }),
+      onSuccess: () => invalidateInventory(queryClient, companyId),
+    });
+  }
+
   return {
     useStock,
     useProductStock,
@@ -251,5 +338,11 @@ export function createInventoryClient(config: InventoryClientConfig) {
     useUpdateStockAdjustment,
     useConfirmStockAdjustment,
     useCancelStockAdjustment,
+    useStockTransfers,
+    useStockTransfer,
+    useCreateStockTransfer,
+    useUpdateStockTransfer,
+    useConfirmStockTransfer,
+    useCancelStockTransfer,
   };
 }

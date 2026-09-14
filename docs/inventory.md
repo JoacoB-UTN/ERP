@@ -296,6 +296,64 @@ belongs to the active company; the product actually tracks inventory
 products); quantity is non-zero and within the unit's decimal precision;
 the negative-stock policy (see above) is respected.
 
+## StockTransfer — moving stock between two warehouses
+
+A `StockTransfer` moves stock from one warehouse to another **as a single
+document**, rather than as an adjustment out of one and an unrelated
+adjustment into the other. Header + one or more lines, same lifecycle
+shape as `StockAdjustment`:
+
+```
+number         sequence-generated per company (TR-000001, ...), via
+               StockTransferSequence — same atomic-upsert numbering
+               pattern as StockAdjustmentSequence, never MAX(number)+1
+status         DRAFT | CONFIRMED | CANCELLED
+```
+
+Line quantities are **strictly positive**. The header already says which
+warehouse the stock leaves and which one it reaches, so a signed
+per-line amount would be a second way to express direction — and a way
+to express the opposite one by accident.
+
+- **DRAFT** — freely editable, no stock effect at all.
+- **CONFIRMED** — the only transition that touches inventory. Each line
+  becomes **two** movements written in the same transaction: a
+  `TRANSFER_OUT` leaving the source and an equal `TRANSFER_IN` arriving
+  at the destination, both with `referenceType: 'StockTransfer'` and
+  `referenceId: transfer.id`. Confirmed transfers are immutable.
+- **CANCELLED** — reachable from `DRAFT` (no ledger effect) *and* from
+  `CONFIRMED`, which is where transfers differ from adjustments: a
+  confirmed transfer is cancelled by writing a **compensating pair** —
+  the same `applyTransferLine` call with the two warehouses swapped, so
+  the compensation is the original transfer backwards rather than a
+  second code path. The original movements are never edited or deleted;
+  the ledger only ever grows.
+
+Two ordering decisions carry the correctness of the whole feature:
+
+1. `applyTransferLine` writes the **OUT first**. `applyMovement`
+   validates the negative-stock policy against the balance Postgres
+   actually returned, so an insufficient source aborts the transaction
+   before the destination is ever credited. There is no window in which
+   the destination has stock the source never had.
+2. `confirm()` opens with a conditional
+   `updateMany({ where: { id, companyId, status: 'DRAFT' } })` and
+   throws `STOCK_TRANSFER_ALREADY_CONFIRMED` when it matches zero rows.
+   That is what makes a double confirm **impossible** rather than merely
+   unlikely — the same guard shape as `SalesService.confirm`. Cancellation
+   uses the identical guard against whichever status it started from.
+
+Validation mirrors adjustments — both warehouses belong to the active
+company and are `ACTIVE`; the variant belongs to the active company; the
+product tracks inventory; quantity is positive and within the unit's
+decimal precision; the negative-stock policy is respected — plus one of
+its own: source and destination must differ
+(`STOCK_TRANSFER_SAME_WAREHOUSE`). Duplicate `productVariantId` lines are
+combined, reusing `InventoryService.combineDeltaLines`.
+
+A warehouse the caller's company doesn't own reads as *not found*, never
+as *not yours* — see docs/multi-company-architecture.md.
+
 ## Permissions
 
 ```
@@ -313,6 +371,15 @@ inventory.adjustments.confirm     separate from create — confirming is
                                    stock, so it gets its own gate
 inventory.initial-balance.create  separate from adjustments.create —
                                    see "Initial balances"
+inventory.transfers.read
+inventory.transfers.create        also covers draft update
+inventory.transfers.confirm       separate from create, same reasoning
+                                   as adjustments.confirm
+inventory.transfers.cancel        its own code, unlike adjustments:
+                                   cancelling a CONFIRMED transfer WRITES
+                                   compensating movements, so it is a
+                                   stock-changing capability, not a draft
+                                   edit
 ```
 
 `inventory.stock.read` is deliberately independent of
@@ -320,10 +387,19 @@ inventory.initial-balance.create  separate from adjustments.create —
 changing it (see CLAUDE.md's authorization rules).
 
 Default role grants: ADMIN gets everything. MANAGER (Gerente) gets
-warehouses.read/stock.read/movements.read/adjustments.read+create+confirm.
-WAREHOUSE (Depósito) gets the same minus `confirm` — conservative by
-default, an explicit confirm step stays with someone who can also see the
-bigger operational picture. SALES (Ventas) gets `stock.read` and
+warehouses.read/stock.read/movements.read/adjustments.read+create+confirm
+plus all four `transfers.*`. WAREHOUSE (Depósito) gets the same
+adjustments set minus `confirm` — conservative by default, an explicit
+confirm step stays with someone who can also see the bigger operational
+picture — but **does** get all four `transfers.*`, `confirm` included.
+
+That asymmetry is deliberate. Confirming an adjustment changes how much
+stock the company owns: it writes off a loss or conjures a surplus, which
+is exactly the decision that wants a second pair of eyes. Confirming a
+transfer moves stock the company already owns from one of its own
+warehouses to another — the total is unchanged, and it is the warehouse
+operator's own job. Withholding it would mean the person physically
+moving the boxes has to find a manager to record that they moved them. SALES (Ventas) gets `stock.read` and
 `warehouses.read` (the latter needed for the Facturación warehouse
 selector — see below). PURCHASES (Compras) gets `stock.read` and
 `warehouses.read`. VIEWER (Solo lectura) gets `stock.read` and
@@ -374,6 +450,12 @@ systems already record for two different purposes.
 | PATCH | `/inventory/adjustments/:id` | `inventory.adjustments.create` (draft only) |
 | POST | `/inventory/adjustments/:id/confirm` | `inventory.adjustments.confirm` |
 | POST | `/inventory/adjustments/:id/cancel` | `inventory.adjustments.create` (draft only) |
+| GET | `/inventory/transfers` | `inventory.transfers.read` |
+| GET | `/inventory/transfers/:id` | `inventory.transfers.read` |
+| POST | `/inventory/transfers` | `inventory.transfers.create` |
+| PATCH | `/inventory/transfers/:id` | `inventory.transfers.create` (draft only) |
+| POST | `/inventory/transfers/:id/confirm` | `inventory.transfers.confirm` |
+| POST | `/inventory/transfers/:id/cancel` | `inventory.transfers.cancel` |
 
 `GET /inventory/stock` is documented as querying **from**
 `InventoryBalance`, not from `ProductVariant` cross-joined with every
@@ -398,6 +480,11 @@ couple `ProductsService` to inventory internals. It adds `available` for
 an optional `warehouseId`, always `null` when no warehouse is given —
 never estimated or fabricated.
 
+`GET /inventory/transfers?warehouseId=` matches **either end** — origin or
+destination. "Show me everything that touched this warehouse" is the
+question an operator actually asks, and a transfer is equally theirs
+whether the stock left or arrived.
+
 Create/update never accept `companyId`/`tenantId` from the request body —
 same rule as every other module (see CLAUDE.md).
 
@@ -406,7 +493,8 @@ same rule as every other module (see CLAUDE.md).
 A **Stock** section sits in the sidebar between Productos and
 Administración (only shown to a user who can see at least one of
 `inventory.stock.read`/`movements.read`/`adjustments.read`/
-`warehouses.read`), with its own sub-nav:
+`transfers.read`/`warehouses.read` — the section renders only when at
+least one of its items is visible), with its own sub-nav:
 
 - **`/stock`** (Existencias) — Físico/Reservado/Disponible always shown as
   three separate columns, never collapsed into one "Stock" number.
@@ -414,6 +502,15 @@ Administración (only shown to a user who can see at least one of
   below-minimum row gets a subtle amber dot, not a loud banner.
 - **`/stock/movimientos`** — list + read-only detail. No edit affordance
   anywhere, matching the ledger's immutability.
+- **`/stock/transferencias`** — list (filterable by either end and by
+  status) + `/stock/transferencias/nueva`, `/[id]` detail and
+  `/[id]/editar`. The line editor has **no** Entrada/Salida toggle, unlike
+  adjustments: the header already says which way the stock goes, so a
+  per-line direction would be a second way to say the same thing. The
+  origin warehouse is removed from the destination options rather than
+  rejected on submit. Cancelling asks for confirmation with different
+  copy depending on the status — a draft moved nothing; a confirmed
+  transfer will generate compensating movements, and the dialog says so.
 - **`/stock/ajustes`** — list + `/stock/ajustes/nuevo` create form. The
   create/edit form presents an Entrada/Salida toggle per line (never a
   raw signed-number field) that's converted to a signed `quantityDelta`
@@ -482,14 +579,17 @@ stale selection while new data loads.
 
 ## Deferred
 
-Out of scope for this task, intentionally: warehouse transfers as a
-business document, physical inventory counts, purchase orders, goods
+Out of scope for this task, intentionally: physical inventory counts,
+purchase orders, goods
 receipts, supplier invoices, sales orders, stock reservation integration
 with an actual sales flow, delivery notes, sales invoices, POS
 transactions, returns, inventory valuation, average/replacement cost,
 price lists, sale prices, purchase costs, lot/serial as real inventory
 instances (only the `Product.trackLots`/`trackSerials` configuration
 flags exist — see products.md), kit/BOM composition, manufacturing, ARCA
-integration, and e-commerce stock synchronization. `INCOMING` is exposed
-as `0` everywhere until a Purchases/Transfer module exists to compute it
-for real.
+integration, and e-commerce stock synchronization.
+
+`INCOMING` is still exposed as `0` everywhere. Transfers now exist, but a
+confirmed transfer moves stock instantly — there is no in-transit state
+for `INCOMING` to report, so wiring it up would still need a Purchases
+module or a two-step (dispatch/receive) transfer that this one is not.

@@ -81,3 +81,57 @@ export class StockAdjustmentNotDraftException extends ConflictException {
     });
   }
 }
+
+export class StockTransferNotFoundException extends NotFoundException {
+  constructor() {
+    super({
+      message: 'Transferencia no encontrada.',
+      code: 'STOCK_TRANSFER_NOT_FOUND',
+    });
+  }
+}
+
+/** Confirmed/cancelled transfers are immutable — see CLAUDE.md and docs/inventory.md. */
+export class StockTransferNotDraftException extends ConflictException {
+  constructor() {
+    super({
+      message: 'Solo se puede modificar una transferencia en borrador.',
+      code: 'STOCK_TRANSFER_NOT_DRAFT',
+    });
+  }
+}
+
+/**
+ * Raised when the conditional status UPDATE that opens `confirm()` matches
+ * zero rows: another request confirmed (or cancelled) this transfer first.
+ * The guard is what makes a double confirm impossible rather than merely
+ * unlikely — see StockTransfersService.confirm.
+ */
+export class StockTransferAlreadyConfirmedException extends ConflictException {
+  constructor() {
+    super({
+      message: 'Esta transferencia ya fue confirmada o anulada.',
+      code: 'STOCK_TRANSFER_ALREADY_CONFIRMED',
+    });
+  }
+}
+
+/** Only a CONFIRMED transfer can be cancelled with compensating movements; a draft is cancelled without touching the ledger. */
+export class StockTransferNotCancellableException extends ConflictException {
+  constructor() {
+    super({
+      message: 'Esta transferencia ya fue anulada.',
+      code: 'STOCK_TRANSFER_NOT_CANCELLABLE',
+    });
+  }
+}
+
+/** Source and destination must differ — a transfer to the same warehouse moves nothing and would write two cancelling movements. */
+export class StockTransferSameWarehouseException extends BadRequestException {
+  constructor() {
+    super({
+      message: 'El depósito de destino debe ser distinto al de origen.',
+      code: 'STOCK_TRANSFER_SAME_WAREHOUSE',
+    });
+  }
+}

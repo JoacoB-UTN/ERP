@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MovementType, StockAdjustmentStatus, ProductStatus } from './enums';
+import { MovementType, StockAdjustmentStatus, StockTransferStatus, ProductStatus } from './enums';
 import type { WarehouseStatus } from './enums';
 import { quantitySchema } from './decimal';
 import type { PaginationMeta } from './api';
@@ -342,6 +342,120 @@ export interface StockAdjustmentDetailResponse {
   adjustment: StockAdjustmentDetail;
 }
 
+// ---------- Stock transfers ----------
+
+const stockTransferStatusValues = Object.values(StockTransferStatus) as [
+  StockTransferStatus,
+  ...StockTransferStatus[],
+];
+
+/**
+ * Unlike an adjustment line, the quantity is strictly POSITIVE: the
+ * transfer header already says which way the stock goes, so a signed
+ * amount here would be a second way to express direction — and a way to
+ * accidentally express the opposite one.
+ */
+const stockTransferLineInputSchema = z.object({
+  productVariantId: z.string().uuid('Variante inválida.'),
+  quantity: quantitySchema.refine(
+    (value) => Number(value) > 0,
+    'La cantidad debe ser mayor a cero.',
+  ),
+  notes: z.string().trim().max(200).optional(),
+});
+export type StockTransferLineInput = z.infer<typeof stockTransferLineInputSchema>;
+
+const transferWarehousesDiffer = (
+  data: { sourceWarehouseId?: string; destinationWarehouseId?: string },
+  ctx: z.RefinementCtx,
+) => {
+  if (
+    data.sourceWarehouseId &&
+    data.destinationWarehouseId &&
+    data.sourceWarehouseId === data.destinationWarehouseId
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'El depósito de destino debe ser distinto al de origen.',
+      path: ['destinationWarehouseId'],
+    });
+  }
+};
+
+export const createStockTransferSchema = z
+  .object({
+    sourceWarehouseId: z.string().uuid('Elegí un depósito de origen.'),
+    destinationWarehouseId: z.string().uuid('Elegí un depósito de destino.'),
+    reason: z.string().trim().max(200).optional(),
+    notes: z.string().trim().max(1000).optional(),
+    occurredAt: z.coerce.date().optional(),
+    lines: z.array(stockTransferLineInputSchema).min(1, 'Agregá al menos una línea.'),
+  })
+  .superRefine(transferWarehousesDiffer);
+export type CreateStockTransferInput = z.infer<typeof createStockTransferSchema>;
+
+/** Only valid while the transfer is DRAFT — see docs/inventory.md. */
+export const updateStockTransferSchema = z
+  .object({
+    sourceWarehouseId: z.string().uuid().optional(),
+    destinationWarehouseId: z.string().uuid().optional(),
+    reason: z.string().trim().max(200).nullable().optional(),
+    notes: z.string().trim().max(1000).nullable().optional(),
+    occurredAt: z.coerce.date().optional(),
+    lines: z.array(stockTransferLineInputSchema).min(1, 'Agregá al menos una línea.').optional(),
+  })
+  .superRefine(transferWarehousesDiffer);
+export type UpdateStockTransferInput = z.infer<typeof updateStockTransferSchema>;
+
+export const stockTransferListQuerySchema = z.object({
+  warehouseId: z.string().uuid().optional(),
+  status: z.enum(stockTransferStatusValues).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+});
+export type StockTransferListQuery = z.infer<typeof stockTransferListQuerySchema>;
+
+export interface StockTransferLineDto {
+  id: string;
+  productVariantId: string;
+  productId: string;
+  productName: string;
+  variantName: string | null;
+  sku: string | null;
+  quantity: string;
+  notes: string | null;
+}
+
+export interface StockTransferSummary {
+  id: string;
+  number: string;
+  sourceWarehouseId: string;
+  sourceWarehouseName: string;
+  destinationWarehouseId: string;
+  destinationWarehouseName: string;
+  reason: string | null;
+  status: StockTransferStatus;
+  occurredAt: string;
+  lineCount: number;
+  createdBy: { id: string; name: string | null } | null;
+}
+
+export interface StockTransferDetail extends StockTransferSummary {
+  notes: string | null;
+  lines: StockTransferLineDto[];
+  createdAt: string;
+  confirmedAt: string | null;
+  cancelledAt: string | null;
+}
+
+export interface StockTransferListResponse {
+  items: StockTransferSummary[];
+  pagination: PaginationMeta;
+}
+export interface StockTransferDetailResponse {
+  transfer: StockTransferDetail;
+}
+
 // ---------- Spanish presentation layer ----------
 
 export const WAREHOUSE_STATUS_LABELS: Record<string, string> = {
@@ -378,6 +492,12 @@ export const STOCK_ADJUSTMENT_STATUS_LABELS: Record<string, string> = {
   CANCELLED: 'Cancelado',
 };
 
+export const STOCK_TRANSFER_STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Borrador',
+  CONFIRMED: 'Confirmada',
+  CANCELLED: 'Anulada',
+};
+
 export function warehouseStatusLabel(value: string): string {
   return WAREHOUSE_STATUS_LABELS[value] ?? value;
 }
@@ -389,4 +509,7 @@ export function reservationStatusLabel(value: string): string {
 }
 export function stockAdjustmentStatusLabel(value: string): string {
   return STOCK_ADJUSTMENT_STATUS_LABELS[value] ?? value;
+}
+export function stockTransferStatusLabel(value: string): string {
+  return STOCK_TRANSFER_STATUS_LABELS[value] ?? value;
 }

@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   SlidersHorizontal,
+  ArrowLeftRight,
   Tag,
   Truck,
   Users,
@@ -189,6 +190,12 @@ function SidebarContent({
           label: 'Ajustes',
           icon: SlidersHorizontal,
           visible: allowed('inventory.adjustments.read'),
+        },
+        {
+          href: '/stock/transferencias',
+          label: 'Transferencias',
+          icon: ArrowLeftRight,
+          visible: allowed('inventory.transfers.read'),
         },
         {
           href: '/stock/depositos',

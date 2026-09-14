@@ -211,9 +211,11 @@ PostgreSQL 16 and a real provisioned database:
 - **Provisioning produces a real, empty installation**: 1 company
   ("Ferretería El Tornillo"), 1 administrator, 8 system roles, 88 permissions,
   2 currencies, and 0 customers / 0 products / 0 sales. Idempotent across
-  repeated runs.
+  repeated runs. (88 was the catalogue's size on the day of that run —
+  provisioning seeds whatever `PERMISSION_CATALOG` holds, which is 91 today.
+  The installer has not been re-run since.)
 - **The provisioned administrator can log in** to the packaged API and holds
-  all 88 permissions including `system.backups.read`.
+  all 88 permissions of that run, including `system.backups.read`.
 - **The packaged agent takes a verified backup** of that database, and the
   packaged API then reports it: schedule `03:00, 15:00`, retention 30 days,
   next run computed correctly, 2 archives on disk.
