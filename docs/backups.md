@@ -202,7 +202,43 @@ leaves the target database untouched rather than half-populated.
 
 `/administracion/backups`, gated by `system.backups.read` (held by
 Administrador via `ALL`, and granted to Gerente in the seed — a business owner
-should be able to see whether their data is protected).
+should be able to see whether their data is protected). The screen is titled
+**Servidor y backups**: same route, same permission, but it now opens with a
+server-health panel above the backup state, because if the server is not
+answering then the backup figures below it are stale and the reader should
+know that first.
+
+### Estado del sistema (the panel above)
+
+The **first visible diagnostic surface** in the product — not local
+diagnostics in any complete sense. It shows only what `GET /health` already
+returns: whether the API answered, and what it said about PostgreSQL and
+Redis. No uptime, version, disk, memory or latency, because the endpoint does
+not measure them and inventing them would be worse than omitting them.
+
+It reads the existing `useServerHealth` query — the same one behind the
+connection dot in the top bar — so there is no second health check and no
+second polling interval. "Actualizar ahora" refetches that same query, which
+TanStack de-duplicates against any request already in flight.
+
+Four states, and the distinction between the last two is the point:
+
+| State | Overall | PostgreSQL / Redis |
+| --- | --- | --- |
+| API ok, both services ok | Sistema operativo | Operativa / Operativo |
+| API ok, Redis down | Servicio degradado | Operativa / No disponible, with a line saying the system keeps working and no data is lost |
+| API ok, PostgreSQL down | Base de datos no disponible | No disponible — operations cannot continue |
+| API unreachable | Sin conexión con el servidor | **No se pudo comprobar** — not "down" |
+
+That last row is why `fetchHealth` now returns a frontend-internal
+`HealthProbe` (`{ reachable, response }`) instead of a bare `HealthResponse`.
+It used to convert a transport failure into a synthetic response with every
+service marked `error`, which made "we could not ask" indistinguishable from
+"the server told us both are broken". The shared `HealthResponse` contract and
+the backend are unchanged; only the client wrapper knows the difference.
+
+The panel is strictly read-only, like the rest of the screen: no restart, no
+command execution, no restore.
 
 The page is built around one question: *if this PC dies tonight, what do I
 lose?* So the headline number is the age of the last **successful** backup, not

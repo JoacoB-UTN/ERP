@@ -584,6 +584,31 @@ archive counting, corrupt-manifest tolerance, no path/secret leakage, and
 that no write operation is exposed) and by the server-agent suite (38
 tests).
 
+**Estado del sistema panel (2026-09-14).** `/administracion/backups` — now
+titled **Servidor y backups**, same route and same `system.backups.read`
+gate — opens with a read-only server-health panel above the backup state:
+overall verdict, API reachable, PostgreSQL, Redis, when the last real
+check completed, and an "Actualizar ahora" button. It is the **first
+visible diagnostic surface in the product, not local diagnostics in any
+complete sense**: it reports only what `GET /health` already returns, and
+deliberately shows no uptime, version, disk, memory or latency, because
+the endpoint does not measure them.
+
+No new endpoint, no new permission, no backend change. It reads the
+existing `useServerHealth` query — the same one behind the top bar's
+connection dot — so there is no second health check and no second polling
+interval; the refresh button refetches that same query and TanStack
+de-duplicates it against anything already in flight. The one code change
+underneath is client-side: `fetchHealth` now returns a frontend-internal
+`HealthProbe` (`{ reachable, response }`) instead of a bare
+`HealthResponse`, so an unreachable API reads as "no se pudo comprobar"
+for PostgreSQL and Redis rather than the previous synthetic response that
+marked both `error` and made a transport failure indistinguishable from
+the server reporting both services down. The shared `HealthResponse`
+contract is untouched. Covered by 24 tests in `apps/gestion` (11 pure
+mapping tests, 8 panel tests, 5 screen tests) — the first automated tests
+this app has had; the vitest setup mirrors Facturación's.
+
 ### ERP Server installer (Windows)
 **Status: PARTIAL — the payload is built and proven and the `.exe`
 compiles in CI; installing it anywhere is not.** See
