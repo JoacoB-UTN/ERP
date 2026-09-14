@@ -29,13 +29,37 @@ export function useServerHealth() {
     retry: false,
   });
 
+  const probe = query.data;
   const status: ServerHealthStatus = query.isPending
     ? 'checking'
-    : query.data?.status === 'ok'
-      ? 'connected'
-      : query.data?.status === 'degraded'
-        ? 'degraded'
-        : 'disconnected';
+    : !probe?.reachable
+      ? 'disconnected'
+      : probe.response.status === 'ok'
+        ? 'connected'
+        : probe.response.status === 'degraded'
+          ? 'degraded'
+          : 'disconnected';
 
-  return { status };
+  return {
+    status,
+    /** The full outcome, for the system-status panel. `undefined` before the first check resolves. */
+    probe,
+    /** True only before the FIRST result — never during a background refetch. */
+    isFirstCheck: query.isPending,
+    /** True whenever a check is in flight, including the first one. */
+    isChecking: query.isFetching,
+    /**
+     * When the last check actually completed, as epoch ms; `0` before any has.
+     * Taken from the query rather than a timestamp of our own so it can only
+     * move when a real check resolved — `fetchHealth` never throws, so an
+     * unreachable server still counts as a completed check.
+     */
+    lastCheckedAt: query.dataUpdatedAt,
+    /**
+     * Re-runs the SAME query. TanStack de-duplicates against the in-flight
+     * request, so the "Actualizar ahora" button cannot start a second one,
+     * and there is no second interval anywhere.
+     */
+    refresh: () => void query.refetch(),
+  };
 }
