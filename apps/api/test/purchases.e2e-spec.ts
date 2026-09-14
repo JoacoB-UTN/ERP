@@ -7,7 +7,10 @@ import * as argon2 from 'argon2';
 import { COMPANY_ID_HEADER } from '@erp/shared';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
-import { deleteCurrentAccountsData } from './helpers/current-accounts-cleanup';
+import {
+  deleteCurrentAccountsDocuments,
+  deleteCurrentAccountsMovements,
+} from './helpers/current-accounts-cleanup';
 import { InventoryService } from '../src/inventory/inventory.service';
 import { RealtimePublisher } from '../src/realtime/realtime.publisher';
 
@@ -408,9 +411,12 @@ describe('Purchases: Suppliers, Purchase Orders, Goods Receipts (e2e)', () => {
   });
 
   afterAll(async () => {
-    // First: the ledger references customers, suppliers and their
-    // documents, so it has to go before any of them.
-    await deleteCurrentAccountsData(prisma, [companyAId, companyBId]);
+    // The ledger references customers, suppliers and their documents, so
+    // it has to go before any of them — but in two phases: collections and
+    // payments first (they point at the documents), the movements only once
+    // those documents are gone, or the startup backfill can re-create them.
+    // See the helper.
+    await deleteCurrentAccountsDocuments(prisma, [companyAId, companyBId]);
     await prisma.auditLog.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
     });
@@ -425,6 +431,7 @@ describe('Purchases: Suppliers, Purchase Orders, Goods Receipts (e2e)', () => {
     await prisma.purchaseReceiptSequence.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
     });
+    await deleteCurrentAccountsMovements(prisma, [companyAId, companyBId]);
     await prisma.purchaseOrderLine.deleteMany({
       where: { purchaseOrder: { companyId: { in: [companyAId, companyBId] } } },
     });

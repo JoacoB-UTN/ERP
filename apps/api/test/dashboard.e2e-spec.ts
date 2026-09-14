@@ -7,7 +7,10 @@ import * as argon2 from 'argon2';
 import { COMPANY_ID_HEADER } from '@erp/shared';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
-import { deleteCurrentAccountsData } from './helpers/current-accounts-cleanup';
+import {
+  deleteCurrentAccountsDocuments,
+  deleteCurrentAccountsMovements,
+} from './helpers/current-accounts-cleanup';
 import { InventoryService } from '../src/inventory/inventory.service';
 
 /**
@@ -327,9 +330,12 @@ describe('Dashboard (e2e)', () => {
   });
 
   afterAll(async () => {
-    // First: the ledger references customers, suppliers and their
-    // documents, so it has to go before any of them.
-    await deleteCurrentAccountsData(prisma, [companyAId, companyBId]);
+    // The ledger references customers, suppliers and their documents, so
+    // it has to go before any of them — but in two phases: collections and
+    // payments first (they point at the documents), the movements only once
+    // those documents are gone, or the startup backfill can re-create them.
+    // See the helper.
+    await deleteCurrentAccountsDocuments(prisma, [companyAId, companyBId]);
     await prisma.salesTender.deleteMany({
       where: { salesDocument: { companyId: { in: [companyAId, companyBId] } } },
     });
@@ -342,6 +348,7 @@ describe('Dashboard (e2e)', () => {
     await prisma.salesDocumentSequence.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
     });
+    await deleteCurrentAccountsMovements(prisma, [companyAId, companyBId]);
     await prisma.stockMovement.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
     });
@@ -717,12 +724,14 @@ describe('Dashboard (e2e)', () => {
     });
 
     afterAll(async () => {
-      // First: the ledger references customers, suppliers and their
-      // documents, so it has to go before any of them.
-      await deleteCurrentAccountsData(prisma, [tzCompanyId]);
+      // Two phases — see the helper: the movements can only be deleted
+      // once the sales they derive from are gone, or a concurrent boot
+      // backfill re-creates them and the customer delete below fails.
+      await deleteCurrentAccountsDocuments(prisma, [tzCompanyId]);
       await prisma.salesDocument.deleteMany({
         where: { companyId: tzCompanyId },
       });
+      await deleteCurrentAccountsMovements(prisma, [tzCompanyId]);
       await prisma.userRole.deleteMany({ where: { companyId: tzCompanyId } });
       await prisma.rolePermission.deleteMany({ where: { roleId: tzRoleId } });
       await prisma.role.delete({ where: { id: tzRoleId } });

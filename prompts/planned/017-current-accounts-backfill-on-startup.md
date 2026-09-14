@@ -101,7 +101,19 @@ every boot safe; it does not have to be invented.
    rows with no ledger → boot → ledger correct; boot again → nothing
    inserted the second time.
 
-10. **Docs in the same PR.** `docs/current-accounts.md` — the "Open
+10. **The e2e harness survives a boot-time writer.** Nineteen e2e suites
+    share one database and each boots `AppModule`, so every one of them now
+    runs a backfill that scans *every* company, not just its own. The
+    suites' teardown deleted the ledger rows *before* the sales they derive
+    from, which leaves a window where a concurrently booting suite re-posts
+    them and the later `customer.deleteMany()` fails on
+    `customer_account_movements_customerId_fkey`. Teardown has to delete the
+    source documents first, so there is nothing left to back-fill from.
+    (This is a test-harness problem only: AGENTS.md forbids physically
+    deleting confirmed financial documents, so nothing in production
+    deletes a confirmed sale out from under the backfill.)
+
+11. **Docs in the same PR.** `docs/current-accounts.md` — the "Open
     question" section becomes the decision and its reasoning.
     `docs/implementation-status.md` — the "Historical backfill" text and
     the "current-accounts backfill is not automated" technical-debt

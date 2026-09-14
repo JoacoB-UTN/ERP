@@ -6,7 +6,10 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
 import { CurrentAccountsBackfillService } from '../src/accounts/current-accounts-backfill.service';
 import { hasPendingCurrentAccountsBackfill } from '../src/accounts/current-accounts-backfill';
-import { deleteCurrentAccountsData } from './helpers/current-accounts-cleanup';
+import {
+  deleteCurrentAccountsDocuments,
+  deleteCurrentAccountsMovements,
+} from './helpers/current-accounts-cleanup';
 
 function expectAmount(actual: Prisma.Decimal, expected: string): void {
   expect(actual.equals(new Prisma.Decimal(expected))).toBe(true);
@@ -127,7 +130,7 @@ describe('Current Accounts backfill on startup (e2e)', () => {
   });
 
   afterAll(async () => {
-    await deleteCurrentAccountsData(prisma, [companyId]);
+    await deleteCurrentAccountsDocuments(prisma, [companyId]);
     await prisma.salesTender.deleteMany({
       where: { salesDocument: { companyId } },
     });
@@ -139,6 +142,9 @@ describe('Current Accounts backfill on startup (e2e)', () => {
       where: { purchaseReceipt: { companyId } },
     });
     await prisma.purchaseReceipt.deleteMany({ where: { companyId } });
+    // Only now: with the documents gone there is nothing left to
+    // back-fill from, so these stay deleted whatever else is booting.
+    await deleteCurrentAccountsMovements(prisma, [companyId]);
     await prisma.priceList.deleteMany({ where: { companyId } });
     await prisma.warehouse.deleteMany({ where: { companyId } });
     await prisma.supplier.deleteMany({ where: { companyId } });
