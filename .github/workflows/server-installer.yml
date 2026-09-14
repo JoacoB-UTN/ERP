@@ -36,11 +36,19 @@ env:
   # together with POSTGRES_SHA256 below.
   POSTGRES_VERSION: '16.10-1'
   # SHA-256 of the .zip named by POSTGRES_VERSION, so a build cannot bundle a
-  # binary nobody vouched for. An unset value does not silently pass: the
-  # Stage PostgreSQL step prints the digest it computed and REFUSES to compile
-  # a release installer, so the value below is filled in once, from a run that
-  # shows it, and reviewed like any other pinned dependency.
-  POSTGRES_SHA256: ''
+  # binary nobody vouched for. A mismatch fails the build; an unset value does
+  # not silently pass either — the Stage PostgreSQL step prints the digest it
+  # computed and REFUSES to compile a release installer without a pin.
+  #
+  # Be precise about what this pin is worth: it was taken from the digest CI
+  # computed on run 34860184022, downloading over HTTPS from the URL below.
+  # That is trust-on-first-use. It detects the archive CHANGING from here on
+  # — a swapped build, a corrupted transfer, a tampered mirror — which is the
+  # half of the problem that bites in practice. It is NOT verification against
+  # a checksum EnterpriseDB published, because they do not publish one next to
+  # this artifact. Cross-checking against a vendor-signed digest is still open;
+  # see docs/server-installer.md.
+  POSTGRES_SHA256: 'ebb3b6af4fa69dea9951b66855bc4d42dc04e56ccb9aa7024ce3c58bd89d6b0c'
   # Dummy/test-only values — never real secrets. Needed because `next build`
   # and `prisma generate` read the environment.
   DATABASE_URL: 'postgresql://erp:erp@localhost:5432/erp_platform_test?schema=public'
