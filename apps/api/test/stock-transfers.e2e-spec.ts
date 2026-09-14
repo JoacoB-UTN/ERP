@@ -4,9 +4,11 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import * as argon2 from 'argon2';
+import { randomUUID } from 'node:crypto';
 import { COMPANY_ID_HEADER } from '@erp/shared';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
+import { Prisma } from '../src/generated/prisma/client';
 import { InventoryService } from '../src/inventory/inventory.service';
 import type { RequestContext } from '../src/company-context/types';
 
@@ -312,16 +314,38 @@ describe('Stock transfers (e2e)', () => {
     } as RequestContext;
   }
 
-  /** Puts `quantity` of `variant` into a warehouse, bypassing the transfer flow. */
+  /**
+   * Leaves the on-hand of `variant` in `warehouseId` at exactly `quantity`,
+   * without going through the transfer flow.
+   *
+   * Adjusts by difference rather than calling `createInitialBalance`: these
+   * tests share one product and one pair of warehouses, so after the first
+   * movement an initial balance is no longer applicable and the service
+   * rightly rejects it. The seed movements carry their own `referenceType`,
+   * so the ledger assertions — all scoped to `StockTransfer` — never see them.
+   */
   async function seedStock(
     warehouseId: string,
     quantity: string,
     variant = variantId,
   ) {
-    await inventoryService.createInitialBalance(ctxA(), {
-      warehouseId,
-      lines: [{ productVariantId: variant, quantity }],
-    } as never);
+    const current = new Prisma.Decimal(await onHand(warehouseId, variant));
+    const delta = new Prisma.Decimal(quantity).minus(current);
+    if (delta.isZero()) return;
+    const warehouse = await prisma.warehouse.findUniqueOrThrow({
+      where: { id: warehouseId },
+    });
+    await prisma.$transaction((tx) =>
+      inventoryService.applyAdjustmentLine(tx, ctxA(), {
+        warehouse,
+        productVariantId: variant,
+        quantityDelta: delta.toString(),
+        reason: 'Preparación del test',
+        referenceType: 'TestSeed',
+        referenceId: randomUUID(),
+        occurredAt: new Date(),
+      }),
+    );
   }
 
   async function onHand(warehouseId: string, variant = variantId) {
