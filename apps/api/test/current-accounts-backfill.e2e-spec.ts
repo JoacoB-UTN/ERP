@@ -5,7 +5,10 @@ import { Prisma } from '../src/generated/prisma/client';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
 import { CurrentAccountsBackfillService } from '../src/accounts/current-accounts-backfill.service';
-import { hasPendingCurrentAccountsBackfill } from '../src/accounts/current-accounts-backfill';
+import {
+  backfillCurrentAccounts,
+  hasPendingCurrentAccountsBackfill,
+} from '../src/accounts/current-accounts-backfill';
 import {
   deleteCurrentAccountsDocuments,
   deleteCurrentAccountsMovements,
@@ -129,6 +132,32 @@ describe('Current Accounts backfill on startup (e2e)', () => {
     priceListId = priceList.id;
   });
 
+  /**
+   * How many CONFIRMED sales in THIS company still have no SALE_CHARGE.
+   *
+   * Company-scoped on purpose. `hasPendingCurrentAccountsBackfill` asks the
+   * question globally, and nineteen e2e suites share one database — another
+   * suite's fixture sales legitimately have no movements yet, so a global
+   * "is the ledger complete?" assertion is unsound here even when this
+   * suite's own ledger is perfect.
+   */
+  async function pendingSalesInThisCompany(): Promise<number> {
+    const rows = await prisma.$queryRaw<Array<{ n: number }>>(Prisma.sql`
+      SELECT count(*)::int AS n
+      FROM sales_documents s
+      WHERE s."companyId" = ${companyId}::uuid
+        AND s.status = 'CONFIRMED'
+        AND NOT EXISTS (
+          SELECT 1 FROM customer_account_movements m
+          WHERE m."companyId" = s."companyId"
+            AND m."sourceType" = 'SalesDocument'
+            AND m."sourceId" = s.id
+            AND m."movementType" = 'SALE_CHARGE'
+        )
+    `);
+    return rows[0].n;
+  }
+
   afterAll(async () => {
     await deleteCurrentAccountsDocuments(prisma, [companyId]);
     await prisma.salesTender.deleteMany({
@@ -228,7 +257,7 @@ describe('Current Accounts backfill on startup (e2e)', () => {
   });
 
   it('posts the missing movements when the API boots', async () => {
-    await service.run('startup');
+    await backfillCurrentAccounts(prisma);
 
     const movements = await prisma.customerAccountMovement.findMany({
       where: { companyId },
@@ -258,32 +287,25 @@ describe('Current Accounts backfill on startup (e2e)', () => {
     expectAmount(chargeForTendered.amount, '400.00');
   });
 
-  it('leaves no advisory lock behind', async () => {
-    // Regression test for a real bug in the first cut of this service. It
-    // used a SESSION-scoped `pg_try_advisory_lock` and released it with a
-    // separate `pg_advisory_unlock` call. Prisma hands each standalone
-    // query whichever pooled connection is free, so under concurrency the
-    // unlock ran on a different connection than the lock, returned false,
-    // and the lock stayed held for the life of that connection — after
-    // which this backfill would never run again on that process.
-    const rows = await prisma.$queryRaw<Array<{ n: number }>>(
-      Prisma.sql`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory'`,
-    );
-    expect(rows[0].n).toBe(0);
+  it('leaves nothing pending for this company once it has run', async () => {
+    // Scoped to this company: the global probe can legitimately still be
+    // true because of another suite's fixture sales (see
+    // pendingSalesInThisCompany).
+    await expect(pendingSalesInThisCompany()).resolves.toBe(0);
   });
 
-  it('leaves the probe satisfied once the ledger is complete', async () => {
-    await expect(hasPendingCurrentAccountsBackfill(prisma)).resolves.toBe(
-      false,
-    );
-  });
-
-  it('inserts nothing on a second boot', async () => {
+  it('inserts nothing on a second boot, through the real service', async () => {
     const before = await prisma.customerAccountMovement.findMany({
       where: { companyId },
       select: { id: true },
     });
 
+    // Through the service on purpose — this is the boot path. It either
+    // runs the backfill (which inserts nothing, the ledger being complete)
+    // or finds another suite holding the advisory lock and skips; both
+    // outcomes satisfy the assertion below, which is the point. What the
+    // service does with the lock is asserted deterministically in
+    // current-accounts-backfill.service.spec.ts, not here.
     await service.run('startup');
     await service.run('startup');
 
@@ -298,7 +320,7 @@ describe('Current Accounts backfill on startup (e2e)', () => {
     );
   });
 
-  it('records exactly one audit row for the run that posted movements', async () => {
+  it('records an audit row with no invented company, tenant or actor', async () => {
     const rows = await prisma.auditLog.findMany({
       where: { entityType: 'CurrentAccountsBackfill' },
       orderBy: { occurredAt: 'desc' },
@@ -364,7 +386,7 @@ describe('Current Accounts backfill on startup (e2e)', () => {
     });
     neverConfirmedReceiptId = neverConfirmed.id;
 
-    await service.run('startup');
+    await backfillCurrentAccounts(prisma);
 
     const movements = await prisma.supplierAccountMovement.findMany({
       where: { companyId },
