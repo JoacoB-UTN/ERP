@@ -75,8 +75,15 @@ shared rules, then come back here for detail.
   intent, never touches stock), and Goods Receipts (the only Purchases
   document that moves inventory), partial receiving and its lock-based
   concurrency guarantee against over-receipt, ARS/USD currency support,
-  permissions, audit, Gestión's `/compras`, and what's deferred (accounts
-  payable, fiscal purchase invoices, ...).
+  permissions, audit, Gestión's `/compras`, and what's deferred (fiscal
+  purchase invoices, ...).
+- [current-accounts.md](current-accounts.md) — Cuentas corrientes de
+  clientes y proveedores, Cobros and Pagos: the two immutable ledgers and
+  their sign convention, why a balance is never stored, per-currency
+  balances, the DRAFT/CONFIRMED/CANCELLED machine where CONFIRMED is not
+  terminal, unapplied money as account credit, the lock ordering that
+  prevents over-application, and the historical backfill (plus the open
+  question of how an upgrade runs it).
 
 ## Product direction
 
