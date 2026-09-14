@@ -227,7 +227,9 @@ function SidebarContent({
         },
         {
           href: '/administracion/backups',
-          label: 'Backups',
+          // Same route and same permission; the screen now leads with server
+          // health, so the label says so — see the page's own doc comment.
+          label: 'Servidor y backups',
           icon: DatabaseBackup,
           visible: allowed('system.backups.read'),
         },

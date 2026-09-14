@@ -8,9 +8,10 @@ import { PageHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { TableMessage } from '@/components/ui/table-support';
 import { Unauthorized } from '@/components/layout/unauthorized';
+import { SystemStatusPanel } from '@/components/administracion/system-status-panel';
 
 /**
- * Server backup health.
+ * Server and backup health.
  *
  * Read-only on purpose — see docs/backups.md. A backup covers every company on
  * the server, so it is taken and restored by the maintenance agent and its CLI,
@@ -73,9 +74,14 @@ export default function BackupsPage() {
   return (
     <div className="flex flex-col gap-2.5">
       <PageHeader
-        title="Backups del servidor"
-        description="Estado de las copias de seguridad de la base de datos. Las copias se toman y se restauran desde el servidor, no desde esta pantalla."
+        title="Servidor y backups"
+        description="Estado del servidor y de las copias de seguridad de la base de datos. Pantalla de consulta: las copias se toman y se restauran desde el servidor, no desde acá."
       />
+
+      {/* Diagnóstico primero: si el servidor no responde, el estado de los
+          backups que se muestra abajo es información vieja, y conviene
+          saberlo antes de leerla. */}
+      <SystemStatusPanel />
 
       {statusQuery.isLoading && (
         <Card>
