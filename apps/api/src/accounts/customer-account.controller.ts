@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
   customerAccountListQuerySchema,
   customerStatementQuerySchema,
@@ -16,8 +16,10 @@ import { RequirePermissions } from '../authorization/decorators/require-permissi
 import { CurrentRequestContext } from '../company-context/decorators/current-request-context.decorator';
 import type { RequestContext } from '../company-context/types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
+import { CurrentAccountsReadyGuard } from './current-accounts-ready.guard';
 import { CustomerAccountService } from './customer-account.service';
 
+@UseGuards(CurrentAccountsReadyGuard)
 @Controller('customer-accounts')
 export class CustomerAccountController {
   constructor(
@@ -74,6 +76,7 @@ export class CustomerAccountController {
   }
 }
 
+@UseGuards(CurrentAccountsReadyGuard)
 @Controller('sales-documents/:salesDocumentId/outstanding')
 export class SalesDocumentOutstandingController {
   constructor(

@@ -282,19 +282,50 @@ cancel). Backed by `accounts-hooks.ts` in `auth-client` and
 summed with exact decimal-string arithmetic, never `+`, because it is
 compared against the document amount and shown to the user as money.
 
-**Historical backfill, and the gap it leaves.**
-`npm run db:backfill-current-accounts --workspace=apps/api` posts
-movements for sales and receipts confirmed *outside* the live service
-path (genuinely historical data, or seed fixtures inserted directly). It
-is idempotent by construction rather than by a flag — every insert is
-`createMany({ skipDuplicates: true })` against the same unique constraint
-the live path uses. **Nothing makes an upgrade run it**: an existing Local
-ERP installation that upgrades into this module gets the tables and the
-code and a completely empty ledger against sales that already exist, so
-every customer reads as owing nothing until an administrator knows to run
-the script by hand. Whether that becomes a migration step, a startup
-check or an installer prompt is an open decision and is **not** closed —
-see "Not implemented / incomplete" below.
+**Historical backfill — runs on API startup.**
+`backfillCurrentAccounts` posts movements for sales and receipts confirmed
+*outside* the live service path (genuinely historical data, or seed
+fixtures inserted directly). It is idempotent by construction rather than
+by a flag — every insert is `createMany({ skipDuplicates: true })` against
+the same unique constraint the live path uses — and it only ever inserts,
+never updates or deletes.
+
+`CurrentAccountsBackfillService` runs it on `onApplicationBootstrap`, so an
+installation upgrading into this module posts its history the first time
+the API comes up instead of reading as "nobody owes anything" until an
+administrator finds the script. A cheap `EXISTS` probe runs first, so a
+healthy boot costs one query; when there is work, it runs inside one
+transaction holding a transaction-scoped advisory lock
+(`pg_try_advisory_xact_lock`, so it cannot leak across pooled connections
+the way a session-scoped lock does), re-probes inside that lock, reads
+documents in batches, and writes one `AuditLog` row — no company, tenant or
+actor invented — in the same transaction. A failure is logged and never
+blocks startup. `ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false` turns it off;
+`npm run db:backfill-current-accounts --workspace=apps/api` still runs it by
+hand.
+
+**The module refuses to answer until the ledger is loaded.**
+`CurrentAccountsReadyGuard` sits on every Current Accounts controller and
+returns **503 `CURRENT_ACCOUNTS_NOT_READY`** unless the state is
+`complete` — `pending`, `running`, `failed` and `disabled` are all refused,
+because a ledger missing its history answers *zero*, confidently, and that
+is indistinguishable from "nobody owes anything". `disabled` is not
+`complete`: turning the automatic load off hands the job to an operator, it
+does not do the job. A `pending` state is re-checked per request
+(`refreshIfPending`), so an instance that lost the advisory lock to a
+sibling does not refuse forever over a ledger that is loaded.
+
+Gestión's Estado del sistema panel shows the state — Al día / Ejecutando… /
+Falló / Desactivado / Pendiente — read from `GET /health`, as a state word
+with no counts, company names or amounts. Covered by
+`current-accounts-backfill.service.spec.ts`,
+`current-accounts-ready.guard.spec.ts`, `health.service.spec.ts`,
+`system-status.test.ts` and `current-accounts-backfill.e2e-spec.ts`, which
+drives the real boot path — fixtures inserted through a separate client
+before any app exists, then `app.init()`, including two instances booting
+at once and an injected transaction failure. See
+[current-accounts.md](current-accounts.md) for why a startup check rather
+than a migration or an installer step.
 
 Explicitly NOT implemented as part of this: editing a draft from Gestión
 (`PATCH` exists and is wired, but the UI only confirms or cancels), date
@@ -848,12 +879,11 @@ handling, and no fiscal-printer integration of any kind exists.
   previously verified only in-session, not in git. This is now fixed;
   see [multi-agent-workflow.md](multi-agent-workflow.md) for the
   branch/PR workflow going forward.
-- **The current-accounts backfill is not automated.** Nothing in a
-  migration, a startup check or the installer runs
-  `db:backfill-current-accounts`, so upgrading an existing installation
-  into the module leaves an empty ledger against sales that already
-  exist. Documented above and in current-accounts.md; the decision on
-  where it belongs is open.
+- ~~**The current-accounts backfill is not automated.**~~ Closed: the API
+  runs it on startup (see "Current accounts" above and
+  current-accounts.md). What remains deliberately undone is any UI for it
+  — the "Estado del sistema" panel does not show backfill state, so an
+  operator reads the API log or the `AuditLog` row.
 - **`apps/api/src/modules/*` is still 16 README-only folders**
   (`accounting`, `accounts-payable`, `accounts-receivable`, `audit`,
   `auth`, `core`, `customers`, `integrations`, `inventory`,
@@ -912,8 +942,8 @@ VM**. The recommended order from here:
    "ERP Server installer (Windows)" that is marked unverified is the gate
    before any customer install, and `initdb` under a service account is
    the most likely place to find the next problem.
-2. **Close the backfill-on-upgrade gap**, or decide deliberately that it
-   stays a documented manual step.
+2. ~~**Close the backfill-on-upgrade gap.**~~ Done — the API runs the
+   backfill on startup (see "Current accounts" above).
 3. **Plan the Tango data migration** — customers, suppliers, products,
    stock and balances. The price importer is not this.
 4. **Then** the fiscal work (ARCA, IVA), which is what turns an internal
