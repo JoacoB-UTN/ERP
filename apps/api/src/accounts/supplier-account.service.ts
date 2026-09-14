@@ -201,7 +201,11 @@ export class SupplierAccountService {
     const [accrualSums, appliedSums] = await Promise.all([
       db.supplierAccountMovement.groupBy({
         by: ['sourceId'],
-        where: { companyId, sourceType: 'PurchaseReceipt', sourceId: { in: purchaseReceiptIds } },
+        where: {
+          companyId,
+          sourceType: 'PurchaseReceipt',
+          sourceId: { in: purchaseReceiptIds },
+        },
         _sum: { amount: true },
       }),
       db.supplierPaymentApplication.groupBy({
@@ -214,7 +218,10 @@ export class SupplierAccountService {
       }),
     ]);
     const appliedById = new Map(
-      appliedSums.map((row) => [row.purchaseReceiptId, row._sum.amount ?? new Prisma.Decimal(0)]),
+      appliedSums.map((row) => [
+        row.purchaseReceiptId,
+        row._sum.amount ?? new Prisma.Decimal(0),
+      ]),
     );
     const result = new Map<string, Prisma.Decimal>();
     for (const row of accrualSums) {
@@ -254,12 +261,21 @@ export class SupplierAccountService {
     });
     if (!receipt) throw new PurchaseReceiptNotFoundException();
     const accrual = await this.prisma.supplierAccountMovement.aggregate({
-      where: { companyId, sourceType: 'PurchaseReceipt', sourceId: purchaseReceiptId },
+      where: {
+        companyId,
+        sourceType: 'PurchaseReceipt',
+        sourceId: purchaseReceiptId,
+      },
       _sum: { amount: true },
     });
     const total = accrual._sum.amount ?? new Prisma.Decimal(0);
-    const outstandingByReceipt = await this.getReceiptsOutstanding(this.prisma, companyId, [purchaseReceiptId]);
-    const outstanding = outstandingByReceipt.get(purchaseReceiptId) ?? new Prisma.Decimal(0);
+    const outstandingByReceipt = await this.getReceiptsOutstanding(
+      this.prisma,
+      companyId,
+      [purchaseReceiptId],
+    );
+    const outstanding =
+      outstandingByReceipt.get(purchaseReceiptId) ?? new Prisma.Decimal(0);
     return {
       purchaseReceiptId,
       currencyCode: receipt.currency.code,
@@ -270,7 +286,10 @@ export class SupplierAccountService {
 
   // ---------- Reads ----------
 
-  async list(companyId: string, query: SupplierAccountListQuery): Promise<SupplierAccountListResponse> {
+  async list(
+    companyId: string,
+    query: SupplierAccountListQuery,
+  ): Promise<SupplierAccountListResponse> {
     const where: Prisma.SupplierWhereInput = { companyId };
     if (query.search) {
       const term = query.search.trim();
@@ -284,7 +303,12 @@ export class SupplierAccountService {
     const skip = (query.page - 1) * query.pageSize;
     const [total, suppliers] = await this.prisma.$transaction([
       this.prisma.supplier.count({ where }),
-      this.prisma.supplier.findMany({ where, orderBy: { legalName: 'asc' }, skip, take: query.pageSize }),
+      this.prisma.supplier.findMany({
+        where,
+        orderBy: { legalName: 'asc' },
+        skip,
+        take: query.pageSize,
+      }),
     ]);
 
     const ids = suppliers.map((s) => s.id);
@@ -294,18 +318,31 @@ export class SupplierAccountService {
     ]);
 
     return {
-      items: suppliers.map((s) => this.toSummary(s, balances.get(s.id) ?? [], lastMovements.get(s.id) ?? null)),
+      items: suppliers.map((s) =>
+        this.toSummary(
+          s,
+          balances.get(s.id) ?? [],
+          lastMovements.get(s.id) ?? null,
+        ),
+      ),
       pagination: { page: query.page, pageSize: query.pageSize, total },
     };
   }
 
-  async getSummary(companyId: string, supplierId: string): Promise<SupplierAccountSummary> {
+  async getSummary(
+    companyId: string,
+    supplierId: string,
+  ): Promise<SupplierAccountSummary> {
     const supplier = await this.findScopedSupplier(companyId, supplierId);
     const [balances, lastMovements] = await Promise.all([
       this.balancesBySupplier(companyId, [supplierId]),
       this.lastMovementBySupplier(companyId, [supplierId]),
     ]);
-    return this.toSummary(supplier, balances.get(supplierId) ?? [], lastMovements.get(supplierId) ?? null);
+    return this.toSummary(
+      supplier,
+      balances.get(supplierId) ?? [],
+      lastMovements.get(supplierId) ?? null,
+    );
   }
 
   async getStatement(
@@ -314,13 +351,20 @@ export class SupplierAccountService {
     query: SupplierStatementQuery,
   ): Promise<SupplierStatementResponse> {
     const supplier = await this.findScopedSupplier(companyId, supplierId);
-    const currency = await this.prisma.currency.findFirst({ where: { id: query.currencyId } });
+    const currency = await this.prisma.currency.findFirst({
+      where: { id: query.currencyId },
+    });
     if (!currency) throw new CurrencyNotFoundException();
 
     let openingBalance = new Prisma.Decimal(0);
     if (query.dateFrom) {
       const opening = await this.prisma.supplierAccountMovement.aggregate({
-        where: { companyId, supplierId, currencyId: query.currencyId, occurredAt: { lt: query.dateFrom } },
+        where: {
+          companyId,
+          supplierId,
+          currencyId: query.currencyId,
+          occurredAt: { lt: query.dateFrom },
+        },
         _sum: { amount: true },
       });
       openingBalance = opening._sum.amount ?? new Prisma.Decimal(0);
@@ -370,7 +414,9 @@ export class SupplierAccountService {
     supplierId: string,
     currencyId: string,
   ): Promise<SupplierOpenReceiptsResponse> {
-    const currency = await this.prisma.currency.findFirst({ where: { id: currencyId } });
+    const currency = await this.prisma.currency.findFirst({
+      where: { id: currencyId },
+    });
     if (!currency) throw new CurrencyNotFoundException();
     const receipts = await this.prisma.purchaseReceipt.findMany({
       where: { companyId, supplierId, currencyId, status: 'CONFIRMED' },
@@ -383,14 +429,24 @@ export class SupplierAccountService {
     );
     const totalByReceipt = await this.prisma.supplierAccountMovement.groupBy({
       by: ['sourceId'],
-      where: { companyId, sourceType: 'PurchaseReceipt', sourceId: { in: receipts.map((r) => r.id) } },
+      where: {
+        companyId,
+        sourceType: 'PurchaseReceipt',
+        sourceId: { in: receipts.map((r) => r.id) },
+      },
       _sum: { amount: true },
     });
-    const totalById = new Map(totalByReceipt.map((r) => [r.sourceId, r._sum.amount ?? new Prisma.Decimal(0)]));
+    const totalById = new Map(
+      totalByReceipt.map((r) => [
+        r.sourceId,
+        r._sum.amount ?? new Prisma.Decimal(0),
+      ]),
+    );
 
     const items: SupplierOpenReceiptDto[] = [];
     for (const receipt of receipts) {
-      const outstanding = outstandingByReceipt.get(receipt.id) ?? new Prisma.Decimal(0);
+      const outstanding =
+        outstandingByReceipt.get(receipt.id) ?? new Prisma.Decimal(0);
       if (outstanding.lte(0)) continue;
       items.push({
         id: receipt.id,
@@ -405,8 +461,13 @@ export class SupplierAccountService {
 
   // ---------- Internal helpers ----------
 
-  private async findScopedSupplier(companyId: string, id: string): Promise<Supplier> {
-    const supplier = await this.prisma.supplier.findFirst({ where: { id, companyId } });
+  private async findScopedSupplier(
+    companyId: string,
+    id: string,
+  ): Promise<Supplier> {
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { id, companyId },
+    });
     if (!supplier) throw new SupplierNotFoundException();
     return supplier;
   }
@@ -414,7 +475,9 @@ export class SupplierAccountService {
   private async balancesBySupplier(
     companyId: string,
     supplierIds: string[],
-  ): Promise<Map<string, { currencyId: string; currencyCode: string; balance: string }[]>> {
+  ): Promise<
+    Map<string, { currencyId: string; currencyCode: string; balance: string }[]>
+  > {
     if (supplierIds.length === 0) return new Map();
     const rows = await this.prisma.supplierAccountMovement.groupBy({
       by: ['supplierId', 'currencyId'],
@@ -423,9 +486,14 @@ export class SupplierAccountService {
     });
     if (rows.length === 0) return new Map();
     const currencyIds = [...new Set(rows.map((r) => r.currencyId))];
-    const currencies = await this.prisma.currency.findMany({ where: { id: { in: currencyIds } } });
+    const currencies = await this.prisma.currency.findMany({
+      where: { id: { in: currencyIds } },
+    });
     const currencyById = new Map(currencies.map((c) => [c.id, c]));
-    const map = new Map<string, { currencyId: string; currencyCode: string; balance: string }[]>();
+    const map = new Map<
+      string,
+      { currencyId: string; currencyCode: string; balance: string }[]
+    >();
     for (const row of rows) {
       const list = map.get(row.supplierId) ?? [];
       list.push({
@@ -450,7 +518,10 @@ export class SupplierAccountService {
     });
     return new Map(
       rows
-        .filter((r): r is typeof r & { _max: { occurredAt: Date } } => !!r._max.occurredAt)
+        .filter(
+          (r): r is typeof r & { _max: { occurredAt: Date } } =>
+            !!r._max.occurredAt,
+        )
         .map((r) => [r.supplierId, r._max.occurredAt]),
     );
   }
@@ -461,7 +532,8 @@ export class SupplierAccountService {
     lastMovementAt: Date | null,
   ): SupplierAccountSummary {
     const taxIdFormatted =
-      supplier.taxId && (supplier.documentType === 'CUIT' || supplier.documentType === 'CUIL')
+      supplier.taxId &&
+      (supplier.documentType === 'CUIT' || supplier.documentType === 'CUIL')
         ? formatCuit(supplier.taxId)
         : supplier.taxId;
     return {
@@ -479,7 +551,15 @@ export class SupplierAccountService {
 
 /** Same Debe/Haber convention as CustomerAccountService's identical helper. */
 function toMovementDto(
-  m: { id: string; occurredAt: Date; movementType: string; sourceType: string; sourceId: string; description: string | null; amount: Prisma.Decimal },
+  m: {
+    id: string;
+    occurredAt: Date;
+    movementType: string;
+    sourceType: string;
+    sourceId: string;
+    description: string | null;
+    amount: Prisma.Decimal;
+  },
   runningBalance: Prisma.Decimal,
 ): SupplierAccountMovementDto {
   const isDebit = m.amount.gte(0);

@@ -20,13 +20,16 @@ import { SupplierAccountService } from './supplier-account.service';
 
 @Controller('supplier-accounts')
 export class SupplierAccountController {
-  constructor(private readonly supplierAccountService: SupplierAccountService) {}
+  constructor(
+    private readonly supplierAccountService: SupplierAccountService,
+  ) {}
 
   @RequirePermissions('accounts.payable.read')
   @Get()
   list(
     @CurrentRequestContext() ctx: RequestContext,
-    @Query(new ZodValidationPipe(supplierAccountListQuerySchema)) query: SupplierAccountListQuery,
+    @Query(new ZodValidationPipe(supplierAccountListQuerySchema))
+    query: SupplierAccountListQuery,
   ): Promise<SupplierAccountListResponse> {
     return this.supplierAccountService.list(ctx.companyId, query);
   }
@@ -45,9 +48,14 @@ export class SupplierAccountController {
   getStatement(
     @CurrentRequestContext() ctx: RequestContext,
     @Param('supplierId') supplierId: string,
-    @Query(new ZodValidationPipe(supplierStatementQuerySchema)) query: SupplierStatementQuery,
+    @Query(new ZodValidationPipe(supplierStatementQuerySchema))
+    query: SupplierStatementQuery,
   ): Promise<SupplierStatementResponse> {
-    return this.supplierAccountService.getStatement(ctx.companyId, supplierId, query);
+    return this.supplierAccountService.getStatement(
+      ctx.companyId,
+      supplierId,
+      query,
+    );
   }
 
   @RequirePermissions('accounts.payable.read')
@@ -55,15 +63,22 @@ export class SupplierAccountController {
   getOpenReceipts(
     @CurrentRequestContext() ctx: RequestContext,
     @Param('supplierId') supplierId: string,
-    @Query(new ZodValidationPipe(supplierOpenReceiptsQuerySchema)) query: SupplierOpenReceiptsQuery,
+    @Query(new ZodValidationPipe(supplierOpenReceiptsQuerySchema))
+    query: SupplierOpenReceiptsQuery,
   ): Promise<SupplierOpenReceiptsResponse> {
-    return this.supplierAccountService.getOpenReceipts(ctx.companyId, supplierId, query.currencyId);
+    return this.supplierAccountService.getOpenReceipts(
+      ctx.companyId,
+      supplierId,
+      query.currencyId,
+    );
   }
 }
 
 @Controller('purchase-receipts/:purchaseReceiptId/outstanding')
 export class PurchaseReceiptOutstandingController {
-  constructor(private readonly supplierAccountService: SupplierAccountService) {}
+  constructor(
+    private readonly supplierAccountService: SupplierAccountService,
+  ) {}
 
   @RequirePermissions('accounts.payable.read')
   @Get()
@@ -71,6 +86,9 @@ export class PurchaseReceiptOutstandingController {
     @CurrentRequestContext() ctx: RequestContext,
     @Param('purchaseReceiptId') purchaseReceiptId: string,
   ): Promise<PurchaseReceiptOutstandingResponse> {
-    return this.supplierAccountService.getReceiptOutstanding(ctx.companyId, purchaseReceiptId);
+    return this.supplierAccountService.getReceiptOutstanding(
+      ctx.companyId,
+      purchaseReceiptId,
+    );
   }
 }

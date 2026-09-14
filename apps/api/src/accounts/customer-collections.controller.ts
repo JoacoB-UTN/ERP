@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   createCustomerCollectionSchema,
   updateCustomerCollectionSchema,
@@ -17,13 +26,16 @@ import { CustomerCollectionsService } from './customer-collections.service';
 
 @Controller('customer-collections')
 export class CustomerCollectionsController {
-  constructor(private readonly customerCollectionsService: CustomerCollectionsService) {}
+  constructor(
+    private readonly customerCollectionsService: CustomerCollectionsService,
+  ) {}
 
   @RequirePermissions('treasury.receipts.read')
   @Get()
   list(
     @CurrentRequestContext() ctx: RequestContext,
-    @Query(new ZodValidationPipe(customerCollectionListQuerySchema)) query: CustomerCollectionListQuery,
+    @Query(new ZodValidationPipe(customerCollectionListQuerySchema))
+    query: CustomerCollectionListQuery,
   ): Promise<CustomerCollectionListResponse> {
     return this.customerCollectionsService.list(ctx.companyId, query);
   }
@@ -34,7 +46,10 @@ export class CustomerCollectionsController {
     @CurrentRequestContext() ctx: RequestContext,
     @Param('id') id: string,
   ): Promise<CustomerCollectionDetailResponse> {
-    const collection = await this.customerCollectionsService.getById(ctx.companyId, id);
+    const collection = await this.customerCollectionsService.getById(
+      ctx.companyId,
+      id,
+    );
     return { collection };
   }
 
@@ -42,7 +57,8 @@ export class CustomerCollectionsController {
   @Post()
   async create(
     @CurrentRequestContext() ctx: RequestContext,
-    @Body(new ZodValidationPipe(createCustomerCollectionSchema)) body: CreateCustomerCollectionInput,
+    @Body(new ZodValidationPipe(createCustomerCollectionSchema))
+    body: CreateCustomerCollectionInput,
   ): Promise<CustomerCollectionDetailResponse> {
     const collection = await this.customerCollectionsService.create(ctx, body);
     return { collection };
@@ -53,9 +69,14 @@ export class CustomerCollectionsController {
   async update(
     @CurrentRequestContext() ctx: RequestContext,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(updateCustomerCollectionSchema)) body: UpdateCustomerCollectionInput,
+    @Body(new ZodValidationPipe(updateCustomerCollectionSchema))
+    body: UpdateCustomerCollectionInput,
   ): Promise<CustomerCollectionDetailResponse> {
-    const collection = await this.customerCollectionsService.update(ctx, id, body);
+    const collection = await this.customerCollectionsService.update(
+      ctx,
+      id,
+      body,
+    );
     return { collection };
   }
 

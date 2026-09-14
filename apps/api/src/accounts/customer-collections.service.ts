@@ -67,7 +67,11 @@ function toSummary(
     number: c.number,
     status: c.status,
     occurredAt: c.occurredAt.toISOString(),
-    customer: { id: c.customer.id, code: c.customer.code, legalName: c.customer.legalName },
+    customer: {
+      id: c.customer.id,
+      code: c.customer.code,
+      legalName: c.customer.legalName,
+    },
     currencyCode: c.currency.code,
     amount: c.amount.toString(),
     appliedAmount: appliedAmount.toString(),
@@ -77,7 +81,9 @@ function toSummary(
   };
 }
 
-function toApplicationDto(a: CustomerCollectionApplication & { salesDocument: { number: string } }): CustomerCollectionApplicationDto {
+function toApplicationDto(
+  a: CustomerCollectionApplication & { salesDocument: { number: string } },
+): CustomerCollectionApplicationDto {
   return {
     id: a.id,
     salesDocumentId: a.salesDocumentId,
@@ -99,9 +105,13 @@ function toDetail(
     applications: c.applications.map(toApplicationDto),
     createdAt: c.createdAt.toISOString(),
     confirmedAt: c.confirmedAt?.toISOString() ?? null,
-    confirmedBy: c.confirmedBy ? { id: c.confirmedBy, name: names.get(c.confirmedBy) ?? null } : null,
+    confirmedBy: c.confirmedBy
+      ? { id: c.confirmedBy, name: names.get(c.confirmedBy) ?? null }
+      : null,
     cancelledAt: c.cancelledAt?.toISOString() ?? null,
-    cancelledBy: c.cancelledBy ? { id: c.cancelledBy, name: names.get(c.cancelledBy) ?? null } : null,
+    cancelledBy: c.cancelledBy
+      ? { id: c.cancelledBy, name: names.get(c.cancelledBy) ?? null }
+      : null,
   };
 }
 
@@ -122,7 +132,10 @@ export class CustomerCollectionsService {
     private readonly realtimePublisher: RealtimePublisher,
   ) {}
 
-  async list(companyId: string, query: CustomerCollectionListQuery): Promise<CustomerCollectionListResponse> {
+  async list(
+    companyId: string,
+    query: CustomerCollectionListQuery,
+  ): Promise<CustomerCollectionListResponse> {
     const where: Prisma.CustomerCollectionWhereInput = {
       companyId,
       ...(query.status ? { status: query.status } : {}),
@@ -139,8 +152,16 @@ export class CustomerCollectionsService {
         ? {
             OR: [
               { number: { contains: query.search, mode: 'insensitive' } },
-              { customer: { legalName: { contains: query.search, mode: 'insensitive' } } },
-              { customer: { code: { contains: query.search, mode: 'insensitive' } } },
+              {
+                customer: {
+                  legalName: { contains: query.search, mode: 'insensitive' },
+                },
+              },
+              {
+                customer: {
+                  code: { contains: query.search, mode: 'insensitive' },
+                },
+              },
             ],
           }
         : {}),
@@ -158,21 +179,34 @@ export class CustomerCollectionsService {
     ]);
     const names = await this.resolveUserNames(rows.map((r) => r.createdBy));
     return {
-      items: rows.map((r) => toSummary(r, r.createdBy ? (names.get(r.createdBy) ?? null) : null)),
+      items: rows.map((r) =>
+        toSummary(r, r.createdBy ? (names.get(r.createdBy) ?? null) : null),
+      ),
       pagination: { page: query.page, pageSize: query.pageSize, total },
     };
   }
 
-  async getById(companyId: string, id: string): Promise<CustomerCollectionDetailDto> {
+  async getById(
+    companyId: string,
+    id: string,
+  ): Promise<CustomerCollectionDetailDto> {
     const collection = await this.findScopedOrThrow(companyId, id);
-    const names = await this.resolveUserNames([collection.createdBy, collection.confirmedBy, collection.cancelledBy]);
+    const names = await this.resolveUserNames([
+      collection.createdBy,
+      collection.confirmedBy,
+      collection.cancelledBy,
+    ]);
     return toDetail(collection, names);
   }
 
-  async create(ctx: RequestContext, input: CreateCustomerCollectionInput): Promise<CustomerCollectionDetailDto> {
+  async create(
+    ctx: RequestContext,
+    input: CreateCustomerCollectionInput,
+  ): Promise<CustomerCollectionDetailDto> {
     const customer = await this.loadCustomer(ctx.companyId, input.customerId);
     const currency = await this.loadCurrency(input.currencyId);
-    if (input.branchId) await this.assertBranchBelongsToCompany(ctx.companyId, input.branchId);
+    if (input.branchId)
+      await this.assertBranchBelongsToCompany(ctx.companyId, input.branchId);
     const branchId = input.branchId ?? ctx.branchId ?? null;
 
     const applications = await this.buildApplications(
@@ -200,7 +234,10 @@ export class CustomerCollectionsService {
           notes: input.notes || null,
           createdBy: ctx.userId,
           applications: {
-            create: applications.map((a) => ({ salesDocumentId: a.salesDocumentId, amount: a.amount })),
+            create: applications.map((a) => ({
+              salesDocumentId: a.salesDocumentId,
+              amount: a.amount,
+            })),
           },
         },
       });
@@ -210,7 +247,12 @@ export class CustomerCollectionsService {
           action: 'CREATE',
           entityType: 'CustomerCollection',
           entityId: collection.id,
-          after: { number: collection.number, customerId: collection.customerId, amount: collection.amount.toString(), status: collection.status },
+          after: {
+            number: collection.number,
+            customerId: collection.customerId,
+            amount: collection.amount.toString(),
+            status: collection.status,
+          },
         },
         tx,
       );
@@ -219,23 +261,40 @@ export class CustomerCollectionsService {
     return this.getById(ctx.companyId, created.id);
   }
 
-  async update(ctx: RequestContext, id: string, input: UpdateCustomerCollectionInput): Promise<CustomerCollectionDetailDto> {
+  async update(
+    ctx: RequestContext,
+    id: string,
+    input: UpdateCustomerCollectionInput,
+  ): Promise<CustomerCollectionDetailDto> {
     const existing = await this.findScopedOrThrow(ctx.companyId, id);
-    if (existing.status !== 'DRAFT') throw new CustomerCollectionNotEditableException();
+    if (existing.status !== 'DRAFT')
+      throw new CustomerCollectionNotEditableException();
 
     let customer = existing.customer;
-    if (input.customerId !== undefined && input.customerId !== existing.customerId) {
+    if (
+      input.customerId !== undefined &&
+      input.customerId !== existing.customerId
+    ) {
       customer = await this.loadCustomer(ctx.companyId, input.customerId);
     }
     let currency = existing.currency;
-    if (input.currencyId !== undefined && input.currencyId !== existing.currencyId) {
+    if (
+      input.currencyId !== undefined &&
+      input.currencyId !== existing.currencyId
+    ) {
       currency = await this.loadCurrency(input.currencyId);
     }
     const amount = input.amount ?? existing.amount.toString();
 
     let rebuiltApplications: BuiltApplication[] | undefined;
     if (input.applications) {
-      rebuiltApplications = await this.buildApplications(ctx.companyId, customer.id, currency.id, amount, input.applications);
+      rebuiltApplications = await this.buildApplications(
+        ctx.companyId,
+        customer.id,
+        currency.id,
+        amount,
+        input.applications,
+      );
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -244,19 +303,27 @@ export class CustomerCollectionsService {
       if (input.currencyId !== undefined) data.currencyId = currency.id;
       if (input.occurredAt !== undefined) data.occurredAt = input.occurredAt;
       if (input.amount !== undefined) data.amount = input.amount;
-      if (input.paymentMethod !== undefined) data.paymentMethod = input.paymentMethod;
-      if (input.externalReference !== undefined) data.externalReference = input.externalReference || null;
+      if (input.paymentMethod !== undefined)
+        data.paymentMethod = input.paymentMethod;
+      if (input.externalReference !== undefined)
+        data.externalReference = input.externalReference || null;
       if (input.notes !== undefined) data.notes = input.notes || null;
       // Forced so an `applications`-only PATCH still issues a real UPDATE
       // and takes the row lock — see the Prompt-21 lesson documented at
       // length in PurchaseReceiptsService.update().
       data.updatedAt = new Date();
 
-      const guarded = await tx.customerCollection.updateMany({ where: { id: existing.id, status: 'DRAFT' }, data });
-      if (guarded.count === 0) throw new CustomerCollectionNotEditableException();
+      const guarded = await tx.customerCollection.updateMany({
+        where: { id: existing.id, status: 'DRAFT' },
+        data,
+      });
+      if (guarded.count === 0)
+        throw new CustomerCollectionNotEditableException();
 
       if (rebuiltApplications) {
-        await tx.customerCollectionApplication.deleteMany({ where: { customerCollectionId: existing.id } });
+        await tx.customerCollectionApplication.deleteMany({
+          where: { customerCollectionId: existing.id },
+        });
         await tx.customerCollectionApplication.createMany({
           data: rebuiltApplications.map((a) => ({
             customerCollectionId: existing.id,
@@ -268,7 +335,12 @@ export class CustomerCollectionsService {
 
       await this.auditService.recordFromContext(
         ctx,
-        { action: 'UPDATE', entityType: 'CustomerCollection', entityId: id, metadata: { change: 'draft_updated' } },
+        {
+          action: 'UPDATE',
+          entityType: 'CustomerCollection',
+          entityId: id,
+          metadata: { change: 'draft_updated' },
+        },
         tx,
       );
     });
@@ -283,32 +355,51 @@ export class CustomerCollectionsService {
    * why this ordering is what prevents two concurrent confirms from both
    * succeeding past the same sale's outstanding balance.
    */
-  async confirm(ctx: RequestContext, id: string): Promise<CustomerCollectionDetailDto> {
+  async confirm(
+    ctx: RequestContext,
+    id: string,
+  ): Promise<CustomerCollectionDetailDto> {
     const existing = await this.findScopedOrThrow(ctx.companyId, id);
-    if (existing.status === 'CONFIRMED') throw new CustomerCollectionAlreadyConfirmedException();
-    if (existing.status !== 'DRAFT') throw new CustomerCollectionNotEditableException();
+    if (existing.status === 'CONFIRMED')
+      throw new CustomerCollectionAlreadyConfirmedException();
+    if (existing.status !== 'DRAFT')
+      throw new CustomerCollectionNotEditableException();
 
     await this.prisma.$transaction(async (tx) => {
       const guarded = await tx.customerCollection.updateMany({
         where: { id, status: 'DRAFT' },
-        data: { status: 'CONFIRMED', confirmedAt: new Date(), confirmedBy: ctx.userId },
+        data: {
+          status: 'CONFIRMED',
+          confirmedAt: new Date(),
+          confirmedBy: ctx.userId,
+        },
       });
-      if (guarded.count === 0) throw new CustomerCollectionAlreadyConfirmedException();
+      if (guarded.count === 0)
+        throw new CustomerCollectionAlreadyConfirmedException();
 
       const collection = await tx.customerCollection.findUniqueOrThrow({
         where: { id },
         include: COLLECTION_INCLUDE,
       });
 
-      const salesDocumentIds = [...new Set(collection.applications.map((a) => a.salesDocumentId))].sort();
+      const salesDocumentIds = [
+        ...new Set(collection.applications.map((a) => a.salesDocumentId)),
+      ].sort();
       if (salesDocumentIds.length > 0) {
         await tx.$queryRaw(
           Prisma.sql`SELECT id FROM sales_documents WHERE id IN (${Prisma.join(salesDocumentIds)}) FOR UPDATE`,
         );
-        const outstandingBySale = await this.customerAccountService.getSalesOutstanding(tx, ctx.companyId, salesDocumentIds);
+        const outstandingBySale =
+          await this.customerAccountService.getSalesOutstanding(
+            tx,
+            ctx.companyId,
+            salesDocumentIds,
+          );
         for (const salesDocumentId of salesDocumentIds) {
-          const outstanding = outstandingBySale.get(salesDocumentId) ?? new Prisma.Decimal(0);
-          if (outstanding.lt(0)) throw new CustomerCollectionOverApplicationException();
+          const outstanding =
+            outstandingBySale.get(salesDocumentId) ?? new Prisma.Decimal(0);
+          if (outstanding.lt(0))
+            throw new CustomerCollectionOverApplicationException();
         }
       }
 
@@ -330,14 +421,22 @@ export class CustomerCollectionsService {
           action: 'CONFIRM',
           entityType: 'CustomerCollection',
           entityId: id,
-          metadata: { change: 'collection_confirmed', number: collection.number, customerName: collection.customer.legalName, amount: collection.amount.toString() },
+          metadata: {
+            change: 'collection_confirmed',
+            number: collection.number,
+            customerName: collection.customer.legalName,
+            amount: collection.amount.toString(),
+          },
         },
         tx,
       );
     });
 
     this.realtimePublisher.collectionConfirmed(ctx.companyId, id);
-    this.realtimePublisher.customerAccountChanged(ctx.companyId, existing.customerId);
+    this.realtimePublisher.customerAccountChanged(
+      ctx.companyId,
+      existing.customerId,
+    );
     return this.getById(ctx.companyId, id);
   }
 
@@ -348,20 +447,34 @@ export class CustomerCollectionsService {
    * Applications are never deleted on either path — see the class doc
    * comment above.
    */
-  async cancel(ctx: RequestContext, id: string): Promise<CustomerCollectionDetailDto> {
+  async cancel(
+    ctx: RequestContext,
+    id: string,
+  ): Promise<CustomerCollectionDetailDto> {
     const existing = await this.findScopedOrThrow(ctx.companyId, id);
-    if (existing.status === 'CANCELLED') throw new CustomerCollectionAlreadyCancelledException();
+    if (existing.status === 'CANCELLED')
+      throw new CustomerCollectionAlreadyCancelledException();
 
     if (existing.status === 'DRAFT') {
       await this.prisma.$transaction(async (tx) => {
         const guarded = await tx.customerCollection.updateMany({
           where: { id, status: 'DRAFT' },
-          data: { status: 'CANCELLED', cancelledAt: new Date(), cancelledBy: ctx.userId },
+          data: {
+            status: 'CANCELLED',
+            cancelledAt: new Date(),
+            cancelledBy: ctx.userId,
+          },
         });
-        if (guarded.count === 0) throw new CustomerCollectionAlreadyCancelledException();
+        if (guarded.count === 0)
+          throw new CustomerCollectionAlreadyCancelledException();
         await this.auditService.recordFromContext(
           ctx,
-          { action: 'CANCEL', entityType: 'CustomerCollection', entityId: id, metadata: { change: 'draft_cancelled', number: existing.number } },
+          {
+            action: 'CANCEL',
+            entityType: 'CustomerCollection',
+            entityId: id,
+            metadata: { change: 'draft_cancelled', number: existing.number },
+          },
           tx,
         );
       });
@@ -372,9 +485,14 @@ export class CustomerCollectionsService {
     await this.prisma.$transaction(async (tx) => {
       const guarded = await tx.customerCollection.updateMany({
         where: { id, status: 'CONFIRMED' },
-        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelledBy: ctx.userId },
+        data: {
+          status: 'CANCELLED',
+          cancelledAt: new Date(),
+          cancelledBy: ctx.userId,
+        },
       });
-      if (guarded.count === 0) throw new CustomerCollectionAlreadyCancelledException();
+      if (guarded.count === 0)
+        throw new CustomerCollectionAlreadyCancelledException();
 
       await this.customerAccountService.postCollectionReversal(tx, {
         tenantId: ctx.tenantId,
@@ -390,32 +508,52 @@ export class CustomerCollectionsService {
 
       await this.auditService.recordFromContext(
         ctx,
-        { action: 'CANCEL', entityType: 'CustomerCollection', entityId: id, metadata: { change: 'confirmed_collection_cancelled', number: existing.number } },
+        {
+          action: 'CANCEL',
+          entityType: 'CustomerCollection',
+          entityId: id,
+          metadata: {
+            change: 'confirmed_collection_cancelled',
+            number: existing.number,
+          },
+        },
         tx,
       );
     });
 
     this.realtimePublisher.collectionCancelled(ctx.companyId, id);
-    this.realtimePublisher.customerAccountChanged(ctx.companyId, existing.customerId);
+    this.realtimePublisher.customerAccountChanged(
+      ctx.companyId,
+      existing.customerId,
+    );
     return this.getById(ctx.companyId, id);
   }
 
   // ---------- Internal helpers ----------
 
   private async loadCustomer(companyId: string, id: string): Promise<Customer> {
-    const customer = await this.prisma.customer.findFirst({ where: { id, companyId } });
+    const customer = await this.prisma.customer.findFirst({
+      where: { id, companyId },
+    });
     if (!customer) throw new CustomerNotFoundException();
     return customer;
   }
 
   private async loadCurrency(id: string): Promise<Currency> {
-    const currency = await this.prisma.currency.findFirst({ where: { id, active: true } });
+    const currency = await this.prisma.currency.findFirst({
+      where: { id, active: true },
+    });
     if (!currency) throw new CurrencyNotFoundException();
     return currency;
   }
 
-  private async assertBranchBelongsToCompany(companyId: string, branchId: string): Promise<void> {
-    const found = await this.prisma.branch.findFirst({ where: { id: branchId, companyId } });
+  private async assertBranchBelongsToCompany(
+    companyId: string,
+    branchId: string,
+  ): Promise<void> {
+    const found = await this.prisma.branch.findFirst({
+      where: { id: branchId, companyId },
+    });
     if (!found) throw new CustomerCollectionInvalidBranchException();
   }
 
@@ -434,43 +572,72 @@ export class CustomerCollectionsService {
   ): Promise<BuiltApplication[]> {
     if (inputApplications.length === 0) return [];
     const salesDocumentIds = inputApplications.map((a) => a.salesDocumentId);
-    const sales = await this.prisma.salesDocument.findMany({ where: { id: { in: salesDocumentIds }, companyId } });
+    const sales = await this.prisma.salesDocument.findMany({
+      where: { id: { in: salesDocumentIds }, companyId },
+    });
     const saleById = new Map(sales.map((s) => [s.id, s]));
 
     let sumApplied = new Prisma.Decimal(0);
     const built: BuiltApplication[] = [];
     for (const application of inputApplications) {
       const sale = saleById.get(application.salesDocumentId);
-      if (!sale || sale.customerId !== customerId) throw new CustomerCollectionApplicationSaleMismatchException();
-      if (sale.status !== 'CONFIRMED') throw new CustomerCollectionApplicationSaleNotConfirmedException();
-      if (sale.currencyId !== currencyId) throw new CustomerCollectionApplicationCurrencyMismatchException();
+      if (!sale || sale.customerId !== customerId)
+        throw new CustomerCollectionApplicationSaleMismatchException();
+      if (sale.status !== 'CONFIRMED')
+        throw new CustomerCollectionApplicationSaleNotConfirmedException();
+      if (sale.currencyId !== currencyId)
+        throw new CustomerCollectionApplicationCurrencyMismatchException();
       sumApplied = sumApplied.add(application.amount);
       built.push({ salesDocumentId: sale.id, amount: application.amount });
     }
-    if (sumApplied.gt(collectionAmount)) throw new CustomerCollectionApplicationsExceedAmountException();
+    if (sumApplied.gt(collectionAmount))
+      throw new CustomerCollectionApplicationsExceedAmountException();
 
-    const outstandingBySale = await this.customerAccountService.getSalesOutstanding(this.prisma, companyId, salesDocumentIds);
+    const outstandingBySale =
+      await this.customerAccountService.getSalesOutstanding(
+        this.prisma,
+        companyId,
+        salesDocumentIds,
+      );
     for (const application of built) {
-      const outstanding = outstandingBySale.get(application.salesDocumentId) ?? new Prisma.Decimal(0);
-      if (new Prisma.Decimal(application.amount).gt(outstanding)) throw new CustomerCollectionOverApplicationException();
+      const outstanding =
+        outstandingBySale.get(application.salesDocumentId) ??
+        new Prisma.Decimal(0);
+      if (new Prisma.Decimal(application.amount).gt(outstanding))
+        throw new CustomerCollectionOverApplicationException();
     }
     return built;
   }
 
-  private async findScopedOrThrow(companyId: string, id: string): Promise<CollectionWithRelations> {
-    const collection = await this.prisma.customerCollection.findFirst({ where: { id, companyId }, include: COLLECTION_INCLUDE });
+  private async findScopedOrThrow(
+    companyId: string,
+    id: string,
+  ): Promise<CollectionWithRelations> {
+    const collection = await this.prisma.customerCollection.findFirst({
+      where: { id, companyId },
+      include: COLLECTION_INCLUDE,
+    });
     if (!collection) throw new CustomerCollectionNotFoundException();
     return collection;
   }
 
-  private async resolveUserNames(userIds: (string | null)[]): Promise<Map<string, string>> {
+  private async resolveUserNames(
+    userIds: (string | null)[],
+  ): Promise<Map<string, string>> {
     const ids = [...new Set(userIds.filter((id): id is string => !!id))];
     if (ids.length === 0) return new Map();
-    const users = await this.prisma.user.findMany({ where: { id: { in: ids } } });
-    return new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]));
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids } },
+    });
+    return new Map(
+      users.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]),
+    );
   }
 
-  private async nextNumber(tx: Prisma.TransactionClient, companyId: string): Promise<string> {
+  private async nextNumber(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+  ): Promise<string> {
     const seq = await tx.customerCollectionSequence.upsert({
       where: { companyId },
       create: { companyId, lastValue: 1 },

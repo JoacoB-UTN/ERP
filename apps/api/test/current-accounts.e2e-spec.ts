@@ -5,9 +5,27 @@ import request from 'supertest';
 import type { App } from 'supertest/types';
 import * as argon2 from 'argon2';
 import { COMPANY_ID_HEADER } from '@erp/shared';
+import { Prisma } from '../src/generated/prisma/client';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
 import { InventoryService } from '../src/inventory/inventory.service';
+
+/**
+ * Compares a ledger amount by VALUE, not by how it prints.
+ *
+ * `AccountMovement.amount` is `Decimal(19, 4)`, and these assertions used to
+ * read `amount.toString()` and expect `'3000.0000'`. They failed against
+ * `'3000'`: the scale is a property of the COLUMN, and the Decimal that comes
+ * back from the driver is the normalized value, which drops trailing zeros.
+ * Nothing was wrong with the amount — the test was asserting a formatting
+ * detail that the value never carried.
+ *
+ * Comparing through Decimal also means the assertion keeps holding if the
+ * column's scale ever changes, which a hard-coded string would not.
+ */
+function expectAmount(actual: Prisma.Decimal, expected: string): void {
+  expect(actual.equals(new Prisma.Decimal(expected))).toBe(true);
+}
 
 interface ErrorEnvelope {
   error: { code: string; message: string; details?: Record<string, unknown> };
@@ -96,7 +114,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
     inventoryService = app.get(InventoryService);
 
     const tenant = await prisma.tenant.create({
-      data: { name: `E2E Accounts Tenant ${suffix}`, slug: `e2e-accounts-tenant-${suffix}` },
+      data: {
+        name: `E2E Accounts Tenant ${suffix}`,
+        slug: `e2e-accounts-tenant-${suffix}`,
+      },
     });
     tenantId = tenant.id;
 
@@ -122,25 +143,47 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
     companyBId = companyB.id;
 
     const branchA = await prisma.branch.create({
-      data: { tenantId, companyId: companyAId, code: `BR-A-${suffix}`, name: 'Branch A' },
+      data: {
+        tenantId,
+        companyId: companyAId,
+        code: `BR-A-${suffix}`,
+        name: 'Branch A',
+      },
     });
     branchAId = branchA.id;
 
     const ars = await prisma.currency.upsert({
       where: { code: 'ARS' },
       update: {},
-      create: { code: 'ARS', name: 'Peso argentino', symbol: '$', decimalPlaces: 2 },
+      create: {
+        code: 'ARS',
+        name: 'Peso argentino',
+        symbol: '$',
+        decimalPlaces: 2,
+      },
     });
     arsId = ars.id;
     const usd = await prisma.currency.upsert({
       where: { code: 'USD' },
       update: {},
-      create: { code: 'USD', name: 'Dólar estadounidense', symbol: 'US$', decimalPlaces: 2 },
+      create: {
+        code: 'USD',
+        name: 'Dólar estadounidense',
+        symbol: 'US$',
+        decimalPlaces: 2,
+      },
     });
     usdId = usd.id;
 
     const unit = await prisma.unitOfMeasure.create({
-      data: { tenantId, companyId: companyAId, code: 'UN', name: 'Unidad', symbol: 'u', decimalPlaces: 0 },
+      data: {
+        tenantId,
+        companyId: companyAId,
+        code: 'UN',
+        name: 'Unidad',
+        symbol: 'u',
+        decimalPlaces: 0,
+      },
     });
     const product = await prisma.product.create({
       data: {
@@ -152,29 +195,60 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         trackInventory: true,
       },
     });
-    const variant = await prisma.productVariant.create({ data: { productId: product.id, name: null } });
+    const variant = await prisma.productVariant.create({
+      data: { productId: product.id, name: null },
+    });
     variantId = variant.id;
 
     const warehouse = await prisma.warehouse.create({
-      data: { tenantId, companyId: companyAId, code: `ACCWH-${suffix}`, name: 'Accounts Warehouse' },
+      data: {
+        tenantId,
+        companyId: companyAId,
+        code: `ACCWH-${suffix}`,
+        name: 'Accounts Warehouse',
+      },
     });
     warehouseId = warehouse.id;
 
     const customer = await prisma.customer.create({
-      data: { tenantId, companyId: companyAId, code: `ACCCUST-${suffix}`, legalName: 'Accounts Customer A', status: 'ACTIVE' },
+      data: {
+        tenantId,
+        companyId: companyAId,
+        code: `ACCCUST-${suffix}`,
+        legalName: 'Accounts Customer A',
+        status: 'ACTIVE',
+      },
     });
     customerId = customer.id;
     const customerB = await prisma.customer.create({
-      data: { tenantId, companyId: companyBId, code: `ACCCUST-B-${suffix}`, legalName: 'Accounts Customer B', status: 'ACTIVE' },
+      data: {
+        tenantId,
+        companyId: companyBId,
+        code: `ACCCUST-B-${suffix}`,
+        legalName: 'Accounts Customer B',
+        status: 'ACTIVE',
+      },
     });
     customerBId = customerB.id;
 
     const supplier = await prisma.supplier.create({
-      data: { tenantId, companyId: companyAId, code: `ACCSUP-${suffix}`, legalName: 'Accounts Supplier A', status: 'ACTIVE' },
+      data: {
+        tenantId,
+        companyId: companyAId,
+        code: `ACCSUP-${suffix}`,
+        legalName: 'Accounts Supplier A',
+        status: 'ACTIVE',
+      },
     });
     supplierId = supplier.id;
     const supplierB = await prisma.supplier.create({
-      data: { tenantId, companyId: companyBId, code: `ACCSUP-B-${suffix}`, legalName: 'Accounts Supplier B', status: 'ACTIVE' },
+      data: {
+        tenantId,
+        companyId: companyBId,
+        code: `ACCSUP-B-${suffix}`,
+        legalName: 'Accounts Supplier B',
+        status: 'ACTIVE',
+      },
     });
     supplierBId = supplierB.id;
 
@@ -218,25 +292,42 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
     }
 
     async function makeRole(companyId: string, name: string, codes: string[]) {
-      const role = await prisma.role.create({ data: { tenantId, companyId, name } });
+      const role = await prisma.role.create({
+        data: { tenantId, companyId, name },
+      });
       const permissionIds = codes.map((c) => permByCode.get(c)!);
       if (permissionIds.length > 0) {
         await prisma.rolePermission.createMany({
-          data: permissionIds.map((permissionId) => ({ roleId: role.id, permissionId })),
+          data: permissionIds.map((permissionId) => ({
+            roleId: role.id,
+            permissionId,
+          })),
         });
       }
       return role;
     }
 
-    const roleFullA = await makeRole(companyAId, 'Accounts E2E Full A', allCodes.map(([c]) => c));
+    const roleFullA = await makeRole(
+      companyAId,
+      'Accounts E2E Full A',
+      allCodes.map(([c]) => c),
+    );
     const roleNoConfirm = await makeRole(
       companyAId,
       'Accounts E2E No Confirm',
-      allCodes.map(([c]) => c).filter((c) => c !== 'treasury.receipts.confirm' && c !== 'treasury.payments.confirm'),
+      allCodes
+        .map(([c]) => c)
+        .filter(
+          (c) =>
+            c !== 'treasury.receipts.confirm' &&
+            c !== 'treasury.payments.confirm',
+        ),
     );
 
     async function makeUser(label: string) {
-      const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+      const passwordHash = await argon2.hash(password, {
+        type: argon2.argon2id,
+      });
       const user = await prisma.user.create({
         data: {
           firstName: 'E2E',
@@ -255,12 +346,18 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
     userNoConfirmId = userNoConfirm.id;
 
     async function membership(userId: string, companyId: string) {
-      return prisma.userCompany.create({ data: { userId, tenantId, companyId, active: true } });
+      return prisma.userCompany.create({
+        data: { userId, tenantId, companyId, active: true },
+      });
     }
     await membership(userAdminId, companyAId);
     await membership(userNoConfirmId, companyAId);
 
-    async function assignRole(userId: string, roleId: string, companyId: string) {
+    async function assignRole(
+      userId: string,
+      roleId: string,
+      companyId: string,
+    ) {
       return prisma.userRole.create({ data: { userId, roleId, companyId } });
     }
     await assignRole(userAdminId, roleFullA.id, companyAId);
@@ -270,9 +367,13 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
     async function loginAsSetup(userId: string) {
       const cached = agentByUser.get(userId);
       if (cached) return cached;
-      const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+      });
       const agent = request.agent(app.getHttpServer());
-      const res = await agent.post('/api/v1/auth/login').send({ email: user.email, password });
+      const res = await agent
+        .post('/api/v1/auth/login')
+        .send({ email: user.email, password });
       expect(res.status).toBe(200);
       agentByUser.set(userId, agent);
       return agent;
@@ -290,7 +391,8 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         pricingMode: 'FIXED',
         isDefault: false,
       });
-    priceListId = (priceList.body as { priceList: { id: string } }).priceList.id;
+    priceListId = (priceList.body as { priceList: { id: string } }).priceList
+      .id;
     await adminAgent
       .put(`/api/v1/pricing/lists/${priceListId}/products/${variantId}`)
       .set(COMPANY_ID_HEADER, companyAId)
@@ -307,7 +409,8 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         pricingMode: 'FIXED',
         isDefault: false,
       });
-    priceListUsdId = (priceListUsd.body as { priceList: { id: string } }).priceList.id;
+    priceListUsdId = (priceListUsd.body as { priceList: { id: string } })
+      .priceList.id;
     await adminAgent
       .put(`/api/v1/pricing/lists/${priceListUsdId}/products/${variantId}`)
       .set(COMPANY_ID_HEADER, companyAId)
@@ -315,58 +418,121 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
 
     await inventoryService.createInitialBalance(
       { userId: userAdminId, companyId: companyAId, tenantId },
-      { warehouseId, lines: [{ productVariantId: variantId, quantity: '10000' }] },
+      {
+        warehouseId,
+        lines: [{ productVariantId: variantId, quantity: '10000' }],
+      },
     );
   });
 
   afterAll(async () => {
-    await prisma.auditLog.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
+    await prisma.auditLog.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
     await prisma.customerCollectionApplication.deleteMany({
-      where: { customerCollection: { companyId: { in: [companyAId, companyBId] } } },
+      where: {
+        customerCollection: { companyId: { in: [companyAId, companyBId] } },
+      },
     });
-    await prisma.customerCollection.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.customerCollectionSequence.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
+    await prisma.customerCollection.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.customerCollectionSequence.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
     await prisma.supplierPaymentApplication.deleteMany({
-      where: { supplierPayment: { companyId: { in: [companyAId, companyBId] } } },
+      where: {
+        supplierPayment: { companyId: { in: [companyAId, companyBId] } },
+      },
     });
-    await prisma.supplierPayment.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.supplierPaymentSequence.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.customerAccountMovement.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.supplierAccountMovement.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
+    await prisma.supplierPayment.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.supplierPaymentSequence.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.customerAccountMovement.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.supplierAccountMovement.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
     await prisma.salesTender.deleteMany({
       where: { salesDocument: { companyId: { in: [companyAId, companyBId] } } },
     });
     await prisma.salesDocumentLine.deleteMany({
       where: { salesDocument: { companyId: { in: [companyAId, companyBId] } } },
     });
-    await prisma.salesDocument.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.salesDocumentSequence.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.purchaseReceiptLine.deleteMany({
-      where: { purchaseReceipt: { companyId: { in: [companyAId, companyBId] } } },
+    await prisma.salesDocument.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
     });
-    await prisma.purchaseReceipt.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.purchaseReceiptSequence.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.stockMovement.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.inventoryBalance.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.priceListItem.deleteMany({ where: { priceList: { companyId: { in: [companyAId, companyBId] } } } });
-    await prisma.priceHistory.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.priceList.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.customer.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.customerCodeSequence.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.supplier.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.supplierCodeSequence.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.warehouse.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.productVariant.deleteMany({ where: { product: { companyId: { in: [companyAId, companyBId] } } } });
-    await prisma.product.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
-    await prisma.unitOfMeasure.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
+    await prisma.salesDocumentSequence.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.purchaseReceiptLine.deleteMany({
+      where: {
+        purchaseReceipt: { companyId: { in: [companyAId, companyBId] } },
+      },
+    });
+    await prisma.purchaseReceipt.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.purchaseReceiptSequence.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.stockMovement.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.inventoryBalance.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.priceListItem.deleteMany({
+      where: { priceList: { companyId: { in: [companyAId, companyBId] } } },
+    });
+    await prisma.priceHistory.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.priceList.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.customer.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.customerCodeSequence.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.supplier.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.supplierCodeSequence.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.warehouse.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.productVariant.deleteMany({
+      where: { product: { companyId: { in: [companyAId, companyBId] } } },
+    });
+    await prisma.product.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.unitOfMeasure.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
     await prisma.userRole.deleteMany({ where: { userId: { in: userIds } } });
-    await prisma.rolePermission.deleteMany({ where: { role: { companyId: { in: [companyAId, companyBId] } } } });
-    await prisma.role.deleteMany({ where: { companyId: { in: [companyAId, companyBId] } } });
+    await prisma.rolePermission.deleteMany({
+      where: { role: { companyId: { in: [companyAId, companyBId] } } },
+    });
+    await prisma.role.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
     await prisma.userCompany.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.userSession.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     await prisma.branch.deleteMany({ where: { id: branchAId } });
-    await prisma.company.deleteMany({ where: { id: { in: [companyAId, companyBId] } } });
+    await prisma.company.deleteMany({
+      where: { id: { in: [companyAId, companyBId] } },
+    });
     await prisma.tenant.delete({ where: { id: tenantId } });
     await app.close();
   });
@@ -377,7 +543,9 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
     if (cached) return cached;
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const agent = request.agent(app.getHttpServer());
-    const res = await agent.post('/api/v1/auth/login').send({ email: user.email, password });
+    const res = await agent
+      .post('/api/v1/auth/login')
+      .send({ email: user.email, password });
     expect(res.status).toBe(200);
     agentByUser.set(userId, agent);
     return agent;
@@ -386,7 +554,12 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
   /** A confirmed sale, `onAccount: true` -> no tender (stays fully outstanding), otherwise tendered in full. */
   async function confirmedSale(
     agent: request.Agent,
-    opts: { quantity?: string; onAccount?: boolean; priceListId?: string; customerId?: string } = {},
+    opts: {
+      quantity?: string;
+      onAccount?: boolean;
+      priceListId?: string;
+      customerId?: string;
+    } = {},
   ): Promise<SaleBody> {
     const created = await agent
       .post('/api/v1/sales')
@@ -395,10 +568,13 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         customerId: opts.customerId ?? customerId,
         warehouseId,
         priceListId: opts.priceListId ?? priceListId,
-        lines: [{ productVariantId: variantId, quantity: opts.quantity ?? '1' }],
+        lines: [
+          { productVariantId: variantId, quantity: opts.quantity ?? '1' },
+        ],
       });
     expect(created.status).toBe(201);
-    const saleId = (created.body as { salesDocument: SaleBody }).salesDocument.id;
+    const saleId = (created.body as { salesDocument: SaleBody }).salesDocument
+      .id;
     const confirm = await agent
       .post(`/api/v1/sales/${saleId}/confirm`)
       .set(COMPANY_ID_HEADER, companyAId)
@@ -409,7 +585,12 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
 
   async function confirmedReceipt(
     agent: request.Agent,
-    opts: { quantity?: string; unitCost?: string; supplierId?: string; currencyId?: string } = {},
+    opts: {
+      quantity?: string;
+      unitCost?: string;
+      supplierId?: string;
+      currencyId?: string;
+    } = {},
   ): Promise<ReceiptBody> {
     const created = await agent
       .post('/api/v1/purchase-receipts')
@@ -427,7 +608,8 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         ],
       });
     expect(created.status).toBe(201);
-    const receiptId = (created.body as { purchaseReceipt: ReceiptBody }).purchaseReceipt.id;
+    const receiptId = (created.body as { purchaseReceipt: ReceiptBody })
+      .purchaseReceipt.id;
     const confirm = await agent
       .post(`/api/v1/purchase-receipts/${receiptId}/confirm`)
       .set(COMPANY_ID_HEADER, companyAId);
@@ -441,7 +623,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
   describe('Sale confirmation posts the customer ledger', () => {
     it('a sale confirmed WITHOUT a tender remains fully outstanding (SALE_CHARGE only)', async () => {
       const agent = await loginAs(userAdminId);
-      const sale = await confirmedSale(agent, { onAccount: true, quantity: '3' });
+      const sale = await confirmedSale(agent, {
+        onAccount: true,
+        quantity: '3',
+      });
 
       const outstanding = await agent
         .get(`/api/v1/sales-documents/${sale.id}/outstanding`)
@@ -452,11 +637,15 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
       expect(body.outstanding).toBe('3000');
 
       const movements = await prisma.customerAccountMovement.findMany({
-        where: { companyId: companyAId, sourceType: 'SalesDocument', sourceId: sale.id },
+        where: {
+          companyId: companyAId,
+          sourceType: 'SalesDocument',
+          sourceId: sale.id,
+        },
       });
       expect(movements).toHaveLength(1);
       expect(movements[0].movementType).toBe('SALE_CHARGE');
-      expect(movements[0].amount.toString()).toBe('3000.0000');
+      expectAmount(movements[0].amount, '3000');
     });
 
     it('a tendered sale nets to zero outstanding (SALE_CHARGE + TENDER_SETTLEMENT = 0), settlement equals total regardless of amountReceived', async () => {
@@ -469,14 +658,20 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
       expect((outstanding.body as OutstandingBody).outstanding).toBe('0');
 
       const movements = await prisma.customerAccountMovement.findMany({
-        where: { companyId: companyAId, sourceType: 'SalesDocument', sourceId: sale.id },
+        where: {
+          companyId: companyAId,
+          sourceType: 'SalesDocument',
+          sourceId: sale.id,
+        },
         orderBy: { movementType: 'asc' },
       });
       expect(movements).toHaveLength(2);
       const charge = movements.find((m) => m.movementType === 'SALE_CHARGE')!;
-      const settlement = movements.find((m) => m.movementType === 'TENDER_SETTLEMENT')!;
-      expect(charge.amount.toString()).toBe('2000.0000');
-      expect(settlement.amount.toString()).toBe('-2000.0000');
+      const settlement = movements.find(
+        (m) => m.movementType === 'TENDER_SETTLEMENT',
+      )!;
+      expectAmount(charge.amount, '2000');
+      expectAmount(settlement.amount, '-2000');
     });
 
     it('a second confirm attempt on the same sale never double-posts (DB-level uniqueness, not just the app guard)', async () => {
@@ -489,7 +684,11 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         .set(COMPANY_ID_HEADER, companyAId);
       expect(again.status).toBe(409);
       const movements = await prisma.customerAccountMovement.count({
-        where: { companyId: companyAId, sourceType: 'SalesDocument', sourceId: sale.id },
+        where: {
+          companyId: companyAId,
+          sourceType: 'SalesDocument',
+          sourceId: sale.id,
+        },
       });
       expect(movements).toBe(1);
     });
@@ -501,7 +700,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
   describe('Purchase receipt confirmation posts the supplier ledger', () => {
     it('a confirmed receipt posts PURCHASE_RECEIPT_ACCRUAL = SUM(quantity x unitCostSnapshot)', async () => {
       const agent = await loginAs(userAdminId);
-      const receipt = await confirmedReceipt(agent, { quantity: '4', unitCost: '250' });
+      const receipt = await confirmedReceipt(agent, {
+        quantity: '4',
+        unitCost: '250',
+      });
 
       const outstanding = await agent
         .get(`/api/v1/purchase-receipts/${receipt.id}/outstanding`)
@@ -510,15 +712,22 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
       expect((outstanding.body as OutstandingBody).outstanding).toBe('1000');
 
       const movement = await prisma.supplierAccountMovement.findFirstOrThrow({
-        where: { companyId: companyAId, sourceType: 'PurchaseReceipt', sourceId: receipt.id },
+        where: {
+          companyId: companyAId,
+          sourceType: 'PurchaseReceipt',
+          sourceId: receipt.id,
+        },
       });
       expect(movement.movementType).toBe('PURCHASE_RECEIPT_ACCRUAL');
-      expect(movement.amount.toString()).toBe('1000.0000');
+      expectAmount(movement.amount, '1000');
     });
 
     it('cancelling a CONFIRMED receipt with no payments posts an immutable PURCHASE_RECEIPT_REVERSAL', async () => {
       const agent = await loginAs(userAdminId);
-      const receipt = await confirmedReceipt(agent, { quantity: '2', unitCost: '500' });
+      const receipt = await confirmedReceipt(agent, {
+        quantity: '2',
+        unitCost: '500',
+      });
       const cancel = await agent
         .post(`/api/v1/purchase-receipts/${receipt.id}/cancel`)
         .set(COMPANY_ID_HEADER, companyAId);
@@ -530,11 +739,17 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
       expect((outstanding.body as OutstandingBody).outstanding).toBe('0');
 
       const movements = await prisma.supplierAccountMovement.findMany({
-        where: { companyId: companyAId, sourceType: 'PurchaseReceipt', sourceId: receipt.id },
+        where: {
+          companyId: companyAId,
+          sourceType: 'PurchaseReceipt',
+          sourceId: receipt.id,
+        },
       });
       expect(movements).toHaveLength(2);
-      const reversal = movements.find((m) => m.movementType === 'PURCHASE_RECEIPT_REVERSAL')!;
-      expect(reversal.amount.toString()).toBe('-1000.0000');
+      const reversal = movements.find(
+        (m) => m.movementType === 'PURCHASE_RECEIPT_REVERSAL',
+      )!;
+      expectAmount(reversal.amount, '-1000');
       expect(reversal.reversalOfId).not.toBeNull();
     });
   });
@@ -545,7 +760,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
   describe('Customer Collections', () => {
     it('a partial CONFIRMED collection reduces the sale outstanding and the customer account balance', async () => {
       const agent = await loginAs(userAdminId);
-      const sale = await confirmedSale(agent, { onAccount: true, quantity: '5' }); // total 5000
+      const sale = await confirmedSale(agent, {
+        onAccount: true,
+        quantity: '5',
+      }); // total 5000
 
       const created = await agent
         .post('/api/v1/customer-collections')
@@ -558,7 +776,8 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           applications: [{ salesDocumentId: sale.id, amount: '2000' }],
         });
       expect(created.status).toBe(201);
-      const collection = (created.body as { collection: CollectionBody }).collection;
+      const collection = (created.body as { collection: CollectionBody })
+        .collection;
       expect(collection.status).toBe('DRAFT');
 
       const confirm = await agent
@@ -574,20 +793,29 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
       const summary = await agent
         .get(`/api/v1/customer-accounts/${customerId}`)
         .set(COMPANY_ID_HEADER, companyAId);
-      const arsBalance = (summary.body as AccountSummaryBody).balances.find((b) => b.currencyId === arsId);
+      const arsBalance = (summary.body as AccountSummaryBody).balances.find(
+        (b) => b.currencyId === arsId,
+      );
       expect(arsBalance).toBeDefined();
       // Balance includes other tests' movements too (shared customer) —
       // assert the ledger rows directly instead of an absolute total.
       const movement = await prisma.customerAccountMovement.findFirstOrThrow({
-        where: { companyId: companyAId, sourceType: 'CustomerCollection', sourceId: collection.id },
+        where: {
+          companyId: companyAId,
+          sourceType: 'CustomerCollection',
+          sourceId: collection.id,
+        },
       });
       expect(movement.movementType).toBe('COLLECTION');
-      expect(movement.amount.toString()).toBe('-2000.0000');
+      expectAmount(movement.amount, '-2000');
     });
 
     it('rejects an application that would exceed the sale outstanding (advisory check at create time)', async () => {
       const agent = await loginAs(userAdminId);
-      const sale = await confirmedSale(agent, { onAccount: true, quantity: '1' }); // total 1000
+      const sale = await confirmedSale(agent, {
+        onAccount: true,
+        quantity: '1',
+      }); // total 1000
 
       const res = await agent
         .post('/api/v1/customer-collections')
@@ -600,12 +828,19 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           applications: [{ salesDocumentId: sale.id, amount: '5000' }],
         });
       expect(res.status).toBe(409);
-      expect((res.body as ErrorEnvelope).error.code).toBe('CUSTOMER_COLLECTION_OVER_APPLICATION');
+      expect((res.body as ErrorEnvelope).error.code).toBe(
+        'CUSTOMER_COLLECTION_OVER_APPLICATION',
+      );
     });
 
     it('rejects a currency mismatch between the application and the sale', async () => {
       const agent = await loginAs(userAdminId);
-      const sale = await confirmedSale(agent, { onAccount: true, quantity: '1', priceListId, customerId });
+      const sale = await confirmedSale(agent, {
+        onAccount: true,
+        quantity: '1',
+        priceListId,
+        customerId,
+      });
 
       const res = await agent
         .post('/api/v1/customer-collections')
@@ -618,12 +853,17 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           applications: [{ salesDocumentId: sale.id, amount: '10' }],
         });
       expect(res.status).toBe(409);
-      expect((res.body as ErrorEnvelope).error.code).toBe('CUSTOMER_COLLECTION_APPLICATION_CURRENCY_MISMATCH');
+      expect((res.body as ErrorEnvelope).error.code).toBe(
+        'CUSTOMER_COLLECTION_APPLICATION_CURRENCY_MISMATCH',
+      );
     });
 
     it('rejects an application to a sale belonging to a different customer (never trusts the request body for ownership)', async () => {
       const agent = await loginAs(userAdminId);
-      const sale = await confirmedSale(agent, { onAccount: true, quantity: '1' }); // customerId (company A)
+      const sale = await confirmedSale(agent, {
+        onAccount: true,
+        quantity: '1',
+      }); // customerId (company A)
 
       const res = await agent
         .post('/api/v1/customer-collections')
@@ -654,7 +894,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
 
     it('cancelling a CONFIRMED collection posts an immutable COLLECTION_REVERSAL and restores outstanding, never deleting the application', async () => {
       const agent = await loginAs(userAdminId);
-      const sale = await confirmedSale(agent, { onAccount: true, quantity: '4' }); // total 4000
+      const sale = await confirmedSale(agent, {
+        onAccount: true,
+        quantity: '4',
+      }); // total 4000
 
       const created = await agent
         .post('/api/v1/customer-collections')
@@ -666,13 +909,18 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           paymentMethod: 'CASH',
           applications: [{ salesDocumentId: sale.id, amount: '4000' }],
         });
-      const collectionId = (created.body as { collection: CollectionBody }).collection.id;
-      await agent.post(`/api/v1/customer-collections/${collectionId}/confirm`).set(COMPANY_ID_HEADER, companyAId);
+      const collectionId = (created.body as { collection: CollectionBody })
+        .collection.id;
+      await agent
+        .post(`/api/v1/customer-collections/${collectionId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId);
 
       const outstandingAfterConfirm = await agent
         .get(`/api/v1/sales-documents/${sale.id}/outstanding`)
         .set(COMPANY_ID_HEADER, companyAId);
-      expect((outstandingAfterConfirm.body as OutstandingBody).outstanding).toBe('0');
+      expect(
+        (outstandingAfterConfirm.body as OutstandingBody).outstanding,
+      ).toBe('0');
 
       const cancel = await agent
         .post(`/api/v1/customer-collections/${collectionId}/cancel`)
@@ -682,12 +930,15 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
       const outstandingAfterCancel = await agent
         .get(`/api/v1/sales-documents/${sale.id}/outstanding`)
         .set(COMPANY_ID_HEADER, companyAId);
-      expect((outstandingAfterCancel.body as OutstandingBody).outstanding).toBe('4000');
+      expect((outstandingAfterCancel.body as OutstandingBody).outstanding).toBe(
+        '4000',
+      );
 
       const detail = await agent
         .get(`/api/v1/customer-collections/${collectionId}`)
         .set(COMPANY_ID_HEADER, companyAId);
-      const collection = (detail.body as { collection: CollectionBody }).collection;
+      const collection = (detail.body as { collection: CollectionBody })
+        .collection;
       expect(collection.status).toBe('CANCELLED');
       // Application row survives, unmutated — see docs/current-accounts.md.
       expect(collection.applications).toHaveLength(1);
@@ -696,7 +947,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
 
     it('RBAC: a user without treasury.receipts.confirm gets 403 confirming a collection', async () => {
       const agent = await loginAs(userNoConfirmId);
-      const sale = await confirmedSale(await loginAs(userAdminId), { onAccount: true, quantity: '1' });
+      const sale = await confirmedSale(await loginAs(userAdminId), {
+        onAccount: true,
+        quantity: '1',
+      });
       const created = await agent
         .post('/api/v1/customer-collections')
         .set(COMPANY_ID_HEADER, companyAId)
@@ -708,7 +962,8 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           applications: [{ salesDocumentId: sale.id, amount: '500' }],
         });
       expect(created.status).toBe(201);
-      const collectionId = (created.body as { collection: CollectionBody }).collection.id;
+      const collectionId = (created.body as { collection: CollectionBody })
+        .collection.id;
       const confirm = await agent
         .post(`/api/v1/customer-collections/${collectionId}/confirm`)
         .set(COMPANY_ID_HEADER, companyAId);
@@ -720,7 +975,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         'the other is rejected with CUSTOMER_COLLECTION_OVER_APPLICATION, and outstanding never goes negative',
       async () => {
         const agent = await loginAs(userAdminId);
-        const sale = await confirmedSale(agent, { onAccount: true, quantity: '3' }); // total 3000
+        const sale = await confirmedSale(agent, {
+          onAccount: true,
+          quantity: '3',
+        }); // total 3000
 
         const collectionA = await agent
           .post('/api/v1/customer-collections')
@@ -744,17 +1002,25 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           });
         expect(collectionA.status).toBe(201);
         expect(collectionB.status).toBe(201);
-        const idA = (collectionA.body as { collection: CollectionBody }).collection.id;
-        const idB = (collectionB.body as { collection: CollectionBody }).collection.id;
+        const idA = (collectionA.body as { collection: CollectionBody })
+          .collection.id;
+        const idB = (collectionB.body as { collection: CollectionBody })
+          .collection.id;
 
         const [confirmA, confirmB] = await Promise.all([
-          agent.post(`/api/v1/customer-collections/${idA}/confirm`).set(COMPANY_ID_HEADER, companyAId),
-          agent.post(`/api/v1/customer-collections/${idB}/confirm`).set(COMPANY_ID_HEADER, companyAId),
+          agent
+            .post(`/api/v1/customer-collections/${idA}/confirm`)
+            .set(COMPANY_ID_HEADER, companyAId),
+          agent
+            .post(`/api/v1/customer-collections/${idB}/confirm`)
+            .set(COMPANY_ID_HEADER, companyAId),
         ]);
         const statuses = [confirmA.status, confirmB.status].sort();
         expect(statuses).toEqual([200, 409]);
         const loser = confirmA.status === 200 ? confirmB : confirmA;
-        expect((loser.body as ErrorEnvelope).error.code).toBe('CUSTOMER_COLLECTION_OVER_APPLICATION');
+        expect((loser.body as ErrorEnvelope).error.code).toBe(
+          'CUSTOMER_COLLECTION_OVER_APPLICATION',
+        );
 
         const outstanding = await agent
           .get(`/api/v1/sales-documents/${sale.id}/outstanding`)
@@ -762,7 +1028,12 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         expect((outstanding.body as OutstandingBody).outstanding).toBe('0');
 
         const collectionMovements = await prisma.customerAccountMovement.count({
-          where: { companyId: companyAId, movementType: 'COLLECTION', sourceType: 'CustomerCollection', sourceId: { in: [idA, idB] } },
+          where: {
+            companyId: companyAId,
+            movementType: 'COLLECTION',
+            sourceType: 'CustomerCollection',
+            sourceId: { in: [idA, idB] },
+          },
         });
         expect(collectionMovements).toBe(1);
       },
@@ -775,7 +1046,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
   describe('Supplier Payments', () => {
     it('a partial CONFIRMED payment reduces the receipt outstanding', async () => {
       const agent = await loginAs(userAdminId);
-      const receipt = await confirmedReceipt(agent, { quantity: '10', unitCost: '100' }); // total 1000
+      const receipt = await confirmedReceipt(agent, {
+        quantity: '10',
+        unitCost: '100',
+      }); // total 1000
 
       const created = await agent
         .post('/api/v1/supplier-payments')
@@ -802,7 +1076,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
 
     it('blocks cancelling a CONFIRMED receipt that has an active (CONFIRMED-payment) application', async () => {
       const agent = await loginAs(userAdminId);
-      const receipt = await confirmedReceipt(agent, { quantity: '2', unitCost: '300' }); // total 600
+      const receipt = await confirmedReceipt(agent, {
+        quantity: '2',
+        unitCost: '300',
+      }); // total 600
 
       const created = await agent
         .post('/api/v1/supplier-payments')
@@ -815,13 +1092,17 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           applications: [{ purchaseReceiptId: receipt.id, amount: '600' }],
         });
       const paymentId = (created.body as { payment: PaymentBody }).payment.id;
-      await agent.post(`/api/v1/supplier-payments/${paymentId}/confirm`).set(COMPANY_ID_HEADER, companyAId);
+      await agent
+        .post(`/api/v1/supplier-payments/${paymentId}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId);
 
       const cancel = await agent
         .post(`/api/v1/purchase-receipts/${receipt.id}/cancel`)
         .set(COMPANY_ID_HEADER, companyAId);
       expect(cancel.status).toBe(409);
-      expect((cancel.body as ErrorEnvelope).error.code).toBe('PURCHASE_RECEIPT_HAS_ACTIVE_PAYMENTS');
+      expect((cancel.body as ErrorEnvelope).error.code).toBe(
+        'PURCHASE_RECEIPT_HAS_ACTIVE_PAYMENTS',
+      );
 
       // Cancelling the payment first frees the receipt up again.
       const cancelPayment = await agent
@@ -839,7 +1120,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         '(a cancelled receipt with an active confirmed payment applied to it)',
       async () => {
         const agent = await loginAs(userAdminId);
-        const receipt = await confirmedReceipt(agent, { quantity: '5', unitCost: '200' }); // total 1000
+        const receipt = await confirmedReceipt(agent, {
+          quantity: '5',
+          unitCost: '200',
+        }); // total 1000
 
         const created = await agent
           .post('/api/v1/supplier-payments')
@@ -854,8 +1138,12 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         const paymentId = (created.body as { payment: PaymentBody }).payment.id;
 
         const [confirmPayment, cancelReceipt] = await Promise.all([
-          agent.post(`/api/v1/supplier-payments/${paymentId}/confirm`).set(COMPANY_ID_HEADER, companyAId),
-          agent.post(`/api/v1/purchase-receipts/${receipt.id}/cancel`).set(COMPANY_ID_HEADER, companyAId),
+          agent
+            .post(`/api/v1/supplier-payments/${paymentId}/confirm`)
+            .set(COMPANY_ID_HEADER, companyAId),
+          agent
+            .post(`/api/v1/purchase-receipts/${receipt.id}/cancel`)
+            .set(COMPANY_ID_HEADER, companyAId),
         ]);
 
         const paymentConfirmed = confirmPayment.status === 200;
@@ -865,8 +1153,12 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         expect(paymentConfirmed && receiptCancelled).toBe(false);
         expect(paymentConfirmed || receiptCancelled).toBe(true);
 
-        const receiptRow = await prisma.purchaseReceipt.findUniqueOrThrow({ where: { id: receipt.id } });
-        const paymentRow = await prisma.supplierPayment.findUniqueOrThrow({ where: { id: paymentId } });
+        const receiptRow = await prisma.purchaseReceipt.findUniqueOrThrow({
+          where: { id: receipt.id },
+        });
+        const paymentRow = await prisma.supplierPayment.findUniqueOrThrow({
+          where: { id: paymentId },
+        });
         if (receiptRow.status === 'CANCELLED') {
           expect(paymentRow.status).not.toBe('CONFIRMED');
         }

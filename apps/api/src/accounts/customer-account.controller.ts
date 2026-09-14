@@ -20,13 +20,16 @@ import { CustomerAccountService } from './customer-account.service';
 
 @Controller('customer-accounts')
 export class CustomerAccountController {
-  constructor(private readonly customerAccountService: CustomerAccountService) {}
+  constructor(
+    private readonly customerAccountService: CustomerAccountService,
+  ) {}
 
   @RequirePermissions('accounts.receivable.read')
   @Get()
   list(
     @CurrentRequestContext() ctx: RequestContext,
-    @Query(new ZodValidationPipe(customerAccountListQuerySchema)) query: CustomerAccountListQuery,
+    @Query(new ZodValidationPipe(customerAccountListQuerySchema))
+    query: CustomerAccountListQuery,
   ): Promise<CustomerAccountListResponse> {
     return this.customerAccountService.list(ctx.companyId, query);
   }
@@ -45,9 +48,14 @@ export class CustomerAccountController {
   getStatement(
     @CurrentRequestContext() ctx: RequestContext,
     @Param('customerId') customerId: string,
-    @Query(new ZodValidationPipe(customerStatementQuerySchema)) query: CustomerStatementQuery,
+    @Query(new ZodValidationPipe(customerStatementQuerySchema))
+    query: CustomerStatementQuery,
   ): Promise<CustomerStatementResponse> {
-    return this.customerAccountService.getStatement(ctx.companyId, customerId, query);
+    return this.customerAccountService.getStatement(
+      ctx.companyId,
+      customerId,
+      query,
+    );
   }
 
   @RequirePermissions('accounts.receivable.read')
@@ -55,15 +63,22 @@ export class CustomerAccountController {
   getOpenSales(
     @CurrentRequestContext() ctx: RequestContext,
     @Param('customerId') customerId: string,
-    @Query(new ZodValidationPipe(customerOpenSalesQuerySchema)) query: CustomerOpenSalesQuery,
+    @Query(new ZodValidationPipe(customerOpenSalesQuerySchema))
+    query: CustomerOpenSalesQuery,
   ): Promise<CustomerOpenSalesResponse> {
-    return this.customerAccountService.getOpenSales(ctx.companyId, customerId, query.currencyId);
+    return this.customerAccountService.getOpenSales(
+      ctx.companyId,
+      customerId,
+      query.currencyId,
+    );
   }
 }
 
 @Controller('sales-documents/:salesDocumentId/outstanding')
 export class SalesDocumentOutstandingController {
-  constructor(private readonly customerAccountService: CustomerAccountService) {}
+  constructor(
+    private readonly customerAccountService: CustomerAccountService,
+  ) {}
 
   @RequirePermissions('accounts.receivable.read')
   @Get()
@@ -71,6 +86,9 @@ export class SalesDocumentOutstandingController {
     @CurrentRequestContext() ctx: RequestContext,
     @Param('salesDocumentId') salesDocumentId: string,
   ): Promise<SalesDocumentOutstandingResponse> {
-    return this.customerAccountService.getSalesDocumentOutstanding(ctx.companyId, salesDocumentId);
+    return this.customerAccountService.getSalesDocumentOutstanding(
+      ctx.companyId,
+      salesDocumentId,
+    );
   }
 }

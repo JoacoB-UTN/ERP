@@ -192,7 +192,11 @@ export class CustomerAccountService {
     const [chargeSums, appliedSums] = await Promise.all([
       db.customerAccountMovement.groupBy({
         by: ['sourceId'],
-        where: { companyId, sourceType: 'SalesDocument', sourceId: { in: salesDocumentIds } },
+        where: {
+          companyId,
+          sourceType: 'SalesDocument',
+          sourceId: { in: salesDocumentIds },
+        },
         _sum: { amount: true },
       }),
       db.customerCollectionApplication.groupBy({
@@ -205,7 +209,10 @@ export class CustomerAccountService {
       }),
     ]);
     const appliedById = new Map(
-      appliedSums.map((row) => [row.salesDocumentId, row._sum.amount ?? new Prisma.Decimal(0)]),
+      appliedSums.map((row) => [
+        row.salesDocumentId,
+        row._sum.amount ?? new Prisma.Decimal(0),
+      ]),
     );
     const result = new Map<string, Prisma.Decimal>();
     for (const row of chargeSums) {
@@ -225,8 +232,13 @@ export class CustomerAccountService {
       include: { currency: true },
     });
     if (!sale) throw new SaleNotFoundException();
-    const outstandingByLine = await this.getSalesOutstanding(this.prisma, companyId, [salesDocumentId]);
-    const outstanding = outstandingByLine.get(salesDocumentId) ?? new Prisma.Decimal(0);
+    const outstandingByLine = await this.getSalesOutstanding(
+      this.prisma,
+      companyId,
+      [salesDocumentId],
+    );
+    const outstanding =
+      outstandingByLine.get(salesDocumentId) ?? new Prisma.Decimal(0);
     return {
       salesDocumentId,
       currencyCode: sale.currency.code,
@@ -237,7 +249,10 @@ export class CustomerAccountService {
 
   // ---------- Reads ----------
 
-  async list(companyId: string, query: CustomerAccountListQuery): Promise<CustomerAccountListResponse> {
+  async list(
+    companyId: string,
+    query: CustomerAccountListQuery,
+  ): Promise<CustomerAccountListResponse> {
     const where: Prisma.CustomerWhereInput = { companyId };
     if (query.search) {
       const term = query.search.trim();
@@ -251,7 +266,12 @@ export class CustomerAccountService {
     const skip = (query.page - 1) * query.pageSize;
     const [total, customers] = await this.prisma.$transaction([
       this.prisma.customer.count({ where }),
-      this.prisma.customer.findMany({ where, orderBy: { legalName: 'asc' }, skip, take: query.pageSize }),
+      this.prisma.customer.findMany({
+        where,
+        orderBy: { legalName: 'asc' },
+        skip,
+        take: query.pageSize,
+      }),
     ]);
 
     const ids = customers.map((c) => c.id);
@@ -261,18 +281,31 @@ export class CustomerAccountService {
     ]);
 
     return {
-      items: customers.map((c) => this.toSummary(c, balances.get(c.id) ?? [], lastMovements.get(c.id) ?? null)),
+      items: customers.map((c) =>
+        this.toSummary(
+          c,
+          balances.get(c.id) ?? [],
+          lastMovements.get(c.id) ?? null,
+        ),
+      ),
       pagination: { page: query.page, pageSize: query.pageSize, total },
     };
   }
 
-  async getSummary(companyId: string, customerId: string): Promise<CustomerAccountSummary> {
+  async getSummary(
+    companyId: string,
+    customerId: string,
+  ): Promise<CustomerAccountSummary> {
     const customer = await this.findScopedCustomer(companyId, customerId);
     const [balances, lastMovements] = await Promise.all([
       this.balancesByCustomer(companyId, [customerId]),
       this.lastMovementByCustomer(companyId, [customerId]),
     ]);
-    return this.toSummary(customer, balances.get(customerId) ?? [], lastMovements.get(customerId) ?? null);
+    return this.toSummary(
+      customer,
+      balances.get(customerId) ?? [],
+      lastMovements.get(customerId) ?? null,
+    );
   }
 
   async getStatement(
@@ -281,13 +314,20 @@ export class CustomerAccountService {
     query: CustomerStatementQuery,
   ): Promise<CustomerStatementResponse> {
     const customer = await this.findScopedCustomer(companyId, customerId);
-    const currency = await this.prisma.currency.findFirst({ where: { id: query.currencyId } });
+    const currency = await this.prisma.currency.findFirst({
+      where: { id: query.currencyId },
+    });
     if (!currency) throw new CurrencyNotFoundException();
 
     let openingBalance = new Prisma.Decimal(0);
     if (query.dateFrom) {
       const opening = await this.prisma.customerAccountMovement.aggregate({
-        where: { companyId, customerId, currencyId: query.currencyId, occurredAt: { lt: query.dateFrom } },
+        where: {
+          companyId,
+          customerId,
+          currencyId: query.currencyId,
+          occurredAt: { lt: query.dateFrom },
+        },
         _sum: { amount: true },
       });
       openingBalance = opening._sum.amount ?? new Prisma.Decimal(0);
@@ -338,7 +378,9 @@ export class CustomerAccountService {
     customerId: string,
     currencyId: string,
   ): Promise<CustomerOpenSalesResponse> {
-    const currency = await this.prisma.currency.findFirst({ where: { id: currencyId } });
+    const currency = await this.prisma.currency.findFirst({
+      where: { id: currencyId },
+    });
     if (!currency) throw new CurrencyNotFoundException();
     const sales = await this.prisma.salesDocument.findMany({
       where: { companyId, customerId, currencyId, status: 'CONFIRMED' },
@@ -351,7 +393,8 @@ export class CustomerAccountService {
     );
     const items: CustomerOpenSaleDto[] = [];
     for (const sale of sales) {
-      const outstanding = outstandingBySale.get(sale.id) ?? new Prisma.Decimal(0);
+      const outstanding =
+        outstandingBySale.get(sale.id) ?? new Prisma.Decimal(0);
       if (outstanding.lte(0)) continue;
       items.push({
         id: sale.id,
@@ -366,8 +409,13 @@ export class CustomerAccountService {
 
   // ---------- Internal helpers ----------
 
-  private async findScopedCustomer(companyId: string, id: string): Promise<Customer> {
-    const customer = await this.prisma.customer.findFirst({ where: { id, companyId } });
+  private async findScopedCustomer(
+    companyId: string,
+    id: string,
+  ): Promise<Customer> {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id, companyId },
+    });
     if (!customer) throw new CustomerNotFoundException();
     return customer;
   }
@@ -375,7 +423,9 @@ export class CustomerAccountService {
   private async balancesByCustomer(
     companyId: string,
     customerIds: string[],
-  ): Promise<Map<string, { currencyId: string; currencyCode: string; balance: string }[]>> {
+  ): Promise<
+    Map<string, { currencyId: string; currencyCode: string; balance: string }[]>
+  > {
     if (customerIds.length === 0) return new Map();
     const rows = await this.prisma.customerAccountMovement.groupBy({
       by: ['customerId', 'currencyId'],
@@ -384,9 +434,14 @@ export class CustomerAccountService {
     });
     if (rows.length === 0) return new Map();
     const currencyIds = [...new Set(rows.map((r) => r.currencyId))];
-    const currencies = await this.prisma.currency.findMany({ where: { id: { in: currencyIds } } });
+    const currencies = await this.prisma.currency.findMany({
+      where: { id: { in: currencyIds } },
+    });
     const currencyById = new Map(currencies.map((c) => [c.id, c]));
-    const map = new Map<string, { currencyId: string; currencyCode: string; balance: string }[]>();
+    const map = new Map<
+      string,
+      { currencyId: string; currencyCode: string; balance: string }[]
+    >();
     for (const row of rows) {
       const list = map.get(row.customerId) ?? [];
       list.push({
@@ -411,7 +466,10 @@ export class CustomerAccountService {
     });
     return new Map(
       rows
-        .filter((r): r is typeof r & { _max: { occurredAt: Date } } => !!r._max.occurredAt)
+        .filter(
+          (r): r is typeof r & { _max: { occurredAt: Date } } =>
+            !!r._max.occurredAt,
+        )
         .map((r) => [r.customerId, r._max.occurredAt]),
     );
   }
@@ -422,7 +480,8 @@ export class CustomerAccountService {
     lastMovementAt: Date | null,
   ): CustomerAccountSummary {
     const taxIdFormatted =
-      customer.taxId && (customer.documentType === 'CUIT' || customer.documentType === 'CUIL')
+      customer.taxId &&
+      (customer.documentType === 'CUIT' || customer.documentType === 'CUIL')
         ? formatCuit(customer.taxId)
         : customer.taxId;
     return {
@@ -440,7 +499,15 @@ export class CustomerAccountService {
 
 /** Debe = increases the signed balance (positive amount); Haber = decreases it — see docs/current-accounts.md. */
 function toMovementDto(
-  m: { id: string; occurredAt: Date; movementType: string; sourceType: string; sourceId: string; description: string | null; amount: Prisma.Decimal },
+  m: {
+    id: string;
+    occurredAt: Date;
+    movementType: string;
+    sourceType: string;
+    sourceId: string;
+    description: string | null;
+    amount: Prisma.Decimal;
+  },
   runningBalance: Prisma.Decimal,
 ): CustomerAccountMovementDto {
   const isDebit = m.amount.gte(0);

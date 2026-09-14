@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   createSupplierPaymentSchema,
   updateSupplierPaymentSchema,
@@ -17,13 +26,16 @@ import { SupplierPaymentsService } from './supplier-payments.service';
 
 @Controller('supplier-payments')
 export class SupplierPaymentsController {
-  constructor(private readonly supplierPaymentsService: SupplierPaymentsService) {}
+  constructor(
+    private readonly supplierPaymentsService: SupplierPaymentsService,
+  ) {}
 
   @RequirePermissions('treasury.payments.read')
   @Get()
   list(
     @CurrentRequestContext() ctx: RequestContext,
-    @Query(new ZodValidationPipe(supplierPaymentListQuerySchema)) query: SupplierPaymentListQuery,
+    @Query(new ZodValidationPipe(supplierPaymentListQuerySchema))
+    query: SupplierPaymentListQuery,
   ): Promise<SupplierPaymentListResponse> {
     return this.supplierPaymentsService.list(ctx.companyId, query);
   }
@@ -34,7 +46,10 @@ export class SupplierPaymentsController {
     @CurrentRequestContext() ctx: RequestContext,
     @Param('id') id: string,
   ): Promise<SupplierPaymentDetailResponse> {
-    const payment = await this.supplierPaymentsService.getById(ctx.companyId, id);
+    const payment = await this.supplierPaymentsService.getById(
+      ctx.companyId,
+      id,
+    );
     return { payment };
   }
 
@@ -42,7 +57,8 @@ export class SupplierPaymentsController {
   @Post()
   async create(
     @CurrentRequestContext() ctx: RequestContext,
-    @Body(new ZodValidationPipe(createSupplierPaymentSchema)) body: CreateSupplierPaymentInput,
+    @Body(new ZodValidationPipe(createSupplierPaymentSchema))
+    body: CreateSupplierPaymentInput,
   ): Promise<SupplierPaymentDetailResponse> {
     const payment = await this.supplierPaymentsService.create(ctx, body);
     return { payment };
@@ -53,7 +69,8 @@ export class SupplierPaymentsController {
   async update(
     @CurrentRequestContext() ctx: RequestContext,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(updateSupplierPaymentSchema)) body: UpdateSupplierPaymentInput,
+    @Body(new ZodValidationPipe(updateSupplierPaymentSchema))
+    body: UpdateSupplierPaymentInput,
   ): Promise<SupplierPaymentDetailResponse> {
     const payment = await this.supplierPaymentsService.update(ctx, id, body);
     return { payment };

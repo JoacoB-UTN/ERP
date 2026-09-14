@@ -506,7 +506,8 @@ export class PurchaseReceiptsService {
       // Operational payable accrual — SUM(quantity × unitCostSnapshot),
       // deliberately not a fiscal invoice — see docs/current-accounts.md.
       const accrualTotal = receipt.lines.reduce(
-        (sum, line) => sum.add(new Prisma.Decimal(line.quantity).mul(line.unitCostSnapshot)),
+        (sum, line) =>
+          sum.add(new Prisma.Decimal(line.quantity).mul(line.unitCostSnapshot)),
         new Prisma.Decimal(0),
       );
       await this.supplierAccountService.postReceiptAccrual(tx, {
@@ -612,7 +613,9 @@ export class PurchaseReceiptsService {
       await tx.$queryRaw(
         Prisma.sql`SELECT id FROM purchase_receipts WHERE id = ${id} FOR UPDATE`,
       );
-      if (await this.supplierAccountService.hasActiveConfirmedApplications(tx, id)) {
+      if (
+        await this.supplierAccountService.hasActiveConfirmedApplications(tx, id)
+      ) {
         throw new PurchaseReceiptHasActivePaymentsException();
       }
 
@@ -649,7 +652,8 @@ export class PurchaseReceiptsService {
       }
 
       const accrualTotal = existing.lines.reduce(
-        (sum, line) => sum.add(new Prisma.Decimal(line.quantity).mul(line.unitCostSnapshot)),
+        (sum, line) =>
+          sum.add(new Prisma.Decimal(line.quantity).mul(line.unitCostSnapshot)),
         new Prisma.Decimal(0),
       );
       await this.supplierAccountService.postReceiptReversal(tx, {

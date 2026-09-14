@@ -4,9 +4,15 @@ import { CompanyContextModule } from '../company-context/company-context.module'
 import { AuthorizationModule } from '../authorization/authorization.module';
 import { AuditModule } from '../audit/audit.module';
 import { RealtimeModule } from '../realtime/realtime.module';
-import { CustomerAccountController, SalesDocumentOutstandingController } from './customer-account.controller';
+import {
+  CustomerAccountController,
+  SalesDocumentOutstandingController,
+} from './customer-account.controller';
 import { CustomerAccountService } from './customer-account.service';
-import { SupplierAccountController, PurchaseReceiptOutstandingController } from './supplier-account.controller';
+import {
+  SupplierAccountController,
+  PurchaseReceiptOutstandingController,
+} from './supplier-account.controller';
 import { SupplierAccountService } from './supplier-account.service';
 import { CustomerCollectionsController } from './customer-collections.controller';
 import { CustomerCollectionsService } from './customer-collections.service';
@@ -23,7 +29,13 @@ import { SupplierPaymentsService } from './supplier-payments.service';
  * InventoryService/PricingService).
  */
 @Module({
-  imports: [AuthModule, CompanyContextModule, AuthorizationModule, AuditModule, RealtimeModule],
+  imports: [
+    AuthModule,
+    CompanyContextModule,
+    AuthorizationModule,
+    AuditModule,
+    RealtimeModule,
+  ],
   controllers: [
     CustomerAccountController,
     SalesDocumentOutstandingController,
@@ -32,7 +44,12 @@ import { SupplierPaymentsService } from './supplier-payments.service';
     CustomerCollectionsController,
     SupplierPaymentsController,
   ],
-  providers: [CustomerAccountService, SupplierAccountService, CustomerCollectionsService, SupplierPaymentsService],
+  providers: [
+    CustomerAccountService,
+    SupplierAccountService,
+    CustomerCollectionsService,
+    SupplierPaymentsService,
+  ],
   exports: [CustomerAccountService, SupplierAccountService],
 })
 export class AccountsModule {}
