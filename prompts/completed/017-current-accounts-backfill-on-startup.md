@@ -1,11 +1,36 @@
 # Task 017 — Run the Current Accounts backfill on startup
 
-Status: IN PROGRESS
+Status: DONE
 Depends on: —
 Agent: Claude
-Base branch: claude/admiring-gates-wbjpaq (PR #37, unmerged — docs overlap)
+Base branch: main
 Branch: feature/current-accounts-backfill-on-startup
-PR: #38
+PR: #41 (merged as `078aa71`)
+
+**On the PR number.** The work was reviewed as **#38**, which was opened
+against `claude/admiring-gates-wbjpaq` (PR #37's branch) rather than
+`main` and whose base was never retargeted. Merging it therefore landed
+the content in that branch and not in `main`; `main` had the tables and
+none of the module. **#41** re-opened the same branch against `main` —
+same revision, no code changes — and is the merge that counts. #38 is
+marked merged by GitHub and carries a comment saying so.
+
+**Corrections made during review, after the acceptance criteria below
+were written.** All three are in `main`:
+
+- Turning the load off left the module answering 503 forever.
+  `disabled` was terminal — nothing re-evaluated it — so an operator who
+  ran the CLI by hand and restarted still got a refusal, which is the
+  opposite of what criterion 8's escape hatch is for. The flag now turns
+  off the *write*, not the question: the probe still runs, and a ledger
+  with nothing outstanding reports `complete`.
+- This branch had forked from an earlier commit of #37's and silently
+  reverted its installer figure corrections. Fixed by merging #37's real
+  head in.
+- The e2e suite asserted that *its own* boot did the backfill, which the
+  one global advisory lock plus 19 parallel suites made a race — it
+  failed intermittently with "expected 2 charges, received 0". `bootApp`
+  now retries the pass; validated with four consecutive green runs.
 
 Before making changes:
 
