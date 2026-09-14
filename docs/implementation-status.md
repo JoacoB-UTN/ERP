@@ -880,10 +880,12 @@ handling, and no fiscal-printer integration of any kind exists.
   see [multi-agent-workflow.md](multi-agent-workflow.md) for the
   branch/PR workflow going forward.
 - ~~**The current-accounts backfill is not automated.**~~ Closed: the API
-  runs it on startup (see "Current accounts" above and
-  current-accounts.md). What remains deliberately undone is any UI for it
-  — the "Estado del sistema" panel does not show backfill state, so an
-  operator reads the API log or the `AuditLog` row.
+  runs it on startup, refuses the module until the ledger is loaded, and
+  the "Estado del sistema" panel shows the state (see "Current accounts"
+  above and current-accounts.md). What remains deliberately undone is any
+  way to *operate* it from the UI — the panel reports, it does not trigger
+  a run, retry a failure or turn the flag off; that is still the API log,
+  the `AuditLog` row and the CLI.
 - **`apps/api/src/modules/*` is still 16 README-only folders**
   (`accounting`, `accounts-payable`, `accounts-receivable`, `audit`,
   `auth`, `core`, `customers`, `integrations`, `inventory`,
