@@ -166,6 +166,18 @@ preflight() {
     log "       especificaciones que ningún humano leyó. Leé el README."
   fi
 
+  # Entre tarea y tarea el runner hace `git reset --hard origin/main`. Si tu
+  # main local tiene commits que no están en el remoto —por ejemplo, los
+  # archivos de tarea que acabás de escribir— eso los borraría sin aviso.
+  git -C "$REPO_DIR" fetch -q origin main
+  local unpushed
+  unpushed=$(git -C "$REPO_DIR" rev-list --count origin/main..main 2>/dev/null || echo 0)
+  if (( unpushed > 0 )); then
+    log "Tu main local tiene $unpushed commit(s) que no están en origin/main:"
+    git -C "$REPO_DIR" log --oneline origin/main..main | head -10 | sed 's/^/   /' >&2
+    die "El runner los borraría al volver a main. Pusheálos (git push origin main) antes de dormir."
+  fi
+
   rm -f "$STOP_FILE"
   log "night-runner $RUN_ID"
   log "repo=$REPO_DIR  max_tareas=$MAX_TASKS  deadline=$DEADLINE  dry_run=$DRY_RUN"
