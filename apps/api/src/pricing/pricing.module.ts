@@ -8,6 +8,7 @@ import { PriceListsController } from './price-lists.controller';
 import { PricingController } from './pricing.controller';
 import { PricingService } from './pricing.service';
 import { PriceListsService } from './price-lists.service';
+import { PriceImportService } from './price-import.service';
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { PriceListsService } from './price-lists.service';
     RealtimeModule,
   ],
   controllers: [PriceListsController, PricingController],
-  providers: [PricingService, PriceListsService],
+  providers: [PricingService, PriceListsService, PriceImportService],
   exports: [PricingService, PriceListsService],
 })
 export class PricingModule {}

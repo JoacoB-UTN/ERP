@@ -103,8 +103,7 @@ const baseProductFields = {
   description: z.string().trim().max(2000).optional(),
   productType: z.enum(productTypeValues).default('PRODUCT'),
   categoryId: z.string().uuid().optional(),
-  brandId: z.string().uuid().optional(),
-  baseUnitId: z.string().uuid('Elegí una unidad de medida.'),
+  lineId: z.string().uuid().optional(),
   trackInventory: z.boolean().optional(),
   trackLots: z.boolean().default(false),
   trackSerials: z.boolean().default(false),
@@ -154,8 +153,7 @@ export const updateProductSchema = z.object({
   description: z.string().trim().max(2000).nullable().optional(),
   productType: z.enum(productTypeValues).optional(),
   categoryId: z.string().uuid().nullable().optional(),
-  brandId: z.string().uuid().nullable().optional(),
-  baseUnitId: z.string().uuid().optional(),
+  lineId: z.string().uuid().nullable().optional(),
   trackInventory: z.boolean().optional(),
   trackLots: z.boolean().optional(),
   trackSerials: z.boolean().optional(),
@@ -167,7 +165,7 @@ export const updateProductSchema = z.object({
 });
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 
-// ---------- Categories / Brands / Units ----------
+// ---------- Categories / Lines / Units ----------
 
 export const createProductCategorySchema = z.object({
   parentId: z.string().uuid().optional(),
@@ -186,35 +184,18 @@ export const updateProductCategorySchema = z.object({
 });
 export type UpdateProductCategoryInput = z.infer<typeof updateProductCategorySchema>;
 
-export const createBrandSchema = z.object({
+export const createProductLineSchema = z.object({
   name: z.string().trim().min(1, 'El nombre es obligatorio.').max(150),
   description: z.string().trim().max(500).optional(),
 });
-export type CreateBrandInput = z.infer<typeof createBrandSchema>;
+export type CreateProductLineInput = z.infer<typeof createProductLineSchema>;
 
-export const updateBrandSchema = z.object({
+export const updateProductLineSchema = z.object({
   name: z.string().trim().min(1, 'El nombre es obligatorio.').max(150).optional(),
   description: z.string().trim().max(500).nullable().optional(),
   active: z.boolean().optional(),
 });
-export type UpdateBrandInput = z.infer<typeof updateBrandSchema>;
-
-export const createUnitOfMeasureSchema = z.object({
-  code: z.string().trim().min(1, 'El código es obligatorio.').max(10),
-  name: z.string().trim().min(1, 'El nombre es obligatorio.').max(100),
-  symbol: z.string().trim().min(1, 'El símbolo es obligatorio.').max(10),
-  decimalPlaces: z.coerce.number().int().min(0).max(6).default(0),
-});
-export type CreateUnitOfMeasureInput = z.infer<typeof createUnitOfMeasureSchema>;
-
-export const updateUnitOfMeasureSchema = z.object({
-  code: z.string().trim().min(1, 'El código es obligatorio.').max(10).optional(),
-  name: z.string().trim().min(1, 'El nombre es obligatorio.').max(100).optional(),
-  symbol: z.string().trim().min(1, 'El símbolo es obligatorio.').max(10).optional(),
-  decimalPlaces: z.coerce.number().int().min(0).max(6).optional(),
-  active: z.boolean().optional(),
-});
-export type UpdateUnitOfMeasureInput = z.infer<typeof updateUnitOfMeasureSchema>;
+export type UpdateProductLineInput = z.infer<typeof updateProductLineSchema>;
 
 // ---------- List / lookup queries ----------
 
@@ -223,7 +204,7 @@ export const productListQuerySchema = z.object({
   status: z.enum(productStatusValues).optional(),
   productType: z.enum(productTypeValues).optional(),
   categoryId: z.string().uuid().optional(),
-  brandId: z.string().uuid().optional(),
+  lineId: z.string().uuid().optional(),
   trackInventory: z
     .enum(['true', 'false'])
     .optional()
@@ -280,19 +261,10 @@ export interface ProductCategoryDto {
   active: boolean;
 }
 
-export interface BrandDto {
+export interface ProductLineDto {
   id: string;
   name: string;
   description: string | null;
-  active: boolean;
-}
-
-export interface UnitOfMeasureDto {
-  id: string;
-  code: string;
-  name: string;
-  symbol: string;
-  decimalPlaces: number;
   active: boolean;
 }
 
@@ -305,8 +277,8 @@ export interface ProductSummary {
   trackInventory: boolean;
   categoryId: string | null;
   categoryName: string | null;
-  brandId: string | null;
-  brandName: string | null;
+  lineId: string | null;
+  lineName: string | null;
   /** The sole variant's SKU/barcode for a simple product; null for a multi-variant product with no single obvious value (see docs/products.md). */
   primarySku: string | null;
   primaryBarcode: string | null;
@@ -317,7 +289,6 @@ export interface ProductSummary {
 
 export interface ProductDetail extends ProductSummary {
   description: string | null;
-  baseUnit: UnitOfMeasureDto;
   trackLots: boolean;
   trackSerials: boolean;
   allowNegativeStock: boolean;
@@ -370,17 +341,11 @@ export interface ProductCategoriesResponse {
 export interface ProductCategoryDetailResponse {
   category: ProductCategoryDto;
 }
-export interface BrandsResponse {
-  brands: BrandDto[];
+export interface ProductLinesResponse {
+  lines: ProductLineDto[];
 }
-export interface BrandDetailResponse {
-  brand: BrandDto;
-}
-export interface UnitsOfMeasureResponse {
-  units: UnitOfMeasureDto[];
-}
-export interface UnitOfMeasureDetailResponse {
-  unit: UnitOfMeasureDto;
+export interface ProductLineDetailResponse {
+  line: ProductLineDto;
 }
 
 // ---------- Spanish presentation layer ----------

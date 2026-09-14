@@ -10,7 +10,14 @@ import { Select } from '@/components/ui/select';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import {
+  LinkedRow,
+  Pagination,
+  RowControls,
+  RowLink,
+  TableMessage,
+  TableRowsSkeleton,
+} from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
@@ -68,15 +75,18 @@ export default function RecepcionesPage() {
       <ListHeader
         title="Recepciones"
         meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'recepción' : 'recepciones'}`}
-        actions={canCreate && (
-          <Link href="/compras/recepciones/nueva" className={buttonVariants({ size: 'sm' })}>
-            <Plus className="size-4" />
-            Nueva recepción
-          </Link>
-        )}
       />
 
-      <Toolbar>
+      <Toolbar
+        actions={
+          canCreate && (
+            <Link href="/compras/recepciones/nueva" className={buttonVariants({ size: 'sm' })}>
+              <Plus className="size-4" />
+              Nueva recepción
+            </Link>
+          )
+        }
+      >
         <Input
           placeholder="Buscar por número o proveedor…"
           value={searchInput}
@@ -117,34 +127,38 @@ export default function RecepcionesPage() {
           <tbody>
             {receiptsQuery.isLoading && <TableRowsSkeleton columns={6} />}
             {items.map((receipt) => (
-              <tr key={receipt.id} className="border-t border-border hover:bg-muted/30">
+              <LinkedRow key={receipt.id}>
                 <td className="px-3 py-1 whitespace-nowrap">
-                  <Link
-                    href={`/compras/recepciones/${receipt.id}`}
-                    className="font-medium underline-offset-4 hover:underline"
-                  >
-                    {receipt.number}
-                  </Link>
+                  <RowLink href={`/compras/recepciones/${receipt.id}`}>{receipt.number}</RowLink>
                 </td>
-                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{formatDate(receipt.receiptDate)}</td>
+                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">
+                  {formatDate(receipt.receiptDate)}
+                </td>
                 <td className="px-3 py-1">{receipt.supplier.legalName}</td>
                 <td className="px-3 py-1 whitespace-nowrap">{receipt.warehouse.name}</td>
                 <td className="px-3 py-1 whitespace-nowrap">
                   {receipt.purchaseOrder ? (
-                    <Link
-                      href={`/compras/ordenes/${receipt.purchaseOrder.id}`}
-                      className="underline-offset-4 hover:underline"
-                    >
-                      {receipt.purchaseOrder.number}
-                    </Link>
+                    // Above the row overlay, or the row's own link would eat
+                    // this one: the whole row opens the receipt, this cell
+                    // opens the order it came from.
+                    <RowControls>
+                      <Link
+                        href={`/compras/ordenes/${receipt.purchaseOrder.id}`}
+                        className="underline-offset-4 hover:underline"
+                      >
+                        {receipt.purchaseOrder.number}
+                      </Link>
+                    </RowControls>
                   ) : (
                     <span className="text-muted-foreground">Directa</span>
                   )}
                 </td>
                 <td className="px-3 py-1">
-                  <StatusBadge status={receipt.status}>{purchaseReceiptStatusLabel(receipt.status)}</StatusBadge>
+                  <StatusBadge status={receipt.status}>
+                    {purchaseReceiptStatusLabel(receipt.status)}
+                  </StatusBadge>
                 </td>
-              </tr>
+              </LinkedRow>
             ))}
             {receiptsQuery.isError && (
               <TableMessage
@@ -159,19 +173,16 @@ export default function RecepcionesPage() {
                 }
               />
             )}
-            {!receiptsQuery.isLoading && !receiptsQuery.isError && items.length === 0 && !hasActiveFilters && (
-              <TableMessage
-                columns={6}
-                title="Todavía no hay recepciones"
-                description="Registrá la primera recepción de mercadería, con o sin orden de compra."
-                action={canCreate && (
-                  <Link href="/compras/recepciones/nueva" className={`${buttonVariants()} mt-4`}>
-                    <Plus className="size-4" />
-                    Nueva recepción
-                  </Link>
-                )}
-              />
-            )}
+            {!receiptsQuery.isLoading &&
+              !receiptsQuery.isError &&
+              items.length === 0 &&
+              !hasActiveFilters && (
+                <TableMessage
+                  columns={6}
+                  title="Todavía no hay recepciones"
+                  description="Registrá la primera recepción de mercadería, con o sin orden de compra."
+                />
+              )}
             {!receiptsQuery.isLoading && !receiptsQuery.isError && items.length === 0 && hasActiveFilters && (
               <TableMessage
                 columns={6}

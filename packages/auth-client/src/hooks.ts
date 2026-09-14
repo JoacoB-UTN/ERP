@@ -163,6 +163,24 @@ export function createAuthClient(config: ApiClientConfig) {
       onSuccess: (data, ...rest) => {
         queryClient.setQueryData(AUTH_ME_QUERY_KEY, { user: data.user });
         void queryClient.invalidateQueries({ queryKey: AUTH_ME_QUERY_KEY });
+
+        // Signing in ALWAYS asks which company to work in. Dropping the
+        // remembered selection here is what produces that: with nothing
+        // stored, useActiveCompany() auto-selects only when the user has
+        // exactly one company and otherwise reports needsSelection, so the
+        // one case that skips the question is the one where there is no
+        // question to ask.
+        //
+        // Logout already did this, but logout is not the only way a session
+        // ends — an expired refresh token, a cleared cookie or a second
+        // person sitting down at the same machine all lead to a fresh login
+        // with the previous selection still in localStorage. Which company
+        // you are posting invoices against is not something to inherit from
+        // whoever used the browser last.
+        companyContextStore.setActiveCompanyId(null);
+        queryClient.removeQueries({ predicate: (q) => q.queryKey[0] === 'context' });
+        queryClient.removeQueries({ predicate: (q) => q.queryKey[0] === 'company' });
+
         options?.onSuccess?.(data, ...rest);
       },
       ...options,

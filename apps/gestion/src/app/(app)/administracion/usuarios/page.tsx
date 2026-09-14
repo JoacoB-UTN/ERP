@@ -14,10 +14,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import { LinkedRow, RowButton, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
-import { cn } from '@/lib/utils';
+import { CreateUserDialog } from '@/components/administracion/create-user-dialog';
 
 function RoleAssignmentPanel({ userId, userName }: { userId: string; userName: string }) {
   const { can } = usePermissions();
@@ -44,11 +44,19 @@ function RoleAssignmentPanel({ userId, userName }: { userId: string; userName: s
   }
 
   if (rolesQuery.isLoading || userRolesQuery.isLoading) {
-    return <div className="h-32 animate-pulse rounded-md border border-border bg-muted/60" aria-label="Cargando roles" />;
+    return (
+      <div
+        className="h-32 animate-pulse rounded-md border border-border bg-muted/60"
+        aria-label="Cargando roles"
+      />
+    );
   }
 
   return (
-    <aside className="flex flex-col gap-3 rounded-md border border-border bg-card p-3" aria-label={`Roles de ${userName}`}>
+    <aside
+      className="flex flex-col gap-3 rounded-md border border-border bg-card p-3"
+      aria-label={`Roles de ${userName}`}
+    >
       <p className="text-sm font-medium">
         Roles de <span className="font-semibold">{userName}</span>
       </p>
@@ -99,7 +107,7 @@ export default function UsersPage() {
     <div className="flex flex-col gap-2.5">
       <ListHeader title="Usuarios" meta={`${users.length} ${users.length === 1 ? 'usuario' : 'usuarios'}`} />
 
-      <Toolbar>
+      <Toolbar actions={can('administration.users.create') && <CreateUserDialog />}>
         <Input
           placeholder="Buscar usuario…"
           value={search}
@@ -123,31 +131,25 @@ export default function UsersPage() {
             <tbody>
               {usersQuery.isLoading && <TableRowsSkeleton columns={4} />}
               {users.map((user) => (
-                <tr
-                  key={user.id}
-                  className={cn(
-                    'border-t border-border hover:bg-muted/30',
-                    selectedUserId === user.id && 'bg-muted/60',
-                  )}
-                >
+                <LinkedRow key={user.id} className={selectedUserId === user.id ? 'bg-muted/60' : undefined}>
                   <td className="px-3 py-1 font-medium">
-                    <button
-                      type="button"
-                      className="font-medium text-primary underline-offset-4 hover:underline"
+                    <RowButton
                       aria-pressed={selectedUserId === user.id}
                       onClick={() => setSelectedUserId(user.id)}
                     >
                       {user.firstName} {user.lastName}
-                    </button>
+                    </RowButton>
                   </td>
                   <td className="px-3 py-1 text-muted-foreground">{user.email}</td>
                   <td className="px-3 py-1">
-                    <StatusBadge status={user.status}>{user.status === 'ACTIVE' ? 'Activo' : user.status}</StatusBadge>
+                    <StatusBadge status={user.status}>
+                      {user.status === 'ACTIVE' ? 'Activo' : user.status}
+                    </StatusBadge>
                   </td>
                   <td className="px-3 py-1 text-muted-foreground">
                     {user.roles.length > 0 ? user.roles.map((r) => r.name).join(', ') : '—'}
                   </td>
-                </tr>
+                </LinkedRow>
               ))}
               {usersQuery.isError && (
                 <TableMessage

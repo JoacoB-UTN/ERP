@@ -31,7 +31,7 @@ export interface CurrenciesResponse {
 
 // ---------- Price lists ----------
 
-const bulkAdjustScopeValues = ['ALL', 'CATEGORY', 'BRAND'] as const;
+const bulkAdjustScopeValues = ['ALL', 'CATEGORY', 'LINE'] as const;
 
 export const createPriceListSchema = z
   .object({
@@ -123,7 +123,7 @@ export interface PriceListDetailResponse {
 export const priceListItemsQuerySchema = z.object({
   search: z.string().trim().min(1).max(200).optional(),
   categoryId: z.string().uuid().optional(),
-  brandId: z.string().uuid().optional(),
+  lineId: z.string().uuid().optional(),
   status: z.enum(productStatusValues).optional(),
   hasPrice: z
     .enum(['true', 'false'])
@@ -143,7 +143,7 @@ export interface PriceListItemRowDto {
   productName: string;
   variantName: string | null;
   categoryName: string | null;
-  brandName: string | null;
+  lineName: string | null;
   price: string | null;
   effectiveFrom: string | null;
   source: 'FIXED' | 'DERIVED';
@@ -195,14 +195,14 @@ export const bulkAdjustSchema = z
     reason: z.string().trim().max(300).optional(),
     scope: z.enum(bulkAdjustScopeValues).default('ALL'),
     categoryId: z.string().uuid().optional(),
-    brandId: z.string().uuid().optional(),
+    lineId: z.string().uuid().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.scope === 'CATEGORY' && !data.categoryId) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Elegí una categoría.', path: ['categoryId'] });
     }
-    if (data.scope === 'BRAND' && !data.brandId) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Elegí una marca.', path: ['brandId'] });
+    if (data.scope === 'LINE' && !data.lineId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Elegí una línea.', path: ['lineId'] });
     }
   });
 export type BulkAdjustInput = z.infer<typeof bulkAdjustSchema>;
@@ -352,3 +352,107 @@ export function adjustmentTypeLabel(value: string): string {
 export function priceChangeTypeLabel(value: string): string {
   return PRICE_CHANGE_TYPE_LABELS[value] ?? value;
 }
+
+// ---------- Price import / export (spreadsheets) ----------
+
+/**
+ * What happened to one row of an uploaded file.
+ *
+ * `NOT_FOUND` and `AMBIGUOUS` are kept apart because they need different
+ * fixes: the first means the article does not exist here yet, the second
+ * that its code or barcode is on more than one variant and a human has to
+ * say which. Collapsing them into "error" would hide that.
+ */
+export const priceImportRowStatusValues = [
+  'WILL_UPDATE',
+  'UNCHANGED',
+  'NOT_FOUND',
+  'AMBIGUOUS',
+  'INVALID_PRICE',
+] as const;
+export type PriceImportRowStatus = (typeof priceImportRowStatusValues)[number];
+
+export const PRICE_IMPORT_ROW_STATUS_LABELS: Record<PriceImportRowStatus, string> = {
+  WILL_UPDATE: 'Se actualiza',
+  UNCHANGED: 'Sin cambios',
+  NOT_FOUND: 'No encontrado',
+  AMBIGUOUS: 'Ambiguo',
+  INVALID_PRICE: 'Precio inválido',
+};
+
+export interface PriceImportRowDto {
+  /** 1-based spreadsheet row, so a person can go straight to it in Excel. */
+  rowNumber: number;
+  status: PriceImportRowStatus;
+  code: string | null;
+  barcode: string | null;
+  description: string | null;
+  /** The price read from the file, as a decimal string; null when unreadable. */
+  price: string | null;
+  /** What the list has today for the matched variant, when there is one. */
+  currentPrice: string | null;
+  productName: string | null;
+}
+
+export interface PriceImportPreviewDto {
+  /** Non-empty data rows found in the file. */
+  fileRows: number;
+  counts: Record<PriceImportRowStatus, number>;
+  /**
+   * A capped sample, worst first: a 6.600-row file would otherwise send a
+   * report bigger than the file. The counts above are always complete.
+   */
+  rows: PriceImportRowDto[];
+  sampleTruncated: boolean;
+  /** Tango's own price-list codes seen in the file — a cross-check that the right list was picked. */
+  sourcePriceListCodes: string[];
+}
+
+export interface PriceImportPreviewResponse {
+  preview: PriceImportPreviewDto;
+}
+
+export interface PriceImportResultDto {
+  applied: number;
+  skipped: number;
+  effectiveFrom: string;
+}
+
+export interface PriceImportResultResponse {
+  result: PriceImportResultDto;
+  preview: PriceImportPreviewDto;
+}
+
+/**
+ * Which items go into the export.
+ *
+ * `variantIds` wins when present — that is the "export only what I selected"
+ * path. Without it the export mirrors whatever the screen is filtered to,
+ * so what comes out is what the person is looking at.
+ */
+export const priceExportQuerySchema = z.object({
+  search: z.string().trim().min(1).max(200).optional(),
+  categoryId: z.string().uuid().optional(),
+  lineId: z.string().uuid().optional(),
+  status: z.enum(productStatusValues).optional(),
+  hasPrice: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
+  variantIds: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : (Array.isArray(v) ? v : v.split(',')).filter(Boolean))),
+});
+export type PriceExportQuery = z.infer<typeof priceExportQuerySchema>;
+
+/** Column headers of the price-edit workbook — shared so the writer and the reader cannot drift. */
+export const PRICE_WORKBOOK_HEADERS = {
+  variantId: 'ID interno',
+  productCode: 'Código',
+  sku: 'SKU',
+  productName: 'Producto',
+  variantName: 'Variante',
+  currentPrice: 'Precio actual',
+  newPrice: 'Precio nuevo',
+} as const;

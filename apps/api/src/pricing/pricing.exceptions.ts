@@ -116,3 +116,36 @@ export class PriceValidityOverlapException extends ConflictException {
     });
   }
 }
+
+/**
+ * The upload could not be read as a spreadsheet, or it is one but has no
+ * row that looks like the expected header.
+ *
+ * One exception for both because the fix is the same — check the file — and
+ * naming the columns we looked for is what makes it actionable, rather than
+ * a bare "formato inválido".
+ */
+export class PriceFileUnreadableException extends BadRequestException {
+  constructor(expectedHeaders: string[]) {
+    super({
+      message: `No pudimos leer el archivo. Tiene que ser un Excel (.xlsx) con las columnas: ${expectedHeaders.join(', ')}.`,
+      code: 'PRICE_FILE_UNREADABLE',
+      details: { expectedHeaders },
+    });
+  }
+}
+
+/**
+ * The file was read fine and nothing in it changes anything. Refused rather
+ * than reported as a successful import of zero rows: "listo" over a file
+ * that did nothing is how someone concludes the prices were updated when
+ * they were not.
+ */
+export class PriceFileNothingToApplyException extends BadRequestException {
+  constructor() {
+    super({
+      message: 'El archivo no tiene ninguna fila que actualizar.',
+      code: 'PRICE_FILE_NOTHING_TO_APPLY',
+    });
+  }
+}

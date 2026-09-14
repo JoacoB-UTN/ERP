@@ -1,7 +1,11 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import type { DashboardSummaryResponse } from '@erp/shared';
+import type {
+  DashboardSalesPeriod,
+  DashboardSalesSeriesResponse,
+  DashboardSummaryResponse,
+} from '@erp/shared';
 import type { ApiFetchOptions } from './api-client';
 
 interface DashboardClientConfig {
@@ -27,5 +31,22 @@ export function createDashboardClient(config: DashboardClientConfig) {
     });
   }
 
-  return { useDashboardSummary };
+  /**
+   * The sales chart. Keyed by period so switching tabs reads a cached
+   * window instead of refetching one already seen, and `placeholderData`
+   * keeps the previous window's chart on screen while the next loads —
+   * without it every tab click would blank the chart and shift the page.
+   */
+  function useDashboardSalesSeries(period: DashboardSalesPeriod) {
+    const companyId = useActiveCompanyId();
+    return useQuery({
+      queryKey: ['company', companyId, 'dashboard', 'sales-series', period],
+      queryFn: () =>
+        apiFetch<DashboardSalesSeriesResponse>(`/dashboard/sales-series?period=${period}`),
+      enabled: !!companyId,
+      placeholderData: (previous) => previous,
+    });
+  }
+
+  return { useDashboardSummary, useDashboardSalesSeries };
 }

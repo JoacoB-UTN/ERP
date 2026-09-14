@@ -10,10 +10,8 @@ import type {
   UpdateProductCodeInput,
   CreateProductCategoryInput,
   UpdateProductCategoryInput,
-  CreateBrandInput,
-  UpdateBrandInput,
-  CreateUnitOfMeasureInput,
-  UpdateUnitOfMeasureInput,
+  CreateProductLineInput,
+  UpdateProductLineInput,
   ProductListQuery,
   ProductLookupQuery,
   ProductListResponse,
@@ -23,10 +21,8 @@ import type {
   ProductCodeResponse,
   ProductCategoriesResponse,
   ProductCategoryDetailResponse,
-  BrandsResponse,
-  BrandDetailResponse,
-  UnitsOfMeasureResponse,
-  UnitOfMeasureDetailResponse,
+  ProductLinesResponse,
+  ProductLineDetailResponse,
   AuditEntityHistoryResponse,
 } from '@erp/shared';
 import type { ApiFetchOptions } from './api-client';
@@ -75,7 +71,7 @@ export function createProductsClient(config: ProductsClientConfig) {
             status: filters.status,
             productType: filters.productType,
             categoryId: filters.categoryId,
-            brandId: filters.brandId,
+            lineId: filters.lineId,
             trackInventory: filters.trackInventory,
             sortBy: filters.sortBy,
             sortDir: filters.sortDir,
@@ -314,89 +310,46 @@ export function createProductsClient(config: ProductsClientConfig) {
     });
   }
 
-  // ---------- Brands ----------
+  // ---------- Lines ----------
 
-  function useBrands() {
+  function useProductLines() {
     const companyId = useActiveCompanyId();
     return useQuery({
-      queryKey: ['company', companyId, 'brands'],
-      queryFn: () => apiFetch<BrandsResponse>('/brands'),
+      queryKey: ['company', companyId, 'lines'],
+      queryFn: () => apiFetch<ProductLinesResponse>('/product-lines'),
       enabled: !!companyId,
     });
   }
 
-  function invalidateBrands(queryClient: ReturnType<typeof useQueryClient>, companyId: string | null) {
-    void queryClient.invalidateQueries({ queryKey: ['company', companyId, 'brands'] });
+  function invalidateProductLines(queryClient: ReturnType<typeof useQueryClient>, companyId: string | null) {
+    void queryClient.invalidateQueries({ queryKey: ['company', companyId, 'lines'] });
   }
 
-  function useCreateBrand() {
+  function useCreateProductLine() {
     const queryClient = useQueryClient();
     const companyId = useActiveCompanyId();
     return useMutation({
-      mutationFn: (input: CreateBrandInput) => apiFetch<BrandDetailResponse>('/brands', { json: input }),
-      onSuccess: () => invalidateBrands(queryClient, companyId),
+      mutationFn: (input: CreateProductLineInput) => apiFetch<ProductLineDetailResponse>('/product-lines', { json: input }),
+      onSuccess: () => invalidateProductLines(queryClient, companyId),
     });
   }
 
-  function useUpdateBrand() {
+  function useUpdateProductLine() {
     const queryClient = useQueryClient();
     const companyId = useActiveCompanyId();
     return useMutation({
-      mutationFn: ({ id, input }: { id: string; input: UpdateBrandInput }) =>
-        apiFetch<BrandDetailResponse>(`/brands/${id}`, { method: 'PATCH', json: input }),
-      onSuccess: () => invalidateBrands(queryClient, companyId),
+      mutationFn: ({ id, input }: { id: string; input: UpdateProductLineInput }) =>
+        apiFetch<ProductLineDetailResponse>(`/product-lines/${id}`, { method: 'PATCH', json: input }),
+      onSuccess: () => invalidateProductLines(queryClient, companyId),
     });
   }
 
-  function useDeactivateBrand() {
+  function useDeactivateProductLine() {
     const queryClient = useQueryClient();
     const companyId = useActiveCompanyId();
     return useMutation({
-      mutationFn: (id: string) => apiFetch<BrandDetailResponse>(`/brands/${id}/deactivate`, { method: 'POST' }),
-      onSuccess: () => invalidateBrands(queryClient, companyId),
-    });
-  }
-
-  // ---------- Units of measure ----------
-
-  function useUnits() {
-    const companyId = useActiveCompanyId();
-    return useQuery({
-      queryKey: ['company', companyId, 'units'],
-      queryFn: () => apiFetch<UnitsOfMeasureResponse>('/units'),
-      enabled: !!companyId,
-    });
-  }
-
-  function invalidateUnits(queryClient: ReturnType<typeof useQueryClient>, companyId: string | null) {
-    void queryClient.invalidateQueries({ queryKey: ['company', companyId, 'units'] });
-  }
-
-  function useCreateUnit() {
-    const queryClient = useQueryClient();
-    const companyId = useActiveCompanyId();
-    return useMutation({
-      mutationFn: (input: CreateUnitOfMeasureInput) => apiFetch<UnitOfMeasureDetailResponse>('/units', { json: input }),
-      onSuccess: () => invalidateUnits(queryClient, companyId),
-    });
-  }
-
-  function useUpdateUnit() {
-    const queryClient = useQueryClient();
-    const companyId = useActiveCompanyId();
-    return useMutation({
-      mutationFn: ({ id, input }: { id: string; input: UpdateUnitOfMeasureInput }) =>
-        apiFetch<UnitOfMeasureDetailResponse>(`/units/${id}`, { method: 'PATCH', json: input }),
-      onSuccess: () => invalidateUnits(queryClient, companyId),
-    });
-  }
-
-  function useDeactivateUnit() {
-    const queryClient = useQueryClient();
-    const companyId = useActiveCompanyId();
-    return useMutation({
-      mutationFn: (id: string) => apiFetch<UnitOfMeasureDetailResponse>(`/units/${id}/deactivate`, { method: 'POST' }),
-      onSuccess: () => invalidateUnits(queryClient, companyId),
+      mutationFn: (id: string) => apiFetch<ProductLineDetailResponse>(`/product-lines/${id}/deactivate`, { method: 'POST' }),
+      onSuccess: () => invalidateProductLines(queryClient, companyId),
     });
   }
 
@@ -420,13 +373,9 @@ export function createProductsClient(config: ProductsClientConfig) {
     useCreateProductCategory,
     useUpdateProductCategory,
     useDeactivateProductCategory,
-    useBrands,
-    useCreateBrand,
-    useUpdateBrand,
-    useDeactivateBrand,
-    useUnits,
-    useCreateUnit,
-    useUpdateUnit,
-    useDeactivateUnit,
+    useProductLines,
+    useCreateProductLine,
+    useUpdateProductLine,
+    useDeactivateProductLine,
   };
 }

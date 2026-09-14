@@ -166,7 +166,7 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   },
 
   // ---- Products (catalog master data — see docs/products.md) ----
-  // Categories/brands/units management reuses these same three permissions
+  // Category and product-line management reuses these same three permissions
   // (no dedicated products.catalog.manage) — same anti-fragmentation
   // decision as customers.read/create/update covering CustomerCategory.
   {

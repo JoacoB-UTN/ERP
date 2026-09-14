@@ -73,8 +73,6 @@ describe('Products (e2e)', () => {
   let tenantId: string;
   let companyAId: string;
   let companyBId: string;
-  let unitAId: string;
-  let unitBId: string;
 
   let userAdminId: string; // full product perms, member of A AND B
   let userReadOnlyId: string;
@@ -124,26 +122,11 @@ describe('Products (e2e)', () => {
     companyAId = companyA.id;
     companyBId = companyB.id;
 
-    const unitA = await prisma.unitOfMeasure.create({
-      data: {
-        tenantId,
-        companyId: companyAId,
-        code: 'UN',
-        name: 'Unidad',
-        symbol: 'u',
-      },
-    });
-    const unitB = await prisma.unitOfMeasure.create({
-      data: {
-        tenantId,
-        companyId: companyBId,
-        code: 'UN',
-        name: 'Unidad',
-        symbol: 'u',
-      },
-    });
-    unitAId = unitA.id;
-    unitBId = unitB.id;
+    // No unit fixture on purpose: POST /products no longer takes a unit, and
+    // ProductsService creates the company's 'UN' row on first use. Letting it
+    // do that here is what proves a company that never had a unit can still
+    // have a product created in it. The teardown deletes units by companyId,
+    // so the rows it makes are still cleaned up.
 
     async function makePermission(code: string) {
       return prisma.permission.upsert({
@@ -296,7 +279,7 @@ describe('Products (e2e)', () => {
     await prisma.productCategory.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
     });
-    await prisma.brand.deleteMany({
+    await prisma.productLine.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
     });
     await prisma.unitOfMeasure.deleteMany({
@@ -356,7 +339,7 @@ describe('Products (e2e)', () => {
       const create = await agent
         .post('/api/v1/products')
         .set(COMPANY_ID_HEADER, companyAId)
-        .send({ name: 'Should Not Be Created', baseUnitId: unitAId });
+        .send({ name: 'Should Not Be Created' });
       expect(create.status).toBe(403);
     });
 
@@ -365,7 +348,7 @@ describe('Products (e2e)', () => {
       const res = await agent
         .post('/api/v1/products')
         .set(COMPANY_ID_HEADER, companyAId)
-        .send({ name: 'Should Not Be Created', baseUnitId: unitAId });
+        .send({ name: 'Should Not Be Created' });
       expect(res.status).toBe(403);
     });
 
@@ -374,7 +357,7 @@ describe('Products (e2e)', () => {
       const createRes = await adminAgent
         .post('/api/v1/products')
         .set(COMPANY_ID_HEADER, companyAId)
-        .send({ name: `Perm Test ${suffix}`, baseUnitId: unitAId });
+        .send({ name: `Perm Test ${suffix}` });
       const productId = (createRes.body as ProductDetailBody).product.id;
 
       const agent = await loginAs(userNoUpdateId);
@@ -390,7 +373,7 @@ describe('Products (e2e)', () => {
       const createRes = await adminAgent
         .post('/api/v1/products')
         .set(COMPANY_ID_HEADER, companyAId)
-        .send({ name: `Perm Test Deactivate ${suffix}`, baseUnitId: unitAId });
+        .send({ name: `Perm Test Deactivate ${suffix}` });
       const productId = (createRes.body as ProductDetailBody).product.id;
 
       const agent = await loginAs(userNoDeactivateId);
@@ -409,7 +392,6 @@ describe('Products (e2e)', () => {
       .set(COMPANY_ID_HEADER, companyAId)
       .send({
         name: `Creation Test ${suffix}`,
-        baseUnitId: unitAId,
         companyId: companyBId,
         tenantId: 'spoofed',
       });
@@ -438,7 +420,7 @@ describe('Products (e2e)', () => {
     const createRes = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyAId)
-      .send({ name: `Isolation Test ${suffix}`, baseUnitId: unitAId });
+      .send({ name: `Isolation Test ${suffix}` });
     const productId = (createRes.body as ProductDetailBody).product.id;
 
     const crossRes = await agent
@@ -473,13 +455,13 @@ describe('Products (e2e)', () => {
     const first = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyAId)
-      .send({ name: `Code Test A ${suffix}`, baseUnitId: unitAId, code });
+      .send({ name: `Code Test A ${suffix}`, code });
     expect(first.status).toBe(201);
 
     const dupe = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyAId)
-      .send({ name: `Code Test A Dupe ${suffix}`, baseUnitId: unitAId, code });
+      .send({ name: `Code Test A Dupe ${suffix}`, code });
     expect(dupe.status).toBe(409);
     expect((dupe.body as ErrorEnvelope).error.code).toBe(
       'PRODUCT_CODE_ALREADY_EXISTS',
@@ -488,7 +470,7 @@ describe('Products (e2e)', () => {
     const otherCompany = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyBId)
-      .send({ name: `Code Test B ${suffix}`, baseUnitId: unitBId, code });
+      .send({ name: `Code Test B ${suffix}`, code });
     expect(otherCompany.status).toBe(201);
   });
 
@@ -500,13 +482,13 @@ describe('Products (e2e)', () => {
     const first = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyAId)
-      .send({ name: `SKU Test A ${suffix}`, baseUnitId: unitAId, sku });
+      .send({ name: `SKU Test A ${suffix}`, sku });
     expect(first.status).toBe(201);
 
     const dupe = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyAId)
-      .send({ name: `SKU Test A Dupe ${suffix}`, baseUnitId: unitAId, sku });
+      .send({ name: `SKU Test A Dupe ${suffix}`, sku });
     expect(dupe.status).toBe(409);
     expect((dupe.body as ErrorEnvelope).error.code).toBe(
       'PRODUCT_SKU_ALREADY_EXISTS',
@@ -515,18 +497,18 @@ describe('Products (e2e)', () => {
     const otherCompany = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyBId)
-      .send({ name: `SKU Test B ${suffix}`, baseUnitId: unitBId, sku });
+      .send({ name: `SKU Test B ${suffix}`, sku });
     expect(otherCompany.status).toBe(201);
 
     // Multiple products with no SKU at all must remain valid.
     const noSku1 = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyAId)
-      .send({ name: `No SKU 1 ${suffix}`, baseUnitId: unitAId });
+      .send({ name: `No SKU 1 ${suffix}` });
     const noSku2 = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyAId)
-      .send({ name: `No SKU 2 ${suffix}`, baseUnitId: unitAId });
+      .send({ name: `No SKU 2 ${suffix}` });
     expect(noSku1.status).toBe(201);
     expect(noSku2.status).toBe(201);
   });
@@ -541,7 +523,6 @@ describe('Products (e2e)', () => {
       .set(COMPANY_ID_HEADER, companyAId)
       .send({
         name: `Barcode Test A ${suffix}`,
-        baseUnitId: unitAId,
         codes: [{ type: 'BARCODE', code: barcode }],
       });
     expect(first.status).toBe(201);
@@ -553,7 +534,6 @@ describe('Products (e2e)', () => {
       .set(COMPANY_ID_HEADER, companyAId)
       .send({
         name: `Barcode Test A Dupe ${suffix}`,
-        baseUnitId: unitAId,
         codes: [{ type: 'BARCODE', code: barcode }],
       });
     expect(dupe.status).toBe(409);
@@ -566,7 +546,6 @@ describe('Products (e2e)', () => {
       .set(COMPANY_ID_HEADER, companyBId)
       .send({
         name: `Barcode Test B ${suffix}`,
-        baseUnitId: unitBId,
         codes: [{ type: 'BARCODE', code: barcode }],
       });
     expect(otherCompany.status).toBe(201);
@@ -587,7 +566,6 @@ describe('Products (e2e)', () => {
       .set(COMPANY_ID_HEADER, companyAId)
       .send({
         name: `Category Isolation Test ${suffix}`,
-        baseUnitId: unitAId,
         categoryId: categoryBId,
       });
     expect(res.status).toBe(404);
@@ -646,7 +624,6 @@ describe('Products (e2e)', () => {
       .set(COMPANY_ID_HEADER, companyAId)
       .send({
         name: `Service Test ${suffix}`,
-        baseUnitId: unitAId,
         productType: 'SERVICE',
       });
     expect(service.status).toBe(201);
@@ -659,7 +636,6 @@ describe('Products (e2e)', () => {
       .set(COMPANY_ID_HEADER, companyAId)
       .send({
         name: `Invalid Service Test ${suffix}`,
-        baseUnitId: unitAId,
         productType: 'SERVICE',
         trackInventory: true,
       });
@@ -675,7 +651,6 @@ describe('Products (e2e)', () => {
       .set(COMPANY_ID_HEADER, companyAId)
       .send({
         name: `Lot Invalid ${suffix}`,
-        baseUnitId: unitAId,
         trackInventory: false,
         trackLots: true,
       });
@@ -686,7 +661,6 @@ describe('Products (e2e)', () => {
       .set(COMPANY_ID_HEADER, companyAId)
       .send({
         name: `Lot Update Test ${suffix}`,
-        baseUnitId: unitAId,
         trackInventory: true,
       });
     const productId = (createRes.body as ProductDetailBody).product.id;
@@ -707,7 +681,7 @@ describe('Products (e2e)', () => {
     const createRes = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyAId)
-      .send({ name: `Name Before ${suffix}`, baseUnitId: unitAId });
+      .send({ name: `Name Before ${suffix}` });
     const productId = (createRes.body as ProductDetailBody).product.id;
 
     const updateRes = await agent
@@ -736,7 +710,7 @@ describe('Products (e2e)', () => {
     const createRes = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyAId)
-      .send({ name: `Lifecycle Test ${suffix}`, baseUnitId: unitAId });
+      .send({ name: `Lifecycle Test ${suffix}` });
     const productId = (createRes.body as ProductDetailBody).product.id;
 
     const deactivateRes = await agent
@@ -779,7 +753,7 @@ describe('Products (e2e)', () => {
     const createRes = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyAId)
-      .send({ name: `Variant Test ${suffix}`, baseUnitId: unitAId });
+      .send({ name: `Variant Test ${suffix}` });
     const productId = (createRes.body as ProductDetailBody).product.id;
 
     const addRes = await agent
@@ -822,7 +796,7 @@ describe('Products (e2e)', () => {
     const otherProduct = await agent
       .post('/api/v1/products')
       .set(COMPANY_ID_HEADER, companyAId)
-      .send({ name: `Variant Test Other ${suffix}`, baseUnitId: unitAId });
+      .send({ name: `Variant Test Other ${suffix}` });
     const otherProductId = (otherProduct.body as ProductDetailBody).product.id;
     const crossAccess = await agent
       .patch(`/api/v1/products/${otherProductId}/variants/${variantId}`)
@@ -845,7 +819,6 @@ describe('Products (e2e)', () => {
       .set(COMPANY_ID_HEADER, companyAId)
       .send({
         name: `Lookup Target ${suffix}`,
-        baseUnitId: unitAId,
         sku,
         codes: [{ type: 'BARCODE', code: barcode }],
       });

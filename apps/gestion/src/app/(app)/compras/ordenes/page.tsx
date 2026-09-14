@@ -10,7 +10,13 @@ import { Select } from '@/components/ui/select';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import {
+  LinkedRow,
+  Pagination,
+  RowLink,
+  TableMessage,
+  TableRowsSkeleton,
+} from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
@@ -68,15 +74,18 @@ export default function OrdenesDeCompraPage() {
       <ListHeader
         title="Órdenes de compra"
         meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'orden' : 'órdenes'}`}
-        actions={canCreate && (
-          <Link href="/compras/ordenes/nueva" className={buttonVariants({ size: 'sm' })}>
-            <Plus className="size-4" />
-            Nueva orden de compra
-          </Link>
-        )}
       />
 
-      <Toolbar>
+      <Toolbar
+        actions={
+          canCreate && (
+            <Link href="/compras/ordenes/nueva" className={buttonVariants({ size: 'sm' })}>
+              <Plus className="size-4" />
+              Nueva orden de compra
+            </Link>
+          )
+        }
+      >
         <Input
           placeholder="Buscar por número o proveedor…"
           value={searchInput}
@@ -116,22 +125,21 @@ export default function OrdenesDeCompraPage() {
           <tbody>
             {ordersQuery.isLoading && <TableRowsSkeleton columns={5} />}
             {items.map((order) => (
-              <tr key={order.id} className="border-t border-border hover:bg-muted/30">
+              <LinkedRow key={order.id}>
                 <td className="px-3 py-1 whitespace-nowrap">
-                  <Link
-                    href={`/compras/ordenes/${order.id}`}
-                    className="font-medium underline-offset-4 hover:underline"
-                  >
-                    {order.number}
-                  </Link>
+                  <RowLink href={`/compras/ordenes/${order.id}`}>{order.number}</RowLink>
                 </td>
-                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{formatDate(order.orderDate)}</td>
+                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">
+                  {formatDate(order.orderDate)}
+                </td>
                 <td className="px-3 py-1">{order.supplier.legalName}</td>
-                <td className="px-3 py-1 text-right tabular-nums">{formatMoney(order.total, order.currencyCode)}</td>
+                <td className="px-3 py-1 text-right tabular-nums">
+                  {formatMoney(order.total, order.currencyCode)}
+                </td>
                 <td className="px-3 py-1">
                   <StatusBadge status={order.status}>{purchaseOrderStatusLabel(order.status)}</StatusBadge>
                 </td>
-              </tr>
+              </LinkedRow>
             ))}
             {ordersQuery.isError && (
               <TableMessage
@@ -151,12 +159,6 @@ export default function OrdenesDeCompraPage() {
                 columns={5}
                 title="Todavía no hay órdenes de compra"
                 description="Creá una orden para empezar a comprometer mercadería con un proveedor."
-                action={canCreate && (
-                  <Link href="/compras/ordenes/nueva" className={`${buttonVariants()} mt-4`}>
-                    <Plus className="size-4" />
-                    Nueva orden de compra
-                  </Link>
-                )}
               />
             )}
             {!ordersQuery.isLoading && !ordersQuery.isError && items.length === 0 && hasActiveFilters && (

@@ -7,16 +7,14 @@ import {
   productTypeLabel,
   type ProductDetail,
   type ProductCategoryDto,
-  type BrandDto,
-  type UnitOfMeasureDto,
+  type ProductLineDto,
 } from '@erp/shared';
 import {
   usePermissions,
   useProduct,
   useUpdateProduct,
   useProductCategories,
-  useBrands,
-  useUnits,
+  useProductLines,
 } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,15 +31,13 @@ export default function EditarProductoPage() {
   const { can, isLoading: permissionsLoading } = usePermissions();
   const productQuery = useProduct(id ?? null);
   const categoriesQuery = useProductCategories();
-  const brandsQuery = useBrands();
-  const unitsQuery = useUnits();
+  const linesQuery = useProductLines();
 
   if (
     permissionsLoading ||
     productQuery.isLoading ||
     categoriesQuery.isLoading ||
-    brandsQuery.isLoading ||
-    unitsQuery.isLoading
+    linesQuery.isLoading
   ) {
     return null;
   }
@@ -54,8 +50,7 @@ export default function EditarProductoPage() {
       key={productQuery.data.product.id}
       product={productQuery.data.product}
       categories={categoriesQuery.data?.categories ?? []}
-      brands={brandsQuery.data?.brands ?? []}
-      units={unitsQuery.data?.units ?? []}
+      lines={linesQuery.data?.lines ?? []}
     />
   );
 }
@@ -63,13 +58,11 @@ export default function EditarProductoPage() {
 function EditarProductoForm({
   product,
   categories,
-  brands,
-  units,
+  lines,
 }: {
   product: ProductDetail;
   categories: ProductCategoryDto[];
-  brands: BrandDto[];
-  units: UnitOfMeasureDto[];
+  lines: ProductLineDto[];
 }) {
   const router = useRouter();
   const updateProduct = useUpdateProduct();
@@ -78,8 +71,7 @@ function EditarProductoForm({
   const [name, setName] = useState(product.name);
   const [description, setDescription] = useState(product.description ?? '');
   const [categoryId, setCategoryId] = useState(product.categoryId ?? '');
-  const [brandId, setBrandId] = useState(product.brandId ?? '');
-  const [baseUnitId, setBaseUnitId] = useState(product.baseUnit.id);
+  const [lineId, setLineId] = useState(product.lineId ?? '');
 
   const [trackInventory, setTrackInventory] = useState(product.trackInventory);
   const [allowNegativeStock, setAllowNegativeStock] = useState(product.allowNegativeStock);
@@ -116,8 +108,7 @@ function EditarProductoForm({
           name,
           description: description || null,
           categoryId: categoryId || null,
-          brandId: brandId || null,
-          baseUnitId,
+          lineId: lineId || null,
           trackInventory,
           trackLots,
           trackSerials,
@@ -172,7 +163,7 @@ function EditarProductoForm({
       </FormSection>
 
       <FormSection title="Clasificación" defaultOpen>
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="categoryId">Categoría</Label>
             <Select id="categoryId" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
@@ -185,22 +176,12 @@ function EditarProductoForm({
             </Select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="brandId">Marca</Label>
-            <Select id="brandId" value={brandId} onChange={(e) => setBrandId(e.target.value)}>
-              <option value="">Sin marca</option>
-              {brands.map((b) => (
+            <Label htmlFor="lineId">Línea</Label>
+            <Select id="lineId" value={lineId} onChange={(e) => setLineId(e.target.value)}>
+              <option value="">Sin línea</option>
+              {lines.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="baseUnitId">Unidad</Label>
-            <Select id="baseUnitId" value={baseUnitId} onChange={(e) => setBaseUnitId(e.target.value)}>
-              {units.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
                 </option>
               ))}
             </Select>

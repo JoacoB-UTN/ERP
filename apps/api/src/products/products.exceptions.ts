@@ -65,11 +65,11 @@ export class ProductCategoryCycleException extends ConflictException {
   }
 }
 
-export class BrandNotFoundException extends NotFoundException {
+export class ProductLineNotFoundException extends NotFoundException {
   constructor() {
     super({
-      message: 'Marca no encontrada para esta empresa.',
-      code: 'BRAND_NOT_FOUND',
+      message: 'Línea no encontrada para esta empresa.',
+      code: 'PRODUCT_LINE_NOT_FOUND',
     });
   }
 }

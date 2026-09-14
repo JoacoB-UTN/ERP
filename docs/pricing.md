@@ -310,7 +310,7 @@ one `UPDATE` audit event on the `PriceList` entity
 noise** — directly applying the same principle CLAUDE.md already states
 for `RolesService`'s `PERMISSIONS_CHANGE` pattern. `confirmBulkAdjust`
 writes **one** `PriceList` `UPDATE` audit record containing the full
-scope (`ALL`/`CATEGORY`/`BRAND` + the resolved `categoryId`/`brandId`),
+scope (`ALL`/`CATEGORY`/`LINE` + the resolved `categoryId`/`lineId`),
 the adjustment (`adjustmentType`/`value`), `effectiveFrom`,
 `affectedCount`, and `reason` — never one `AuditLog` row per affected
 variant. `PriceHistory` still gets one row per affected variant
@@ -343,6 +343,11 @@ All routes are company-scoped (see CLAUDE.md — never trust
 | POST | `/pricing/lists/:id/bulk-adjust/preview` | `pricing.prices.bulk_update` |
 | POST | `/pricing/lists/:id/bulk-adjust` | `pricing.prices.bulk_update` |
 | GET | `/pricing/lists/:listId/products/:variantId/history` | `pricing.prices.read` (commercial history) |
+| GET | `/pricing/lists/:id/export` | `pricing.prices.read` (xlsx download) |
+| POST | `/pricing/lists/:id/import/tango/preview` | `pricing.prices.bulk_update` |
+| POST | `/pricing/lists/:id/import/tango` | `pricing.prices.bulk_update` |
+| POST | `/pricing/lists/:id/import/prices/preview` | `pricing.prices.bulk_update` |
+| POST | `/pricing/lists/:id/import/prices` | `pricing.prices.bulk_update` |
 | GET | `/pricing/currencies` | `pricing.lists.read` |
 | GET | `/pricing/lookup` | `pricing.prices.read` |
 | POST | `/pricing/lookup/batch` | `pricing.prices.read` |
@@ -355,6 +360,88 @@ product name inside `PriceListItem`. Its `hasPrice` filter is computed
 memory), the same documented trade-off as `InventoryService.listStock`'s
 `belowMinimum` filter (inventory.md); the common (no `hasPrice`) path
 still uses plain DB-level `skip`/`take`.
+
+## Spreadsheet import / export
+
+`PriceImportService` moves prices in and out as `.xlsx`. Two flows, one
+engine:
+
+- **Tango import** reads a Tango *Lista de precios* export unchanged, so a
+  customer arriving from Tango does not reshape their data first. The real
+  file this was built against has 6.616 rows and the columns `Cód.
+  Artículo`, `Descripción`, `Desc. Adicional`, `Código de Barras`,
+  `Precio`, `Cód. Lista de Precios`, `Lista de precios`, `Fecha de última
+  modificación`.
+- **Price-edit round trip** exports what the screen is showing (or only the
+  ticked rows), lets someone edit the prices in Excel, and reads the same
+  file back.
+
+Both **end at `PricingService.setPrices`**, never at a direct
+`PriceListItem` write. That is the point: the rules that close a previous
+validity range, write the `PriceHistory` row and reject an overlap all live
+in `applyPriceChange`, and an importer with its own writes would quietly
+produce price histories no other path can produce.
+
+### Matching
+
+Internal id first (our own export carries it), then barcode, then code
+against `ProductVariant.sku`. Barcode outranks code because it is the value
+least likely to have been retyped.
+
+Both keys are compared **normalized** — whitespace removed, upper-cased.
+Tango pads the variant part of its article code (the real file contains
+`"0002/     0002"`), so a literal comparison against a stored SKU matches
+nothing.
+
+A key that hits more than one variant is reported as `AMBIGUOUS`, not
+resolved by picking one: two variants can legally share a barcode in the
+data as it stands, and the import has to say so.
+
+### Preview before apply
+
+Every upload is previewed, and **the preview is produced by the same code
+that applies it** — so the counts a person approves are what will happen,
+not a separate estimate. Preview and apply are two calls with the same file
+rather than one call holding parsed state server-side: the browser already
+has the file, so re-sending it removes a staging table that could go stale,
+leak between users, or be applied after the catalogue moved.
+
+Row outcomes are `WILL_UPDATE` / `UNCHANGED` / `NOT_FOUND` / `AMBIGUOUS` /
+`INVALID_PRICE`. `UNCHANGED` is decided with a **Decimal comparison**, so
+`6099` and `6099.00` are the same price and re-running a file is a no-op
+instead of rewriting the whole list with a new effective date.
+
+The preview's sample is capped **per status**, not as a flat worst-first
+slice. A first run against a fresh catalogue produced 6.614 `NOT_FOUND` and
+2 `WILL_UPDATE`; a flat cap showed only the failures, hiding the two rows
+the preview exists to show.
+
+An apply with nothing to change is refused
+(`PRICE_FILE_NOTHING_TO_APPLY`) rather than reported as a successful import
+of zero rows — "listo" over a file that did nothing is how someone
+concludes prices were updated when they were not.
+
+### Export shape
+
+`ID interno | Código | SKU | Producto | Variante | Precio actual | Precio
+nuevo`. The last column is **left blank on purpose**: pre-filling it with
+the current price would mean an untouched file re-applies every price on
+re-import. On the way back, a row with an empty `Precio nuevo` is dropped
+before it reaches the preview — in a file where twenty of six thousand rows
+were edited, the rest are not omissions to flag, they are "leave these
+alone".
+
+The sheet is protected and only `Precio nuevo` is unlocked. That is a guard
+rail, not security — Excel protection is trivially removed — its job is to
+make the intended workflow obvious.
+
+### Applying
+
+Writes go in chunks of 200, each chunk its own transaction. A
+six-thousand-line file in a single transaction would hold locks on the
+whole price list for as long as it takes. A failure part-way therefore
+leaves whole chunks applied and the rest untouched, which is safe because
+re-running the same file returns the applied rows as `UNCHANGED`.
 
 ## Gestión
 
@@ -388,7 +475,7 @@ Stock (only shown to `pricing.lists.read`):
     this is deliberately the *administrative* trail, not a duplicate of
     per-variant `PriceHistory`.
 - **`/listas-de-precios/:id/actualizacion-masiva`** (FIXED only, gated on
-  `pricing.prices.bulk_update`) — scope (todos/categoría/marca) → tipo de
+  `pricing.prices.bulk_update`) — scope (todos/categoría/línea) → tipo de
   ajuste + valor → vigente desde → **Vista previa** (no database writes)
   → **Confirmar actualización**. Changing any input after a preview was
   generated visibly marks it stale and disables Confirmar until a fresh

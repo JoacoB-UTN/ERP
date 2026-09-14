@@ -9,6 +9,9 @@ import type {
   PriceListDetailResponse,
   PriceListItemsQuery,
   PriceListItemsResponse,
+  PriceExportQuery,
+  PriceImportPreviewResponse,
+  PriceImportResultResponse,
   SetPriceInput,
   SetPriceResponse,
   SetPricesBatchInput,
@@ -26,7 +29,7 @@ import type {
   PriceListHistoryQuery,
   AuditEntityHistoryResponse,
 } from '@erp/shared';
-import type { ApiFetchOptions } from './api-client';
+import type { ApiFetchOptions, ApiFileResponse } from './api-client';
 
 interface PricingClientConfig {
   apiFetch: <T>(path: string, options?: ApiFetchOptions) => Promise<T>;
@@ -158,7 +161,7 @@ export function createPricingClient(config: PricingClientConfig) {
           `/pricing/lists/${priceListId}/items${buildQueryString({
             search: filters.search,
             categoryId: filters.categoryId,
-            brandId: filters.brandId,
+            lineId: filters.lineId,
             status: filters.status,
             hasPrice: filters.hasPrice,
             page: filters.page,
@@ -228,6 +231,123 @@ export function createPricingClient(config: PricingClientConfig) {
           method: 'POST',
           json: input,
         }),
+      onSuccess: () => invalidatePricing(queryClient, companyId),
+    });
+  }
+
+  // ---------- Spreadsheet import / export ----------
+
+  /**
+   * Downloads the price-edit workbook.
+   *
+   * A mutation, not a query: it has no cached value anyone re-reads, it is
+   * only ever started by a click, and running it twice must produce two
+   * downloads rather than one cached answer.
+   */
+  function useExportPrices() {
+    return useMutation({
+      mutationFn: ({
+        priceListId,
+        filters,
+        variantIds,
+      }: {
+        priceListId: string;
+        filters?: Partial<PriceExportQuery>;
+        variantIds?: string[];
+      }) =>
+        apiFetch<ApiFileResponse>(
+          `/pricing/lists/${priceListId}/export${buildQueryString({
+            search: filters?.search,
+            categoryId: filters?.categoryId,
+            lineId: filters?.lineId,
+            status: filters?.status,
+            hasPrice: filters?.hasPrice,
+            // Sent as one comma-joined value rather than repeated keys: a
+            // selection of a few thousand ids has to survive a URL, and the
+            // schema splits it back apart.
+            variantIds: variantIds && variantIds.length > 0 ? variantIds.join(',') : undefined,
+          })}`,
+          { responseType: 'blob' },
+        ),
+    });
+  }
+
+  function uploadFile<T>(path: string, file: File, reason?: string): Promise<T> {
+    const body = new FormData();
+    body.append('file', file);
+    if (reason) body.append('reason', reason);
+    return apiFetch<T>(path, { method: 'POST', formData: body });
+  }
+
+  /**
+   * Preview and apply are separate mutations over the SAME file, sent twice,
+   * rather than one call that stashes a parsed file server-side between
+   * them. The browser already holds the file, so re-sending it costs one
+   * upload and removes a staging table that could go stale, leak between
+   * users, or be applied after the catalogue moved underneath it.
+   *
+   * Only the apply hooks invalidate: a preview writes nothing.
+   */
+  function usePreviewTangoImport() {
+    return useMutation({
+      mutationFn: ({ priceListId, file }: { priceListId: string; file: File }) =>
+        uploadFile<PriceImportPreviewResponse>(
+          `/pricing/lists/${priceListId}/import/tango/preview`,
+          file,
+        ),
+    });
+  }
+
+  function useApplyTangoImport() {
+    const queryClient = useQueryClient();
+    const companyId = useActiveCompanyId();
+    return useMutation({
+      mutationFn: ({
+        priceListId,
+        file,
+        reason,
+      }: {
+        priceListId: string;
+        file: File;
+        reason?: string;
+      }) =>
+        uploadFile<PriceImportResultResponse>(
+          `/pricing/lists/${priceListId}/import/tango`,
+          file,
+          reason,
+        ),
+      onSuccess: () => invalidatePricing(queryClient, companyId),
+    });
+  }
+
+  function usePreviewPriceImport() {
+    return useMutation({
+      mutationFn: ({ priceListId, file }: { priceListId: string; file: File }) =>
+        uploadFile<PriceImportPreviewResponse>(
+          `/pricing/lists/${priceListId}/import/prices/preview`,
+          file,
+        ),
+    });
+  }
+
+  function useApplyPriceImport() {
+    const queryClient = useQueryClient();
+    const companyId = useActiveCompanyId();
+    return useMutation({
+      mutationFn: ({
+        priceListId,
+        file,
+        reason,
+      }: {
+        priceListId: string;
+        file: File;
+        reason?: string;
+      }) =>
+        uploadFile<PriceImportResultResponse>(
+          `/pricing/lists/${priceListId}/import/prices`,
+          file,
+          reason,
+        ),
       onSuccess: () => invalidatePricing(queryClient, companyId),
     });
   }
@@ -306,6 +426,11 @@ export function createPricingClient(config: PricingClientConfig) {
     useSetPrices,
     usePreviewBulkAdjust,
     useConfirmBulkAdjust,
+    useExportPrices,
+    usePreviewTangoImport,
+    useApplyTangoImport,
+    usePreviewPriceImport,
+    useApplyPriceImport,
     usePriceHistory,
     usePriceLookup,
     useLookupPricesBatch,

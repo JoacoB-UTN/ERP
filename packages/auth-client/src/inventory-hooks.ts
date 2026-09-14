@@ -70,7 +70,7 @@ export function createInventoryClient(config: InventoryClientConfig) {
             warehouseId: filters.warehouseId,
             productId: filters.productId,
             categoryId: filters.categoryId,
-            brandId: filters.brandId,
+            lineId: filters.lineId,
             status: filters.status,
             belowMinimum: filters.belowMinimum,
             page: filters.page,

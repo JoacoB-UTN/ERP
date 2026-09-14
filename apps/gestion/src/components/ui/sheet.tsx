@@ -8,11 +8,7 @@ import { cn } from '@/lib/utils';
 const Sheet = DialogPrimitive.Root;
 const SheetClose = DialogPrimitive.Close;
 
-function SheetContent({
-  className,
-  children,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Popup>) {
+function SheetContent({ className, children, ...props }: React.ComponentProps<typeof DialogPrimitive.Popup>) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-foreground/25 transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />

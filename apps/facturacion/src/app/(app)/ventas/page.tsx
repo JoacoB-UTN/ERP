@@ -26,19 +26,26 @@ export default function VentasPage() {
       {/* Same heading and toolbar shape as every Gestión list screen: no
           uppercase eyebrow, no explanatory subtitle, and filters in the page
           flow rather than a bordered band — see docs/desktop-ui-direction.md. */}
-      <ListHeader
-        title="Ventas"
+      <ListHeader title="Ventas" />
+
+      <Toolbar
         actions={
           can('sales.documents.create') && (
-            <Link href="/ventas/nueva" className={buttonVariants()}>
+            // h-8 on top of size="sm" because Facturación's control scale is
+            // 4px taller than Gestión's for POS touch targets — its `sm` is
+            // 36px. This list's filters already opt out of that scale the same
+            // way (h-8), since it is a back-office list, not the counter; the
+            // button has to opt out with them or it stands 4px proud of the
+            // field beside it. The scale itself is left alone: raising it here
+            // would reach the POS, which product-ui-principles.md says to
+            // leave large on purpose.
+            <Link href="/ventas/nueva" className={buttonVariants({ size: 'sm', className: 'h-8' })}>
               <Plus className="size-4" />
               Nueva venta
             </Link>
           )
         }
-      />
-
-      <Toolbar>
+      >
         <Select
           value={status}
           onChange={(e) => setStatus(e.target.value)}

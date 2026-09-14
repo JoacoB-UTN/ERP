@@ -7,10 +7,11 @@ import { RolesController } from './roles.controller';
 import { UsersController } from './users.controller';
 import { AuditController } from './audit.controller';
 import { RolesService } from './roles.service';
+import { UsersService } from './users.service';
 
 @Module({
   imports: [AuthModule, CompanyContextModule, AuthorizationModule, AuditModule],
   controllers: [RolesController, UsersController, AuditController],
-  providers: [RolesService],
+  providers: [RolesService, UsersService],
 })
 export class AdministrationModule {}

@@ -4,32 +4,14 @@ import Link from 'next/link';
 import { ArrowRight, FileText, PackageSearch, Tags, UserPlus, Warehouse } from 'lucide-react';
 import { formatMoney, salesDocumentStatusLabel } from '@erp/shared';
 import { usePermissions, useDashboardSummary } from '@/lib/auth-client';
+import { SalesOverview } from '@/components/dashboard/sales-overview';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
-import { cn } from '@/lib/utils';
+import { LinkedRow, RowLink, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('es-AR', { dateStyle: 'medium' });
-}
-
-function Stat({ href, label, value, tone }: { href?: string; label: string; value: string; tone?: 'warning' }) {
-  const content = (
-    <span className="whitespace-nowrap">
-      <span className={cn('font-semibold tabular-nums', tone === 'warning' ? 'text-warning' : 'text-foreground')}>
-        {value}
-      </span>{' '}
-      <span className="text-muted-foreground">{label}</span>
-    </span>
-  );
-  return href ? (
-    <Link href={href} className="rounded-sm hover:underline focus-visible:underline">
-      {content}
-    </Link>
-  ) : (
-    content
-  );
 }
 
 export default function DashboardPage() {
@@ -84,79 +66,24 @@ export default function DashboardPage() {
   const hasAnyAccess = canReadSales || canReadCustomers || canReadProducts || canReadStock;
 
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex flex-col gap-4">
       <ListHeader title="Inicio" />
 
       {!hasAnyAccess && (
         <p className="text-sm text-muted-foreground">
-          Todavía no tenés acceso a información del panel. Consultá con un administrador si esperabas ver datos
-          acá.
+          Todavía no tenés acceso a información del panel. Consultá con un administrador si esperabas ver
+          datos acá.
         </p>
-      )}
-
-      {summaryQuery.isError && (
-        <div className="flex items-center justify-between gap-4 rounded-md border border-destructive/25 bg-destructive-muted px-3 py-2">
-          <p className="text-sm text-destructive">No pudimos cargar el resumen del panel.</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => summaryQuery.refetch()}>
-            Reintentar
-          </Button>
-        </div>
-      )}
-
-      {hasAnyAccess && !summaryQuery.isError && (
-        <div
-          aria-label="Indicadores operativos"
-          className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-md border border-border px-3 py-2 text-sm"
-        >
-          {loading ? (
-            <div className="h-4 w-64 animate-pulse rounded bg-muted" aria-hidden="true" />
-          ) : (
-            <>
-              {summary?.salesToday !== undefined && summary.salesToday !== null && (
-                <Stat
-                  href="/ventas"
-                  label={summary.salesToday.count === 1 ? 'venta confirmada hoy' : 'ventas confirmadas hoy'}
-                  value={String(summary.salesToday.count)}
-                />
-              )}
-              {summary?.salesToday !== undefined &&
-                summary.salesToday !== null &&
-                summary.salesToday.count > 0 &&
-                summary.salesToday.totalsByCurrency.map((t) => (
-                  <Stat key={t.currencyCode} label="total operado" value={formatMoney(t.total, t.currencyCode)} />
-                ))}
-              {summary?.openDraftSales !== undefined && summary.openDraftSales !== null && (
-                <Stat
-                  href="/ventas"
-                  label={summary.openDraftSales === 1 ? 'borrador abierto' : 'borradores abiertos'}
-                  value={String(summary.openDraftSales)}
-                />
-              )}
-              {summary?.activeCustomers !== undefined && summary.activeCustomers !== null && (
-                <Stat href="/clientes" label="clientes activos" value={String(summary.activeCustomers)} />
-              )}
-              {summary?.activeProducts !== undefined && summary.activeProducts !== null && (
-                <Stat href="/productos" label="productos activos" value={String(summary.activeProducts)} />
-              )}
-              {summary?.belowMinimumStockCount !== undefined &&
-                summary.belowMinimumStockCount !== null &&
-                summary.belowMinimumStockCount > 0 && (
-                  <Stat
-                    href="/stock"
-                    label="con stock bajo mínimo"
-                    value={String(summary.belowMinimumStockCount)}
-                    tone="warning"
-                  />
-                )}
-            </>
-          )}
-        </div>
       )}
 
       {quickActions.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {quickActions.map((action) => (
-            <Link key={action.href} href={action.href} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+            <Link
+              key={action.href}
+              href={action.href}
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
               <action.icon className="size-3.5" />
               {action.label}
             </Link>
@@ -164,8 +91,19 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {canReadSales && <SalesOverview />}
+
+      {summaryQuery.isError && (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-destructive/25 bg-destructive-muted px-4 py-3">
+          <p className="text-sm text-destructive">No pudimos cargar las ventas recientes.</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => summaryQuery.refetch()}>
+            Reintentar
+          </Button>
+        </div>
+      )}
+
       {canReadSales && (
-        <div className="flex flex-col gap-2">
+        <section className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-foreground">Ventas recientes</h2>
             <Link
@@ -192,21 +130,21 @@ export default function DashboardPage() {
                 {loading && <TableRowsSkeleton columns={5} rows={4} />}
                 {!loading &&
                   summary?.recentSales?.map((s) => (
-                    <tr key={s.id} className="border-t border-border hover:bg-muted/30">
+                    <LinkedRow key={s.id}>
                       <td className="px-3 py-1 whitespace-nowrap">
-                        <Link href={`/ventas/${s.id}`} className="font-medium underline-offset-4 hover:underline">
-                          {s.number}
-                        </Link>
+                        <RowLink href={`/ventas/${s.id}`}>{s.number}</RowLink>
                       </td>
                       <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">
                         {formatDate(s.occurredAt)}
                       </td>
                       <td className="px-3 py-1">{s.customer.legalName}</td>
-                      <td className="px-3 py-1 text-right tabular-nums">{formatMoney(s.total, s.currencyCode)}</td>
+                      <td className="px-3 py-1 text-right tabular-nums">
+                        {formatMoney(s.total, s.currencyCode)}
+                      </td>
                       <td className="px-3 py-1">
                         <StatusBadge status={s.status}>{salesDocumentStatusLabel(s.status)}</StatusBadge>
                       </td>
-                    </tr>
+                    </LinkedRow>
                   ))}
                 {!loading && summary?.recentSales?.length === 0 && (
                   <TableMessage
@@ -218,7 +156,7 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
       )}
     </div>
   );

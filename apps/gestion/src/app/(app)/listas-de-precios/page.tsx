@@ -4,11 +4,16 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { pricingModeLabel } from '@erp/shared';
-import { usePermissions, usePriceLists, useDeactivatePriceList, useReactivatePriceList } from '@/lib/auth-client';
+import {
+  usePermissions,
+  usePriceLists,
+  useDeactivatePriceList,
+  useReactivatePriceList,
+} from '@/lib/auth-client';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import { LinkedRow, RowLink, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { pricingErrorMessage } from '@/components/pricing/pricing-errors';
 
@@ -58,15 +63,24 @@ export default function ListasDePreciosPage() {
       <ListHeader
         title="Listas de precios"
         meta={`${priceLists.length} ${priceLists.length === 1 ? 'lista' : 'listas'}`}
-        actions={canCreate && (
-          <Link href="/listas-de-precios/nueva" className={buttonVariants({ size: 'sm' })}>
-            <Plus className="size-4" />
-            Nueva lista
-          </Link>
-        )}
+        actions={
+          canCreate && (
+            <Link href="/listas-de-precios/nueva" className={buttonVariants({ size: 'sm' })}>
+              <Plus className="size-4" />
+              Nueva lista
+            </Link>
+          )
+        }
       />
 
-      {error && <p role="alert" className="rounded-md border border-destructive/25 bg-destructive-muted px-3 py-2 text-sm text-destructive">{error}</p>}
+      {error && (
+        <p
+          role="alert"
+          className="rounded-md border border-destructive/25 bg-destructive-muted px-3 py-2 text-sm text-destructive"
+        >
+          {error}
+        </p>
+      )}
 
       <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
@@ -85,12 +99,10 @@ export default function ListasDePreciosPage() {
           <tbody>
             {priceListsQuery.isLoading && <TableRowsSkeleton columns={8} />}
             {priceLists.map((pl) => (
-              <tr key={pl.id} className="border-t border-border hover:bg-muted/30">
+              <LinkedRow key={pl.id}>
                 <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{pl.code}</td>
                 <td className="px-3 py-1 font-medium">
-                  <Link href={`/listas-de-precios/${pl.id}`} className="underline-offset-4 hover:underline">
-                    {pl.name}
-                  </Link>
+                  <RowLink href={`/listas-de-precios/${pl.id}`}>{pl.name}</RowLink>
                 </td>
                 <td className="px-3 py-1 whitespace-nowrap">{pl.currencyCode}</td>
                 <td className="px-3 py-1 whitespace-nowrap">
@@ -123,14 +135,19 @@ export default function ListasDePreciosPage() {
                           Desactivar
                         </Button>
                       ) : (
-                        <Button type="button" size="sm" variant="outline" onClick={() => handleReactivate(pl.id)}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleReactivate(pl.id)}
+                        >
                           Reactivar
                         </Button>
                       )}
                     </div>
                   )}
                 </td>
-              </tr>
+              </LinkedRow>
             ))}
             {priceListsQuery.isError && (
               <TableMessage
@@ -150,12 +167,6 @@ export default function ListasDePreciosPage() {
                 columns={8}
                 title="Todavía no hay listas de precios"
                 description="Creá una lista fija o derivada para comenzar."
-                action={canCreate && (
-                  <Link href="/listas-de-precios/nueva" className={buttonVariants()}>
-                    <Plus className="size-4" />
-                    Nueva lista
-                  </Link>
-                )}
               />
             )}
           </tbody>

@@ -155,12 +155,6 @@ export default function DepositosPage() {
                 columns={canUpdate || canDeactivate ? 8 : 7}
                 title="Todavía no hay depósitos"
                 description="Creá una ubicación para empezar a registrar stock."
-                action={canCreate && (
-                  <Link href="/stock/depositos/nuevo" className={buttonVariants()}>
-                    <Plus className="size-4" />
-                    Nuevo depósito
-                  </Link>
-                )}
               />
             )}
           </tbody>

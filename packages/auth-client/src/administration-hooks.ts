@@ -7,7 +7,9 @@ import type {
   RolesResponse,
   RoleDetailResponse,
   PermissionsCatalogResponse,
+  CompanyUserDetailResponse,
   CompanyUsersResponse,
+  CreateUserInput,
   UserRolesResponse,
 } from '@erp/shared';
 import type { ApiFetchOptions } from './api-client';
@@ -126,6 +128,21 @@ export function createAdministrationClient(config: AdministrationClientConfig) {
     });
   }
 
+  function useCreateUser() {
+    const queryClient = useQueryClient();
+    const companyId = useActiveCompanyId();
+    return useMutation({
+      mutationFn: (input: CreateUserInput) =>
+        apiFetch<CompanyUserDetailResponse>('/administration/users', { json: input }),
+      // The new user's roles come back with them, so the users list has to
+      // refetch; permissions do not — the creator's own effective
+      // permissions cannot change by adding somebody else.
+      onSuccess: () => {
+        void queryClient.invalidateQueries({ queryKey: ['company', companyId, 'users'] });
+      },
+    });
+  }
+
   function useUserRoles(userId: string | null) {
     const companyId = useActiveCompanyId();
     return useQuery({
@@ -170,6 +187,7 @@ export function createAdministrationClient(config: AdministrationClientConfig) {
     useDeleteRole,
     useReplaceRolePermissions,
     useCompanyUsers,
+    useCreateUser,
     useUserRoles,
     useAssignRole,
     useRemoveRoleAssignment,

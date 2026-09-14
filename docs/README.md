@@ -36,7 +36,7 @@ shared rules, then come back here for detail.
   `/clientes`, and the lookup contract Facturación's `CustomerPicker`
   consumes.
 - [products.md](products.md) — product catalog (Product/ProductVariant/
-  ProductCode/ProductCategory/Brand/UnitOfMeasure), the "default variant"
+  ProductCode/ProductCategory/ProductLine/UnitOfMeasure), the "default variant"
   pattern, SKU/barcode uniqueness, inventory *configuration* vs. stock,
   search/lookup ranking, permissions, audit, Gestión's `/productos`, and
   the future Facturación/POS lookup contract.

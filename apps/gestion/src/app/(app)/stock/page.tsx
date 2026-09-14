@@ -1,22 +1,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { formatDecimalDisplay, ProductStatus, type StockListQuery } from '@erp/shared';
-import {
-  usePermissions,
-  useStock,
-  useWarehouses,
-  useProductCategories,
-  useBrands,
-} from '@/lib/auth-client';
+import { usePermissions, useStock, useWarehouses, useProductCategories, useProductLines } from '@/lib/auth-client';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { Button } from '@/components/ui/button';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import {
+  LinkedRow,
+  Pagination,
+  RowLink,
+  TableMessage,
+  TableRowsSkeleton,
+} from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 
 const PAGE_SIZE = 25;
@@ -29,14 +28,14 @@ export default function ExistenciasPage() {
   const { can, isLoading: permissionsLoading } = usePermissions();
   const warehousesQuery = useWarehouses();
   const categoriesQuery = useProductCategories();
-  const brandsQuery = useBrands();
+  const linesQuery = useProductLines();
 
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [status, setStatus] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [brandId, setBrandId] = useState('');
+  const [lineId, setLineId] = useState('');
   const [belowMinimum, setBelowMinimum] = useState(false);
   const [page, setPage] = useState(1);
 
@@ -53,7 +52,7 @@ export default function ExistenciasPage() {
     warehouseId: warehouseId || undefined,
     status: (status || undefined) as ProductStatus | undefined,
     categoryId: categoryId || undefined,
-    brandId: brandId || undefined,
+    lineId: lineId || undefined,
     belowMinimum: belowMinimum || undefined,
     page,
     pageSize: PAGE_SIZE,
@@ -69,7 +68,7 @@ export default function ExistenciasPage() {
   const items = stockQuery.data?.items ?? [];
   const pagination = stockQuery.data?.pagination;
   const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / pagination.pageSize)) : 1;
-  const hasActiveFilters = !!(search || warehouseId || status || categoryId || brandId || belowMinimum);
+  const hasActiveFilters = !!(search || warehouseId || status || categoryId || lineId || belowMinimum);
 
   function clearFilters() {
     setSearchInput('');
@@ -77,7 +76,7 @@ export default function ExistenciasPage() {
     setWarehouseId('');
     setStatus('');
     setCategoryId('');
-    setBrandId('');
+    setLineId('');
     setBelowMinimum(false);
     setPage(1);
   }
@@ -130,16 +129,16 @@ export default function ExistenciasPage() {
           ))}
         </Select>
         <Select
-          value={brandId}
+          value={lineId}
           onChange={(e) => {
-            setBrandId(e.target.value);
+            setLineId(e.target.value);
             setPage(1);
           }}
           className="h-8 max-w-44 py-1 text-sm"
-          aria-label="Marca"
+          aria-label="Línea"
         >
-          <option value="">Todas las marcas</option>
-          {brandsQuery.data?.brands.map((b) => (
+          <option value="">Todas las líneas</option>
+          {linesQuery.data?.lines.map((b) => (
             <option key={b.id} value={b.id}>
               {b.name}
             </option>
@@ -190,14 +189,9 @@ export default function ExistenciasPage() {
               const onHand = Number(row.onHand);
               const available = Number(row.available);
               return (
-                <tr key={`${row.variantId}-${row.warehouse.id}`} className="border-t border-border hover:bg-muted/30">
+                <LinkedRow key={`${row.variantId}-${row.warehouse.id}`}>
                   <td className="px-3 py-1">
-                    <Link
-                      href={`/productos/${row.productId}`}
-                      className="font-medium underline-offset-4 hover:underline"
-                    >
-                      {row.productName}
-                    </Link>
+                    <RowLink href={`/productos/${row.productId}`}>{row.productName}</RowLink>
                     {row.variantName && <p className="text-xs text-muted-foreground">{row.variantName}</p>}
                   </td>
                   <td className="px-3 py-1 whitespace-nowrap">{row.sku ?? '—'}</td>
@@ -214,7 +208,7 @@ export default function ExistenciasPage() {
                       </StatusBadge>
                     )}
                   </td>
-                </tr>
+                </LinkedRow>
               );
             })}
             {stockQuery.isError && (
@@ -243,13 +237,15 @@ export default function ExistenciasPage() {
                 kind="filtered"
                 title="No encontramos existencias"
                 description="Probá con otros criterios o limpiá los filtros."
-                action={<button
+                action={
+                  <button
                     type="button"
                     onClick={clearFilters}
                     className="text-sm font-medium text-primary underline-offset-4 hover:underline"
                   >
                     Limpiar filtros
-                  </button>}
+                  </button>
+                }
               />
             )}
           </tbody>

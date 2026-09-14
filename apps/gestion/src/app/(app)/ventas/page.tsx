@@ -9,7 +9,15 @@ import { Select } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import { ListHeader } from '@/components/ui/page-header';
+import {
+  LinkedRow,
+  Pagination,
+  RowLink,
+  TableMessage,
+  TableRowsSkeleton,
+} from '@/components/ui/table-support';
+import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
 const PAGE_SIZE = 25;
@@ -57,24 +65,21 @@ export default function VentasPage() {
 
   return (
     <div className="flex flex-col gap-2.5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-baseline gap-2.5">
-          <h1 className="text-lg leading-6 font-semibold tracking-tight">Ventas</h1>
-          {pagination && (
-            <span className="text-xs text-muted-foreground">
-              {pagination.total} {pagination.total === 1 ? 'venta' : 'ventas'}
-            </span>
-          )}
-        </div>
-        {canCreate && (
-          <Link href="/ventas/nueva" className={buttonVariants({ size: 'sm' })}>
-            <Plus className="size-4" />
-            Nueva venta
-          </Link>
-        )}
-      </div>
+      <ListHeader
+        title="Ventas"
+        meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'venta' : 'ventas'}`}
+      />
 
-      <div role="search" className="flex flex-wrap items-center gap-2">
+      <Toolbar
+        actions={
+          canCreate && (
+            <Link href="/ventas/nueva" className={buttonVariants({ size: 'sm' })}>
+              <Plus className="size-4" />
+              Nueva venta
+            </Link>
+          )
+        }
+      >
         <Input
           value={search}
           onChange={(e) => {
@@ -115,7 +120,7 @@ export default function VentasPage() {
           <option value="CONFIRMED">Confirmada</option>
           <option value="CANCELLED">Cancelada</option>
         </Select>
-      </div>
+      </Toolbar>
 
       <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
@@ -133,13 +138,13 @@ export default function VentasPage() {
           <tbody>
             {salesQuery.isLoading && <TableRowsSkeleton columns={7} />}
             {items.map((s) => (
-              <tr key={s.id} className="border-t border-border hover:bg-muted/30">
+              <LinkedRow key={s.id}>
                 <td className="px-3 py-1 whitespace-nowrap">
-                  <Link href={`/ventas/${s.id}`} className="font-medium underline-offset-4 hover:underline">
-                    {s.number}
-                  </Link>
+                  <RowLink href={`/ventas/${s.id}`}>{s.number}</RowLink>
                 </td>
-                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{formatDate(s.occurredAt)}</td>
+                <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">
+                  {formatDate(s.occurredAt)}
+                </td>
                 <td className="px-3 py-1">{s.customer.legalName}</td>
                 <td className="px-3 py-1 whitespace-nowrap">{s.warehouse.name}</td>
                 <td className="px-3 py-1 whitespace-nowrap">{s.priceList.name}</td>
@@ -147,7 +152,7 @@ export default function VentasPage() {
                 <td className="px-3 py-1">
                   <StatusBadge status={s.status}>{salesDocumentStatusLabel(s.status)}</StatusBadge>
                 </td>
-              </tr>
+              </LinkedRow>
             ))}
             {salesQuery.isError && (
               <TableMessage
@@ -167,12 +172,6 @@ export default function VentasPage() {
                 columns={7}
                 title="Todavía no hay ventas registradas"
                 description="Creá un borrador para comenzar el flujo comercial."
-                action={canCreate && (
-                  <Link href="/ventas/nueva" className={buttonVariants()}>
-                    <Plus className="size-4" />
-                    Nueva venta
-                  </Link>
-                )}
               />
             )}
             {!salesQuery.isLoading && !salesQuery.isError && items.length === 0 && hasActiveFilters && (

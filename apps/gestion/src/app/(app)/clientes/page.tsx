@@ -17,7 +17,13 @@ import { Select } from '@/components/ui/select';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Pagination, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import {
+  LinkedRow,
+  Pagination,
+  RowLink,
+  TableMessage,
+  TableRowsSkeleton,
+} from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
@@ -78,15 +84,18 @@ export default function ClientesPage() {
       <ListHeader
         title="Clientes"
         meta={pagination && `${pagination.total} ${pagination.total === 1 ? 'cliente' : 'clientes'}`}
-        actions={canCreate && (
-          <Link href="/clientes/nuevo" className={buttonVariants({ size: 'sm' })}>
-            <Plus className="size-4" />
-            Nuevo cliente
-          </Link>
-        )}
       />
 
-      <Toolbar>
+      <Toolbar
+        actions={
+          canCreate && (
+            <Link href="/clientes/nuevo" className={buttonVariants({ size: 'sm' })}>
+              <Plus className="size-4" />
+              Nuevo cliente
+            </Link>
+          )
+        }
+      >
         <Input
           placeholder="Buscar por nombre, código, CUIT, email…"
           value={searchInput}
@@ -159,15 +168,10 @@ export default function ClientesPage() {
           <tbody>
             {customersQuery.isLoading && <TableRowsSkeleton columns={6} />}
             {items.map((customer) => (
-              <tr key={customer.id} className="border-t border-border hover:bg-muted/30">
+              <LinkedRow key={customer.id}>
                 <td className="px-3 py-1 whitespace-nowrap text-muted-foreground">{customer.code}</td>
                 <td className="px-3 py-1">
-                  <Link
-                    href={`/clientes/${customer.id}`}
-                    className="font-medium underline-offset-4 hover:underline"
-                  >
-                    {customer.displayName}
-                  </Link>
+                  <RowLink href={`/clientes/${customer.id}`}>{customer.displayName}</RowLink>
                   {customer.tradeName && (
                     <p className="text-xs text-muted-foreground">{customer.legalName}</p>
                   )}
@@ -180,7 +184,7 @@ export default function ClientesPage() {
                 <td className="px-3 py-1">
                   <StatusBadge status={customer.status}>{customerStatusLabel(customer.status)}</StatusBadge>
                 </td>
-              </tr>
+              </LinkedRow>
             ))}
             {customersQuery.isError && (
               <TableMessage
@@ -195,34 +199,36 @@ export default function ClientesPage() {
                 }
               />
             )}
-            {!customersQuery.isLoading && !customersQuery.isError && items.length === 0 && !hasActiveFilters && (
-              <TableMessage
-                columns={6}
-                title="Todavía no hay clientes"
-                description="Creá el primer cliente para comenzar."
-                action={canCreate && (
-                    <Link href="/clientes/nuevo" className={`${buttonVariants()} mt-4`}>
-                      <Plus className="size-4" />
-                      Nuevo cliente
-                    </Link>
-                )}
-              />
-            )}
-            {!customersQuery.isLoading && !customersQuery.isError && items.length === 0 && hasActiveFilters && (
-              <TableMessage
-                columns={6}
-                kind="filtered"
-                title="No encontramos clientes"
-                description="Probá con otros criterios o limpiá los filtros."
-                action={<button
-                    type="button"
-                    onClick={clearFilters}
-                    className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-                  >
-                    Limpiar filtros
-                  </button>}
-              />
-            )}
+            {!customersQuery.isLoading &&
+              !customersQuery.isError &&
+              items.length === 0 &&
+              !hasActiveFilters && (
+                <TableMessage
+                  columns={6}
+                  title="Todavía no hay clientes"
+                  description="Creá el primer cliente para comenzar."
+                />
+              )}
+            {!customersQuery.isLoading &&
+              !customersQuery.isError &&
+              items.length === 0 &&
+              hasActiveFilters && (
+                <TableMessage
+                  columns={6}
+                  kind="filtered"
+                  title="No encontramos clientes"
+                  description="Probá con otros criterios o limpiá los filtros."
+                  action={
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      Limpiar filtros
+                    </button>
+                  }
+                />
+              )}
           </tbody>
         </table>
       </div>

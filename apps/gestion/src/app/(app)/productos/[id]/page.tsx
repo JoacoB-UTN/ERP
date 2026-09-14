@@ -172,8 +172,7 @@ function ResumenTab({ product, onGoToVariants }: { product: ProductDetail; onGoT
     <dl className="grid gap-4 rounded-md border border-border p-4 sm:grid-cols-2">
       <SummaryField label="Tipo" value={productTypeLabel(product.productType)} />
       <SummaryField label="Categoría" value={product.categoryName} />
-      <SummaryField label="Marca" value={product.brandName} />
-      <SummaryField label="Unidad" value={`${product.baseUnit.name} (${product.baseUnit.symbol})`} />
+      <SummaryField label="Línea" value={product.lineName} />
       {product.description && (
         <div className="sm:col-span-2">
           <dt className="text-xs text-muted-foreground">Descripción</dt>

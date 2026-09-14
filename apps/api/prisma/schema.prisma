@@ -45,7 +45,7 @@ model Tenant {
   customerCategories CustomerCategory[]
   products           Product[]
   productCategories  ProductCategory[]
-  brands             Brand[]
+  productLines       ProductLine[]
   unitsOfMeasure     UnitOfMeasure[]
   warehouses         Warehouse[]
   stockMovements     StockMovement[]
@@ -91,7 +91,7 @@ model Company {
   customerCodeSequence    CustomerCodeSequence?
   products                Product[]
   productCategories       ProductCategory[]
-  brands                  Brand[]
+  productLines            ProductLine[]
   unitsOfMeasure          UnitOfMeasure[]
   productCodeSequence     ProductCodeSequence?
   warehouses              Warehouse[]
@@ -684,7 +684,7 @@ model Product {
   productType ProductType @default(PRODUCT)
 
   categoryId String? @db.Uuid
-  brandId    String? @db.Uuid
+  lineId     String? @db.Uuid
   baseUnitId String  @db.Uuid
 
   /// Configuration only — never a stock balance (see CLAUDE.md). SERVICE
@@ -722,7 +722,7 @@ model Product {
   tenant   Tenant           @relation(fields: [tenantId], references: [id])
   company  Company          @relation(fields: [companyId], references: [id])
   category ProductCategory? @relation(fields: [categoryId], references: [id])
-  brand    Brand?           @relation(fields: [brandId], references: [id])
+  line     ProductLine?     @relation(fields: [lineId], references: [id])
   baseUnit UnitOfMeasure    @relation(fields: [baseUnitId], references: [id])
 
   variants ProductVariant[]
@@ -732,7 +732,7 @@ model Product {
   @@index([companyId])
   @@index([companyId, name])
   @@index([categoryId])
-  @@index([brandId])
+  @@index([lineId])
   @@index([baseUnitId])
   @@map("products")
 }
@@ -809,7 +809,7 @@ model ProductCode {
 /// (direct and indirect) is enforced in ProductCategoriesService, never at
 /// the DB level — Postgres can't express "no cycles" as a constraint.
 /// Duplicate names are allowed (no uniqueness requested for categories,
-/// unlike Brand) since real catalogs commonly reuse a name under
+/// unlike ProductLine) since real catalogs commonly reuse a name under
 /// different parents (e.g. "Accesorios").
 model ProductCategory {
   id        String  @id @default(uuid()) @db.Uuid
@@ -842,7 +842,16 @@ model ProductCategory {
 /// `normalizedName` (lowercase, trimmed) backs the "companyId + normalized
 /// name" uniqueness rule from the task spec — `name` keeps the
 /// user-entered casing for display.
-model Brand {
+/// A product line — ORO, PLATA, DUAL DUTY. This is the one axis besides
+/// category that this catalog classifies by: every product sold here
+/// belongs to a single brand, so a Brand entity only ever held one value
+/// and classified nothing. The line is what actually varies.
+///
+/// This model IS the former Brand, renamed rather than dropped and
+/// recreated: same columns, same company-scoped unique name, same
+/// relation to Product. A rename keeps whatever a customer already
+/// classified instead of asking them to enter it again.
+model ProductLine {
   id             String  @id @default(uuid()) @db.Uuid
   tenantId       String  @db.Uuid
   companyId      String  @db.Uuid
@@ -862,7 +871,7 @@ model Brand {
   @@unique([companyId, normalizedName])
   @@index([tenantId])
   @@index([companyId])
-  @@map("brands")
+  @@map("product_lines")
 }
 
 /// Deliberately always company-scoped (no nullable companyId for "system"

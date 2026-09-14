@@ -8,7 +8,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ListHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
+import { LinkedRow, RowLink, TableMessage, TableRowsSkeleton } from '@/components/ui/table-support';
 import { Toolbar } from '@/components/ui/toolbar';
 import { Unauthorized } from '@/components/layout/unauthorized';
 
@@ -31,18 +31,18 @@ export default function RolesPage() {
 
   return (
     <div className="flex flex-col gap-2.5">
-      <ListHeader
-        title="Roles y permisos"
-        meta={`${roles.length} ${roles.length === 1 ? 'rol' : 'roles'}`}
-        actions={canCreate && (
-          <Link href="/administracion/roles/nuevo" className={buttonVariants({ size: 'sm' })}>
-            <Plus className="size-4" />
-            Nuevo rol
-          </Link>
-        )}
-      />
+      <ListHeader title="Roles y permisos" meta={`${roles.length} ${roles.length === 1 ? 'rol' : 'roles'}`} />
 
-      <Toolbar>
+      <Toolbar
+        actions={
+          canCreate && (
+            <Link href="/administracion/roles/nuevo" className={buttonVariants({ size: 'sm' })}>
+              <Plus className="size-4" />
+              Nuevo rol
+            </Link>
+          )
+        }
+      >
         <Input
           placeholder="Buscar rol…"
           value={search}
@@ -65,27 +65,20 @@ export default function RolesPage() {
           <tbody>
             {rolesQuery.isLoading && <TableRowsSkeleton columns={4} />}
             {roles.map((role) => (
-              <tr key={role.id} className="border-t border-border hover:bg-muted/30">
+              <LinkedRow key={role.id}>
                 <td className="px-3 py-1">
-                  <Link
-                    href={`/administracion/roles/${role.id}`}
-                    className="font-medium underline-offset-4 hover:underline"
-                  >
-                    {role.name}
-                  </Link>
+                  <RowLink href={`/administracion/roles/${role.id}`}>{role.name}</RowLink>
                 </td>
                 <td className="px-3 py-1 text-muted-foreground">{role.description ?? '—'}</td>
                 <td className="px-3 py-1">
-                  {role.isSystem && (
-                    <StatusBadge tone="info">Sistema</StatusBadge>
-                  )}
+                  {role.isSystem && <StatusBadge tone="info">Sistema</StatusBadge>}
                 </td>
                 <td className="px-3 py-1">
                   <StatusBadge status={role.active ? 'ACTIVE' : 'INACTIVE'}>
                     {role.active ? 'Activo' : 'Inactivo'}
                   </StatusBadge>
                 </td>
-              </tr>
+              </LinkedRow>
             ))}
             {rolesQuery.isError && (
               <TableMessage
