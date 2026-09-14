@@ -25,6 +25,15 @@ on:
 
 env:
   NODE_VERSION: '22'
+  # The major the product is developed and tested against. Bundling a
+  # different one would ship customers a database engine no CI run ever
+  # exercised, and would leave the backup agent's pg_dump on a different
+  # major than the cluster it dumps.
+  POSTGRES_MAJOR: '16'
+  # Only used when the runner has no PostgreSQL 16 of its own. Bump this
+  # when EnterpriseDB retires the build; the step fails loudly with the URL
+  # it tried rather than producing a payload without a database.
+  POSTGRES_FALLBACK_VERSION: '16.10-1'
   # Dummy/test-only values — never real secrets. Needed because `next build`
   # and `prisma generate` read the environment.
   DATABASE_URL: 'postgresql://erp:erp@localhost:5432/erp_platform_test?schema=public'
@@ -48,11 +57,68 @@ jobs:
       - name: Generate Prisma client
         run: npm run db:generate --workspace=apps/api
 
+      - name: Stage PostgreSQL
+        id: postgres
+        shell: pwsh
+        # A payload without PostgreSQL produces an installer whose
+        # `erp-postgres` service has nothing to run — the machine ends up with
+        # five services and no database. That was the state of every .exe CI
+        # produced until now, and it is the reason none of them could be
+        # installed. See docs/server-installer.md.
+        #
+        # This runs on every payload build, not only at release: the payload
+        # job exists to be run on a clean runner and find what a developer
+        # machine hides, and PostgreSQL staging is exactly that kind of step.
+        # Exercising it only at release would mean discovering a broken
+        # download the day we cut one.
+        run: |
+          $major = "${{ env.POSTGRES_MAJOR }}"
+          $binDir = $null
+
+          # 1. The runner's own PostgreSQL, but only if it is the right major.
+          $candidates = @()
+          if ($env:PGBIN) { $candidates += $env:PGBIN }
+          $candidates += (Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory -ErrorAction SilentlyContinue |
+                          ForEach-Object { Join-Path $_.FullName 'bin' })
+
+          foreach ($c in $candidates) {
+            $initdb = Join-Path $c 'initdb.exe'
+            if (-not (Test-Path $initdb)) { continue }
+            $v = (& $initdb --version 2>&1 | Out-String).Trim()
+            if ($v -match "\s$major\.") {
+              Write-Host "Using the runner's PostgreSQL: $c ($v)"
+              $binDir = $c
+              break
+            }
+            Write-Host "Skipping $c -- wrong major ($v, want $major.x)"
+          }
+
+          # 2. Otherwise fetch the official Windows binaries.
+          if (-not $binDir) {
+            $version = "${{ env.POSTGRES_FALLBACK_VERSION }}"
+            $url = "https://get.enterprisedb.com/postgresql/postgresql-$version-windows-x64-binaries.zip"
+            $zip = Join-Path $env:RUNNER_TEMP 'pgsql.zip'
+            $dest = Join-Path $env:RUNNER_TEMP 'pgsql-download'
+            Write-Host "No PostgreSQL $major.x on the runner; downloading $url"
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+            } catch {
+              Write-Host "::error::Could not download PostgreSQL from $url -- $($_.Exception.Message). Bump POSTGRES_FALLBACK_VERSION to a build EnterpriseDB still publishes."
+              exit 1
+            }
+            Expand-Archive -Path $zip -DestinationPath $dest -Force
+            $binDir = Join-Path $dest 'pgsql\bin'
+          }
+
+          if (-not (Test-Path (Join-Path $binDir 'initdb.exe'))) {
+            Write-Host "::error::Resolved PostgreSQL bin directory has no initdb.exe: $binDir"
+            exit 1
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "dir=$binDir" -Encoding utf8
+
       - name: Build payload
         shell: pwsh
-        # No -PostgresDir: the Node side is what this job validates. Bundling
-        # PostgreSQL is a release-time concern and adds ~200 MB to every run.
-        run: ./infrastructure/windows/build-payload.ps1 -Build
+        run: ./infrastructure/windows/build-payload.ps1 -Build -PostgresDir '${{ steps.postgres.outputs.dir }}'
 
       - name: Verify payload contents
         shell: pwsh
@@ -79,14 +145,32 @@ jobs:
             "$payload/services/erp-api.xml.template",
             "$payload/scripts/install.ps1",
             "$payload/scripts/uninstall.ps1",
-            "$payload/VERSION"
+            "$payload/VERSION",
+            # Without these the erp-postgres service has nothing to run and
+            # the backup agent has no pg_dump — an installer that gets all
+            # the way to "installed" and then has no database.
+            "$payload/pgsql/bin/initdb.exe",
+            "$payload/pgsql/bin/pg_ctl.exe",
+            "$payload/pgsql/bin/postgres.exe",
+            "$payload/pgsql/bin/pg_dump.exe",
+            "$payload/pgsql/bin/pg_restore.exe"
           )
           $missing = $required | Where-Object { -not (Test-Path $_) }
           if ($missing) {
             Write-Error "Missing from payload:`n$($missing -join "`n")"
             exit 1
           }
-          Write-Host 'Payload contents OK.'
+
+          # Staging the wrong major would install a database engine no CI run
+          # ever exercised, and leave the agent's pg_dump on a different major
+          # than the cluster. Cheap to check, expensive to discover later.
+          $major = "${{ env.POSTGRES_MAJOR }}"
+          $v = (& "$payload/pgsql/bin/initdb.exe" --version 2>&1 | Out-String).Trim()
+          if ($v -notmatch "\s$major\.") {
+            Write-Error "Payload bundles the wrong PostgreSQL: '$v', expected $major.x"
+            exit 1
+          }
+          Write-Host "Payload contents OK. Bundled $v"
 
       - name: Check the payload carries no secrets
         shell: pwsh

@@ -68,7 +68,11 @@ Gestión's home page is a real permission-aware operational dashboard
 backed by one small read-only aggregate endpoint, replacing the stale
 placeholder home page; stale foundation-era copy and a real date-format
 inconsistency across several history/audit screens were fixed in the
-process. The next milestone is demo data/presentation flow (Prompt #15).
+process. **Warehouse transfers are now implemented too** (Prompt #16, PR
+#33 — see [inventory.md](inventory.md)): moving stock between two
+warehouses is one document with an atomic OUT/IN pair and a compensating
+cancellation, rather than two unrelated adjustments. The remaining
+milestone on this list is demo data/presentation flow (Prompt #15).
 
 ### Suggested upcoming milestones
 
@@ -106,6 +110,12 @@ each.
                                  copy fixes, and a real date-formatting
                                  consistency fix across five screens.
 15  Demo data + presentation flow
+16  Warehouse transfers      — DONE (see prompts/completed/, docs/inventory.md).
+                                 StockTransfer/StockTransferLine, DRAFT/
+                                 CONFIRMED/CANCELLED, TRANSFER_OUT+TRANSFER_IN
+                                 written in one transaction (OUT first), and a
+                                 cancellation that ADDS a compensating pair
+                                 instead of editing the ledger.
 ```
 
 Do not begin any of these from this document — each needs its own task

@@ -343,7 +343,25 @@ try {
     if (-not (Test-Path (Join-Path $PostgresDir 'initdb.exe'))) {
       throw "-PostgresDir must point at a PostgreSQL bin directory containing initdb.exe"
     }
-    Copy-Tree (Split-Path $PostgresDir -Parent) (Join-Path $payload 'pgsql')
+    $pgTarget = Join-Path $payload 'pgsql'
+    Copy-Tree (Split-Path $PostgresDir -Parent) $pgTarget
+
+    # The official Windows distribution carries headers, docs, debug symbols
+    # and the GUI tooling. A supervised server-only cluster needs none of it,
+    # and it is most of the weight: the untrimmed tree took the payload from
+    # 513 MB to 1,381 MB. Pruned from the payload's OWN copy, never from the
+    # source -- that source may be the build machine's real PostgreSQL install.
+    #
+    # bin, lib and share stay: initdb reads its templates from share, and the
+    # executables load their DLLs from lib.
+    $prunable = @('doc', 'include', 'symbols', 'pgAdmin 4', 'StackBuilder')
+    $before = (Get-ChildItem $pgTarget -Recurse -File | Measure-Object Length -Sum).Sum
+    foreach ($dir in $prunable) {
+      $path = Join-Path $pgTarget $dir
+      if (Test-Path $path) { Remove-Item $path -Recurse -Force }
+    }
+    $after = (Get-ChildItem $pgTarget -Recurse -File | Measure-Object Length -Sum).Sum
+    Write-Step ("PostgreSQL pruned: {0:N0} MB -> {1:N0} MB" -f ($before/1MB), ($after/1MB))
   } else {
     Write-Warning "No -PostgresDir given: the payload will not contain PostgreSQL. Node services can still be tested."
   }
