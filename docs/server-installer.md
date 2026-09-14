@@ -112,26 +112,69 @@ installs Inno Setup, compiles, and uploads the `.exe` as an artifact. It is
 opt-in rather than automatic because the compile is slow and the payload is
 what most changes need checking against.
 
-The payload **does** carry PostgreSQL. The `Stage PostgreSQL` step resolves a
-bin directory before the build and passes it as `-PostgresDir`: it prefers a
-PostgreSQL of the major in `POSTGRES_MAJOR` already on the runner, and
-otherwise downloads the official Windows binaries
-(`POSTGRES_FALLBACK_VERSION`). The step fails with the URL it tried rather
-than quietly producing a payload with no database.
+The payload **does** carry PostgreSQL. The `Stage PostgreSQL` step downloads
+the **exact** build named by `POSTGRES_VERSION` and passes its bin directory
+as `-PostgresDir`. The step fails with the URL it tried rather than quietly
+producing a payload with no database.
+
+It deliberately does **not** use whatever PostgreSQL the runner happens to
+carry, even when the major matches. That build is unpinned and
+unverifiable, it changes when GitHub changes its image, and it would make
+two builds of the same commit ship different database binaries.
+
+**The download is checksummed.** `Stage PostgreSQL` computes the SHA-256 of
+the archive and compares it against `POSTGRES_SHA256`:
+
+- Digests match → the build continues.
+- Digests differ → the build fails. Either the pin is stale or the download
+  is not what it should be; neither is something to bundle.
+- `POSTGRES_SHA256` is empty → the step prints the digest it computed and
+  warns that nothing was verified. A **release** build
+  (`compile_installer=true`) refuses to run at all in this state, so an
+  unverified engine cannot reach an `.exe`. Filling the value in is a
+  one-line change reviewed like any other pinned dependency.
+
+What was staged is recorded in `pgsql/POSTGRES-SOURCE.txt` inside the
+payload — version, digest, whether it was verified, and the source URL —
+and repeated in the workflow's job summary. `install.ps1` prints it while
+validating, so an installed machine and a support call start from the same
+facts instead of a guess.
 
 Staging runs on **every** payload build, not only when compiling a release.
 The payload job exists to run on a clean runner and catch what a developer
 machine hides — a download that 404s or a wrong major would otherwise be
 discovered on release day. The build then verifies `initdb`, `pg_ctl`,
-`postgres`, `pg_dump` and `pg_restore` are present, and that `initdb
+`postgres`, `pg_dump`, `pg_restore` and `psql` are present, and that `initdb
 --version` reports the expected major: bundling a different one would ship an
 engine no CI run exercised and put the backup agent's `pg_dump` on a different
 major than the cluster it dumps.
 
-`install.ps1` refuses to start when `initdb.exe` is missing, naming the
-installer rather than the operator — without that check a Node-only payload
-gets as far as creating services and writing secrets before dying inside
-`initdb`.
+**And then it actually runs the thing.** A `Smoke-test the bundled
+PostgreSQL` step uses the payload's own binaries to `initdb` a cluster, start
+it with `pg_ctl`, connect with `psql` and run a query, take a `pg_dump`, and
+stop it again. Until that step existed the only evidence the bundled engine
+worked was `initdb --version`, which proves the binary loads its DLLs and
+nothing more — it says nothing about whether a cluster can be *created*,
+which is exactly what the payload pruning puts at risk (`share/` holds the
+templates `initdb` reads, `lib/` the libraries the server loads).
+
+It is not a substitute for installing on a clean Windows VM: no service
+account, no Service Control Manager, no ACLs, no upgrade or uninstall. It
+moves one specific question — can this engine run at all — from untested to
+tested on every payload build.
+
+**`install.ps1` validates the payload before it writes anything.** The first
+thing it does — before creating directories, generating secrets or touching
+ACLs — is check that `initdb`, `pg_ctl`, `postgres`, `pg_dump` and
+`pg_restore` are all present, run `initdb --version` and confirm the major,
+and print the recorded provenance. An installer that cannot work says so
+while the machine is still untouched.
+
+That ordering is the fix for a real defect: the check used to run *after*
+secrets had been generated and the install directory had been locked down,
+so a payload built without `-PostgresDir` left a half-installed machine —
+directories, a secrets file and restrictive ACLs for a database that was
+never going to start.
 
 WinSW (MIT) is downloaded at build time against a pinned SHA-256 and staged
 with its licence; nothing is fetched at install time. `-WinSWPath` builds from

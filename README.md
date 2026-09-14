@@ -10,10 +10,22 @@ pantalla rápida del mostrador, con un modo POS adentro. No son dos sistemas
 que se sincronizan: son dos interfaces del mismo sistema, y esa es la
 decisión de diseño de la que dependen casi todas las demás.
 
-> **Estado del proyecto:** el circuito comercial está completo y funcionando
-> (clientes, productos, stock, precios, ventas, compras, cuentas corrientes,
-> cobros y pagos). Lo fiscal —facturación electrónica, ARCA, IVA— **no está
-> implementado**. El detalle verificado, módulo por módulo, está en
+> **Estado del proyecto:** está completo el **circuito comercial interno
+> principal** —clientes, productos, stock con transferencias, precios,
+> ventas, compras, cuentas corrientes, cobros y pagos—. "Interno" no es un
+> matiz: son los documentos con los que la empresa se organiza a sí misma,
+> no comprobantes con valor ante terceros.
+>
+> **No está implementado**, y no es que falte pulirlo: facturación
+> electrónica, ARCA y CAE; cálculo de IVA (`PriceList.includesTax` es
+> metadato, no hay motor de cálculo); notas de crédito y débito;
+> devoluciones de venta y de compra; y la reversión de documentos
+> confirmados más allá de la anulación que ya existe en ventas,
+> transferencias y recepciones. Los valores `SALE_RETURN`, `CREDIT_NOTE` y
+> `DEBIT_NOTE` que aparecen en el schema son compatibilidad hacia adelante:
+> no hay código detrás.
+>
+> El detalle verificado, módulo por módulo, está en
 > [docs/implementation-status.md](docs/implementation-status.md), que es la
 > fuente de verdad si algo de este README quedara desactualizado.
 
@@ -31,7 +43,14 @@ nadie mantiene, necesita cuatro cosas al mismo tiempo:
 3. **No perder la historia.** Cuánto había, quién lo movió, con qué precio se
    vendió, cuánto debe cada cliente.
 4. **Que funcione aunque se caiga internet.** Un negocio no puede dejar de
-   facturar porque se cortó el servicio del proveedor.
+   vender porque se cortó el servicio del proveedor.
+
+   Con el alcance de hoy eso significa, exactamente: sin internet se siguen
+   **registrando ventas internas** —el stock baja, la cuenta corriente se
+   mueve, el mostrador funciona— porque todo eso vive en el servidor del
+   local. Lo que **no** ocurre es emitir un comprobante fiscal, porque eso
+   requiere ARCA y no está implementado ni siquiera con internet. No hay
+   una cola de comprobantes esperando conexión.
 
 El punto 4 es el que define la arquitectura entera, y está explicado más
 abajo en "Cómo se despliega".
@@ -99,16 +118,27 @@ Detalle: [docs/desktop-lan-architecture.md](docs/desktop-lan-architecture.md).
 ### Instalación en el cliente
 
 Hay un instalador de Windows autocontenido (`ERPServerSetup-*.exe`) que trae
-Node, PostgreSQL y las dos aplicaciones ya compiladas, registra los cinco
-servicios y crea una empresa vacía con su administrador — **no** los datos de
-demostración.
+Node, PostgreSQL y las dos aplicaciones ya compiladas. Está diseñado y
+escrito para registrar los cinco servicios y crear una empresa vacía con su
+administrador — **no** los datos de demostración. Escrito, no comprobado:
+ver la nota de abajo.
 
 > **Honestidad sobre el instalador:** compila y el payload ya incluye
-> PostgreSQL, pero **nunca se ejecutó en ninguna máquina**. Producir un
-> instalador y instalar con él son dos afirmaciones distintas, y hoy solo la
-> primera es cierta. La primera instalación en una PC Windows limpia es
-> trabajo pendiente, no un trámite. Ver
-> [docs/server-installer.md](docs/server-installer.md).
+> PostgreSQL, pero el `.exe` **nunca se ejecutó en ninguna máquina**.
+> Producir un instalador e instalar con él son dos afirmaciones distintas, y
+> hoy solo la primera es cierta.
+>
+> Por eso nada de lo que hace el instalador está descrito acá como algo que
+> ya pasó. El registro de los cinco servicios contra el Service Control
+> Manager real, `initdb` bajo cuenta de servicio, las ACLs frente a un
+> usuario no administrador, la actualización sobre una instalación existente
+> y la desinstalación: todo eso está escrito y sin probar en Windows. CI sí
+> verifica, en cada build del payload, que el PostgreSQL empaquetado puede
+> crear un cluster, arrancar, responder una consulta y frenar — lo que
+> despeja una duda concreta, no la instalación completa.
+>
+> El artefacto además **no está firmado**, así que SmartScreen lo va a
+> marcar. Ver [docs/server-installer.md](docs/server-installer.md).
 
 ## Estado actual
 
@@ -119,7 +149,7 @@ demostración.
 | Productos | ✅ | Catálogo con variantes, códigos de barras, categorías, líneas |
 | Inventario | ✅ | Ledger de movimientos, depósitos, ajustes y **transferencias** |
 | Listas de precios | ✅ | Fijas y derivadas, con historial de precios |
-| Ventas | ✅ | Documento interno, **no** factura fiscal |
+| Ventas | ✅ | Documento **interno**, no factura fiscal. Se anula con reversión; no hay devolución parcial |
 | Facturación + POS | ✅ | Mismo dominio de ventas, no una implementación paralela |
 | Compras | ✅ | Proveedores, órdenes de compra, recepciones |
 | Cuentas corrientes, cobros y pagos | ✅ | Dos ledgers inmutables, de clientes y de proveedores |
@@ -128,6 +158,7 @@ demostración.
 | Cliente Electron | ✅ | Cliente fino configurable |
 | Backups y restore | ✅ | Agente propio, verifica cada copia releyéndola |
 | Instalador Windows | 🟡 | Compila e incluye PostgreSQL; **nunca instalado** |
+| Devoluciones y notas de crédito/débito | ⚪ | Ni de venta ni de compra; los valores en el schema son compatibilidad hacia adelante |
 | Tesorería | ⚪ | Caja, bancos, conciliación |
 | Fiscal / ARCA | ⚪ | Facturas fiscales, CAE, IVA, notas de crédito y débito |
 | Contabilidad | ⚪ | Plan de cuentas, asientos |
@@ -198,7 +229,13 @@ Mapa completo del repositorio y diagrama:
 
 - Node.js ≥ 20
 - npm (el monorepo usa workspaces; no hace falta pnpm ni yarn)
-- PostgreSQL 16 y Redis 7, con Docker o instalados localmente
+- **PostgreSQL 16 — obligatorio.** Es la única fuente de verdad; sin él la
+  API no arranca y no hay nada que degradar.
+- **Redis 7 — opcional.** Solo acelera y sostiene el realtime; si no está,
+  la API arranca igual y `GET /health` reporta `degraded` en vez de caerse.
+  Ojo con la letra chica: la *variable* `REDIS_URL` sí es obligatoria en la
+  configuración (el esquema la valida al arrancar), lo opcional es que el
+  servicio esté efectivamente levantado.
 
 ### Instalación
 
@@ -219,9 +256,10 @@ docker compose up -d   # levanta postgres (:5433) y redis (:6380)
 
 ### Infraestructura sin Docker
 
-Instalá PostgreSQL 16 y Redis localmente (por ejemplo
+Instalá PostgreSQL 16 y, si querés, Redis localmente (por ejemplo
 `brew install postgresql@16 redis`) y apuntá `DATABASE_URL` y `REDIS_URL` de
-`apps/api/.env` a tus instancias. Funcionalmente equivalente.
+`apps/api/.env` a tus instancias. Funcionalmente equivalente. PostgreSQL hace
+falta sí o sí; sin Redis la API arranca degradada.
 
 ### Base de datos
 
@@ -267,7 +305,7 @@ arranca** si falta alguna obligatoria o si está mal formada.
 | `NODE_ENV` | no | `development` | `development` \| `test` \| `production` |
 | `API_PORT` | no | `3001` | |
 | `DATABASE_URL` | **sí** | — | Cadena de conexión a PostgreSQL |
-| `REDIS_URL` | **sí** | — | Cadena de conexión a Redis |
+| `REDIS_URL` | **sí** | — | Cadena de conexión a Redis. La variable es obligatoria; el servicio no (ver Requisitos) |
 | `CORS_ORIGIN` | no | `http://localhost:3000,http://localhost:3002` | Orígenes permitidos, separados por coma |
 | `LOG_LEVEL` | no | `info` | Nivel de pino |
 | `AUTH_ACCESS_TOKEN_SECRET` | en prod: **sí** | default de desarrollo | Firma los JWT; la app rechaza el default en producción |

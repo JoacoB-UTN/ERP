@@ -1,6 +1,7 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousCompanyData } from './company-scoped-placeholder';
 import type {
   CreateSupplierInput,
   UpdateSupplierInput,
@@ -54,7 +55,7 @@ export function createSuppliersClient(config: SuppliersClientConfig) {
           })}`,
         ),
       enabled: !!companyId,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 

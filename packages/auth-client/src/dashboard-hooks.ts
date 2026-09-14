@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { keepPreviousCompanyData } from './company-scoped-placeholder';
 import type {
   DashboardSalesPeriod,
   DashboardSalesSeriesResponse,
@@ -44,7 +45,9 @@ export function createDashboardClient(config: DashboardClientConfig) {
       queryFn: () =>
         apiFetch<DashboardSalesSeriesResponse>(`/dashboard/sales-series?period=${period}`),
       enabled: !!companyId,
-      placeholderData: (previous) => previous,
+      // Same company only: switching company must not leave the previous
+      // company's chart on screen — see company-scoped-placeholder.ts.
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 

@@ -1111,6 +1111,56 @@ export class InventoryService {
    * re-runs the same stock check, so a cancellation cannot silently drive
    * the destination negative either.
    */
+  /**
+   * Takes one advisory lock per `(warehouse, variant)` balance the caller is
+   * about to touch, in a globally stable order.
+   *
+   * Why it is needed: `applyMovement` upserts `InventoryBalance` rows keyed
+   * by `(companyId, warehouseId, productVariantId)`. A transfer A→B and a
+   * transfer B→A that move the same variant touch the same two rows in
+   * OPPOSITE orders, so each transaction can hold the row the other is
+   * waiting for — a textbook deadlock, and Postgres resolves it by killing
+   * one transaction rather than by serialising them.
+   *
+   * Sorting the keys and locking them up front removes the cycle: every
+   * caller that goes through this helper acquires the same locks in the same
+   * sequence, so one waits for the other instead of deadlocking.
+   *
+   * Advisory locks rather than `SELECT ... FOR UPDATE` because the balance
+   * row may not exist yet — the first movement for a pair creates it, and
+   * `FOR UPDATE` locks nothing when there is no row, which is exactly the
+   * case where two concurrent transfers would both try to insert.
+   * `pg_advisory_xact_lock` needs no row and is released on commit or
+   * rollback, so nothing leaks if the transaction dies. A hash collision
+   * between two unrelated pairs costs a little serialisation and is never
+   * incorrect.
+   *
+   * Scope, stated plainly: this makes transfers deadlock-free against each
+   * other. Sales and adjustments do not take these locks, so a transfer can
+   * still in principle deadlock against one of them; each of those touches
+   * its rows in one order per line, and widening the helper to those
+   * domains is a separate change.
+   */
+  async lockBalancesInStableOrder(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    pairs: { warehouseId: string; productVariantId: string }[],
+  ): Promise<void> {
+    const keys = [
+      ...new Set(
+        pairs.map((p) => `${companyId}:${p.warehouseId}:${p.productVariantId}`),
+      ),
+    ].sort();
+
+    for (const key of keys) {
+      // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns `void`,
+      // which Prisma cannot deserialize as a result column.
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`,
+      );
+    }
+  }
+
   async applyTransferLine(
     tx: Prisma.TransactionClient,
     ctx: RequestContext,

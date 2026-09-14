@@ -257,7 +257,26 @@ export class StockTransfersService {
       if (input.notes !== undefined) data.notes = input.notes || null;
       if (input.occurredAt !== undefined) data.occurredAt = input.occurredAt;
 
-      await tx.stockTransfer.update({ where: { id: existing.id }, data });
+      // CONDITIONAL, exactly like confirm()/cancel(): the `status === DRAFT`
+      // check above ran outside this transaction, so a concurrent confirm
+      // could have committed in between and this would otherwise edit a
+      // CONFIRMED transfer — changing the lines that already produced stock
+      // movements. Matching zero rows here means someone else won.
+      //
+      // `updatedAt` is set explicitly rather than left to `@updatedAt`
+      // because a PATCH that only replaces lines leaves `data` empty, and an
+      // update with nothing to SET takes no row lock — which is precisely
+      // what made this guard useless: the edit and a concurrent confirm then
+      // never serialised on this row, and the confirmation posted movements
+      // for the lines it had read before the edit replaced them. Writing a
+      // real column makes the lock, and therefore the ordering, unavoidable.
+      data.updatedAt = new Date();
+
+      const guarded = await tx.stockTransfer.updateMany({
+        where: { id: existing.id, companyId: ctx.companyId, status: 'DRAFT' },
+        data,
+      });
+      if (guarded.count === 0) throw new StockTransferNotDraftException();
 
       if (combined) {
         await tx.stockTransferLine.deleteMany({
@@ -320,19 +339,45 @@ export class StockTransfersService {
       if (guarded.count === 0)
         throw new StockTransferAlreadyConfirmedException();
 
-      for (const line of existing.lines) {
+      // Re-read INSIDE the transaction, after the guard. The copy loaded
+      // before it is a snapshot: a concurrent `update()` could have replaced
+      // the lines or the warehouses since, and posting movements from the
+      // stale copy would write stock that does not match the document that
+      // is now CONFIRMED. The guarded update above locked this row, so no
+      // further edit can land while this reads it — `update()` takes the
+      // same conditional write and therefore blocks here.
+      const current = await this.findScopedOrThrowTx(tx, ctx.companyId, id);
+
+      // Every balance this confirmation will touch, locked in one stable
+      // order so that a simultaneous A→B and B→A cannot deadlock.
+      await this.inventoryService.lockBalancesInStableOrder(
+        tx,
+        ctx.companyId,
+        current.lines.flatMap((line) => [
+          {
+            warehouseId: current.sourceWarehouseId,
+            productVariantId: line.productVariantId,
+          },
+          {
+            warehouseId: current.destinationWarehouseId,
+            productVariantId: line.productVariantId,
+          },
+        ]),
+      );
+
+      for (const line of current.lines) {
         const movements = await this.inventoryService.applyTransferLine(
           tx,
           ctx,
           {
-            sourceWarehouse: existing.sourceWarehouse,
-            destinationWarehouse: existing.destinationWarehouse,
+            sourceWarehouse: current.sourceWarehouse,
+            destinationWarehouse: current.destinationWarehouse,
             productVariantId: line.productVariantId,
             quantity: line.quantity.toString(),
-            reason: line.notes ?? existing.reason ?? undefined,
+            reason: line.notes ?? current.reason ?? undefined,
             referenceType: 'StockTransfer',
-            referenceId: existing.id,
-            occurredAt: existing.occurredAt,
+            referenceId: current.id,
+            occurredAt: current.occurredAt,
           },
         );
         stockChanges.push(
@@ -355,10 +400,10 @@ export class StockTransfersService {
           entityId: id,
           metadata: {
             change: 'transfer_confirmed',
-            number: existing.number,
-            sourceWarehouse: existing.sourceWarehouse.name,
-            destinationWarehouse: existing.destinationWarehouse.name,
-            lines: existing.lines.map((l) => ({
+            number: current.number,
+            sourceWarehouse: current.sourceWarehouse.name,
+            destinationWarehouse: current.destinationWarehouse.name,
+            lines: current.lines.map((l) => ({
               productName: l.variant.product.name,
               variantName: l.variant.name,
               quantity: l.quantity.toString(),
@@ -407,21 +452,41 @@ export class StockTransfersService {
       });
       if (guarded.count === 0) throw new StockTransferNotCancellableException();
 
+      // Same rule as confirm(): the compensating movements must derive from
+      // the document as it stands inside this transaction, not from the
+      // snapshot read before the guard.
+      const current = await this.findScopedOrThrowTx(tx, ctx.companyId, id);
+
       if (wasConfirmed) {
-        for (const line of existing.lines) {
+        await this.inventoryService.lockBalancesInStableOrder(
+          tx,
+          ctx.companyId,
+          current.lines.flatMap((line) => [
+            {
+              warehouseId: current.sourceWarehouseId,
+              productVariantId: line.productVariantId,
+            },
+            {
+              warehouseId: current.destinationWarehouseId,
+              productVariantId: line.productVariantId,
+            },
+          ]),
+        );
+
+        for (const line of current.lines) {
           const movements = await this.inventoryService.applyTransferLine(
             tx,
             ctx,
             {
               // Swapped on purpose: the compensation is the original
               // transfer, backwards.
-              sourceWarehouse: existing.destinationWarehouse,
-              destinationWarehouse: existing.sourceWarehouse,
+              sourceWarehouse: current.destinationWarehouse,
+              destinationWarehouse: current.sourceWarehouse,
               productVariantId: line.productVariantId,
               quantity: line.quantity.toString(),
-              reason: `Anulación de ${existing.number}`,
+              reason: `Anulación de ${current.number}`,
               referenceType: 'StockTransfer',
-              referenceId: existing.id,
+              referenceId: current.id,
               occurredAt: new Date(),
             },
           );
@@ -445,7 +510,7 @@ export class StockTransfersService {
           entityType: 'StockTransfer',
           entityId: id,
           metadata: {
-            number: existing.number,
+            number: current.number,
             // The distinction a reader of the audit log needs: whether
             // this cancellation moved stock or merely discarded a draft.
             compensated: wasConfirmed,
@@ -548,6 +613,25 @@ export class StockTransfersService {
         );
       }
     }
+  }
+
+  /**
+   * Transaction-scoped twin of `findScopedOrThrow`. confirm()/cancel() must
+   * read the lines and warehouses that produce movements through the same
+   * `tx` that writes them, or they act on a snapshot another request may
+   * already have replaced.
+   */
+  private async findScopedOrThrowTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    id: string,
+  ): Promise<TransferWithRelations> {
+    const transfer = await tx.stockTransfer.findFirst({
+      where: { id, companyId },
+      include: TRANSFER_INCLUDE,
+    });
+    if (!transfer) throw new StockTransferNotFoundException();
+    return transfer;
   }
 
   private async findScopedOrThrow(

@@ -1,6 +1,7 @@
 'use client';
 
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import { keepPreviousCompanyData } from './company-scoped-placeholder';
 import type { AuditListResponse, AuditDetailResponse } from '@erp/shared';
 import type { ApiFetchOptions } from './api-client';
 
@@ -52,7 +53,7 @@ export function createAuditClient(config: AuditClientConfig) {
       enabled: !!companyId,
       // Keeps the previous page's rows on screen while the next page
       // loads, instead of a full-list loading flash on every click.
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 

@@ -1,6 +1,7 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousCompanyData } from './company-scoped-placeholder';
 import type {
   CreateCustomerInput,
   UpdateCustomerInput,
@@ -74,7 +75,7 @@ export function createCustomersClient(config: CustomersClientConfig) {
           })}`,
         ),
       enabled: !!companyId,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 
@@ -94,7 +95,7 @@ export function createCustomersClient(config: CustomersClientConfig) {
       queryFn: () =>
         apiFetch<AuditEntityHistoryResponse>(`/customers/${id}/history${buildQueryString({ page, pageSize })}`),
       enabled: !!companyId && !!id,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 

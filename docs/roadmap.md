@@ -71,8 +71,29 @@ inconsistency across several history/audit screens were fixed in the
 process. **Warehouse transfers are now implemented too** (Prompt #16, PR
 #33 — see [inventory.md](inventory.md)): moving stock between two
 warehouses is one document with an atomic OUT/IN pair and a compensating
-cancellation, rather than two unrelated adjustments. The remaining
-milestone on this list is demo data/presentation flow (Prompt #15).
+cancellation, rather than two unrelated adjustments.
+
+**That closed the commercial circuit.** Suppliers, purchase orders, goods
+receipts, customer and supplier current accounts, collections, payments and
+warehouse transfers are all in `main`, so the internal buy/sell/stock/
+account loop a PyME runs day to day is complete — see
+[implementation-status.md](implementation-status.md) for what each of those
+does and does not cover.
+
+**The next milestone is not a feature.** It is installing the ERP Server on
+a clean Windows VM and walking through installation, start-up, upgrade and
+uninstall. The binding constraint stopped being feature coverage once the
+circuit closed: an `.exe` that bundles PostgreSQL now exists, but it has
+never been run on any machine, and until it is, nothing after it can be
+scheduled honestly. See
+[server-installer.md](server-installer.md) for the full matrix of what is
+and is not verified.
+
+After that, in order: closing the current-accounts backfill gap for
+existing installations, planning the Tango data migration, and only then
+the fiscal work (ARCA, IVA, electronic invoicing) that turns an internal
+management system into one that can invoice. Demo data / presentation flow
+(Prompt #15) is still open but is no longer the next thing.
 
 ### Suggested upcoming milestones
 
@@ -109,13 +130,18 @@ each.
                                  zero duplicated business rules), stale
                                  copy fixes, and a real date-formatting
                                  consistency fix across five screens.
-15  Demo data + presentation flow
+15  Demo data + presentation flow   — still open, no longer the next thing.
 16  Warehouse transfers      — DONE (see prompts/completed/, docs/inventory.md).
                                  StockTransfer/StockTransferLine, DRAFT/
                                  CONFIRMED/CANCELLED, TRANSFER_OUT+TRANSFER_IN
                                  written in one transaction (OUT first), and a
                                  cancellation that ADDS a compensating pair
-                                 instead of editing the ledger.
+                                 instead of editing the ledger. Closes the
+                                 internal commercial circuit.
+17  Clean Windows VM install — NEXT. Not a feature: install the compiled
+                                 .exe on a clean Windows machine and walk
+                                 installation, start-up, upgrade and
+                                 uninstall. Everything else waits on it.
 ```
 
 Do not begin any of these from this document — each needs its own task
