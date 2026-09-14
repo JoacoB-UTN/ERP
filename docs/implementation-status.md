@@ -669,8 +669,11 @@ not.** See
 [server-installer.md](server-installer.md) for the full matrix of what
 was and was not exercised.
 
-Verified by actually running it: the payload builds (503 MB, 25,451 files
-after pruning dev dependencies — 679 MB since PR #34 added PostgreSQL); the packaged API boots in production
+Verified by actually running it: the payload builds (**503 MB Node-only**,
+25,451 files after pruning dev dependencies; **679 MB today**, with
+PostgreSQL bundled — see "Sizes" in server-installer.md, which separates
+the payload from the compiled `.exe` and from the compressed artifact);
+the packaged API boots in production
 mode against a real PostgreSQL 16 and serves, reporting `degraded` rather
 than hanging when Redis is absent; provisioning produces a real empty
 installation (1 company, 1 administrator, 8 system roles, 88 permissions
@@ -713,9 +716,12 @@ download ran, which is the path working as designed. Staging runs on
 `postgres`, `pg_dump` and `pg_restore` are present and that `initdb
 --version` reports the expected major. The payload's own copy of
 PostgreSQL is pruned of what a headless cluster never uses (`doc`,
-`include`, `symbols`, `pgAdmin 4`, `StackBuilder`) — **822 MB → 120 MB**,
-leaving a **679 MB** payload against 513 MB before, when it had no
-database at all. `install.ps1` now refuses to start when `initdb.exe` is
+`include`, `symbols`, `pgAdmin 4`, `StackBuilder`) — the bundled
+PostgreSQL directory goes from **822 MB to 120 MB**, leaving a **679 MB**
+payload against the **503 MB** it measured when it carried no database at
+all. Three different things, and the one number that is NOT in that list
+is the size of the installer: see "Sizes" in
+[server-installer.md](server-installer.md). `install.ps1` now refuses to start when `initdb.exe` is
 missing rather than dying mid-install.
 
 **The first `.exe` with a database inside it exists.** Run **#14** of
@@ -725,9 +731,11 @@ uploaded the **`erp-server-installer`** artifact, **116 MB compressed**,
 downloadable from the repository's Actions tab until 2026-12-13. Note the
 compile step is still `workflow_dispatch` input `compile_installer`,
 **default `false`** — it is opt-in and does not run on every payload
-build. The 116 MB figure is a compressed artifact and the 89.3 MB figure
-above is an `.exe`; they are not directly comparable and no difference
-between the two should be claimed.
+build. The 116 MB figure is a **compressed artifact**, the 89.3 MB figure
+above is an **`.exe`**, and the 679 MB figure is a **payload directory**.
+No two of them are comparable, and no difference between any of them
+should be claimed — in particular the 116 MB artifact is not "smaller"
+than the 89.3 MB `.exe` in any meaningful sense.
 
 **Still not verified, and needing a clean Windows PC** — this is the gate
 before any customer install. Compiling the `.exe` says nothing about
@@ -739,9 +747,17 @@ whether it installs:
   #14 above), and CI proves the binaries are present and report major
   `16`. What nothing proves is that `initdb` can create a cluster —
   `initdb --version` shows the binary loads its DLLs and nothing more.
-  The pruning that took it to 120 MB makes this the sharp edge: the
-  first real installation is the test of whether anything needed was
-  trimmed away.
+  The pruning that took the bundled engine from 822 MB to 120 MB makes
+  this the sharp edge: the first real installation is the test of whether
+  anything needed was trimmed away.
+- **Which PostgreSQL is bundled, and whether it arrived intact.** The
+  staging step accepts any PostgreSQL of the right *major* already on the
+  GitHub runner, so the exact build that ships depends on GitHub's image
+  that week, and two runs of the same commit can bundle different
+  binaries. When it does download instead, nothing checks a hash or a
+  signature. Nothing records which build went in, either — so an installed
+  machine cannot answer the question. Addressed in a separate PR; see
+  "Open risk" in [server-installer.md](server-installer.md).
 - **Code signing.** The artifact is unsigned, so Windows SmartScreen
   will flag it.
 - **Service registration.** WinSW service definitions parse and the
