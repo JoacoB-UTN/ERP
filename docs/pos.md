@@ -94,9 +94,14 @@ The rules, in `components/pos/default-customer.ts`:
 - **No id is ever hardcoded.** The match is on `Customer.code ===
   '000001'`, which is unique *per company* (see customers.md), so the
   same literal resolves to a different row in every company and to
-  nothing at all in a company that does not have one. `seed.ts` pins that
-  code ("Never renumbered") and `provision.ts` follows the same numbering
-  for a real installation.
+  nothing at all in a company that does not have one.
+- **It is a convention, and only the demo seed guarantees it.** `seed.ts`
+  pins that code ("Never renumbered"). `provision.ts` — what the ERP
+  Server installer actually runs — deliberately creates **zero
+  customers**, so a real installation does not start with this row: it
+  has to be created by hand, or later by the migration from Tango. Until
+  it exists, POS keeps the manual selector and behaves exactly as it did
+  before this feature.
 - **Code and tax condition must both match** (`taxCondition ===
   'CONSUMIDOR_FINAL'`). `GET /customers/lookup` searches `code` with a
   `contains`, so the response is a superset and the exact comparison
@@ -118,6 +123,30 @@ companyId, so one company's walk-in row can never be read back for
 another. It never blocks: the workspace renders and product search takes
 focus while the lookup is in flight, and a failed lookup just leaves the
 field empty rather than surfacing an error.
+
+**It is gated on `customers.read`, checked separately.** `GET
+/customers/lookup` is guarded by `@RequirePermissions('customers.read')`,
+which is a *different* permission from the `sales.documents.create` that
+gates the rest of POS — a custom role can hold one without the other.
+The automatic search therefore runs only when the workspace is operative,
+a company is active, **and** `can('customers.read')`, so a cashier role
+without customer access opens POS without firing a request that would
+come back 403. This is a client-side gate for a request nobody should
+send, not a replacement for the server's own check, which is unchanged
+and still the thing that actually enforces access.
+
+**The lookup is a capped search, so a match is not guaranteed to be
+found.** The endpoint matches `code` with a `contains`, orders by
+`legalName` (not by code) and returns at most the requested page — POS
+asks for 10. Auto-generated codes are six digits zero-padded, so in
+practice only `000001` itself contains `000001`; but codes can also be
+entered by hand, so a company with ten-plus manually coded customers
+whose codes contain that substring and whose legal names sort earlier
+could push the real row out of the page. The failure mode is a safe
+degradation — no exact match, manual selection, exactly the pre-feature
+behaviour — which is the only reason a capped search is acceptable here.
+It has not been worth a dedicated endpoint; if it ever bites, that is the
+fix.
 
 **The operator always wins.** The selection is *derived*, not written
 into state: the customer field holds three values — "nothing chosen yet"

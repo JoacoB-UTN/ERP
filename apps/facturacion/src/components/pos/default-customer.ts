@@ -7,14 +7,19 @@ import type { CustomerLookupItem } from '@erp/shared';
  * This is a per-company code, not an id: `Customer.code` is unique per
  * company (see docs/customers.md), so the same literal resolves to a
  * different row in every company and nothing here is ever a hardcoded
- * UUID. The seed pins it (`prisma/seed.ts`: "000001 — required by
- * POS/Facturación's default 'no customer picked yet' fast path. Never
- * renumbered.") and `provision.ts` follows the same numbering for a real
- * installation.
+ * UUID.
  *
- * A company that does not have this customer is a supported case: POS
- * then simply starts with no customer and the operator picks one, exactly
- * as before this existed.
+ * **It is a convention, not a guarantee.** The demo seed pins it
+ * (`prisma/seed.ts`: "000001 — required by POS/Facturación's default 'no
+ * customer picked yet' fast path. Never renumbered."). A real
+ * installation does NOT get it for free: `provision.ts` deliberately
+ * creates zero customers — only the company, the administrator,
+ * permissions, roles and currencies — so on a fresh install the row has
+ * to arrive by hand or, later, through the migration from Tango.
+ *
+ * Until an exact match exists, POS simply starts with no customer and the
+ * operator picks one, exactly as before this existed. That is a supported
+ * state, not a degraded one.
  */
 export const DEFAULT_POS_CUSTOMER_CODE = '000001';
 
@@ -27,6 +32,10 @@ export const DEFAULT_POS_CUSTOMER_CODE = '000001';
  * - **Both** the code and the tax condition must match. `GET
  *   /customers/lookup` searches `code` with a `contains`, so the response
  *   is a superset of what we want; the exact comparison happens here.
+ *   Note the endpoint also caps and orders its result (by `legalName`,
+ *   not by code), so a match is not *guaranteed* to be in the page we
+ *   asked for — see the caller. Missing it degrades to manual selection,
+ *   which is why a capped search is acceptable here at all.
  * - `displayName` is never consulted. It is free text an administrator can
  *   rename, and "Consumidor Final S.R.L." is a perfectly plausible real
  *   company.
