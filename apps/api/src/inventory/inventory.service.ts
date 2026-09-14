@@ -1094,6 +1094,81 @@ export class InventoryService {
   }
 
   /**
+   * Exposed for StockTransfersService — see stock-transfers.service.ts and
+   * docs/inventory.md. Writes BOTH halves of one transfer line: a
+   * `TRANSFER_OUT` leaving `sourceWarehouse` and an equal `TRANSFER_IN`
+   * arriving at `destinationWarehouse`, in the caller's transaction, so
+   * the two can never exist apart.
+   *
+   * The OUT is written first on purpose: `applyMovement` validates the
+   * negative-stock policy against the balance Postgres actually returned,
+   * so an insufficient source aborts the whole transaction before the
+   * destination is ever credited.
+   *
+   * Cancelling a confirmed transfer calls this again with the two
+   * warehouses SWAPPED. That is what makes a compensating pair identical
+   * in shape to the original instead of a second code path — and it
+   * re-runs the same stock check, so a cancellation cannot silently drive
+   * the destination negative either.
+   */
+  async applyTransferLine(
+    tx: Prisma.TransactionClient,
+    ctx: RequestContext,
+    params: {
+      sourceWarehouse: Warehouse;
+      destinationWarehouse: Warehouse;
+      productVariantId: string;
+      /** Always positive; the signs are applied here. */
+      quantity: string;
+      reason?: string;
+      referenceType: string;
+      referenceId: string;
+      occurredAt: Date;
+    },
+  ): Promise<{ out: StockMovement; in: StockMovement }> {
+    const variant = await this.loadVariantContext(
+      ctx.companyId,
+      params.productVariantId,
+    );
+    if (!variant.product.trackInventory)
+      throw new ProductDoesNotTrackInventoryException();
+    if (
+      exceedsDecimalPrecision(
+        params.quantity,
+        variant.product.baseUnit.decimalPlaces,
+      )
+    ) {
+      throw new InvalidQuantityPrecisionException(
+        variant.product.baseUnit.name,
+        variant.product.baseUnit.decimalPlaces,
+      );
+    }
+
+    const outbound = new Prisma.Decimal(params.quantity).neg().toString();
+    const out = await this.applyMovement(tx, ctx, {
+      warehouse: params.sourceWarehouse,
+      variant,
+      movementType: 'TRANSFER_OUT',
+      quantity: outbound,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      reason: params.reason,
+      occurredAt: params.occurredAt,
+    });
+    const inbound = await this.applyMovement(tx, ctx, {
+      warehouse: params.destinationWarehouse,
+      variant,
+      movementType: 'TRANSFER_IN',
+      quantity: params.quantity,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      reason: params.reason,
+      occurredAt: params.occurredAt,
+    });
+    return { out, in: inbound };
+  }
+
+  /**
    * Exposed for SalesService — see sales.service.ts and docs/sales.md.
    * Always an OUT movement (`movementType: 'SALE'`), unlike
    * applyAdjustmentLine's signed in/out — a sale line only ever removes

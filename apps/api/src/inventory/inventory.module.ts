@@ -6,8 +6,10 @@ import { AuditModule } from '../audit/audit.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { InventoryController } from './inventory.controller';
 import { StockAdjustmentsController } from './stock-adjustments.controller';
+import { StockTransfersController } from './stock-transfers.controller';
 import { InventoryService } from './inventory.service';
 import { StockAdjustmentsService } from './stock-adjustments.service';
+import { StockTransfersService } from './stock-transfers.service';
 
 @Module({
   imports: [
@@ -17,8 +19,12 @@ import { StockAdjustmentsService } from './stock-adjustments.service';
     AuditModule,
     RealtimeModule,
   ],
-  controllers: [InventoryController, StockAdjustmentsController],
-  providers: [InventoryService, StockAdjustmentsService],
+  controllers: [
+    InventoryController,
+    StockAdjustmentsController,
+    StockTransfersController,
+  ],
+  providers: [InventoryService, StockAdjustmentsService, StockTransfersService],
   exports: [InventoryService],
 })
 export class InventoryModule {}

@@ -272,6 +272,40 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     action: 'create',
     description: 'Cargar saldos iniciales de stock',
   },
+  // Transfers mirror adjustments: reading is separate from creating, and
+  // writing to the ledger (confirm) is separate again. `cancel` has its
+  // own code rather than riding on `create` — unlike an adjustment, a
+  // transfer can be cancelled AFTER confirmation, and that posts
+  // compensating movements, so it is a stock-changing capability and not
+  // a draft edit. See docs/inventory.md.
+  {
+    code: 'inventory.transfers.read',
+    module: 'inventory',
+    resource: 'transfers',
+    action: 'read',
+    description: 'Ver transferencias entre depósitos',
+  },
+  {
+    code: 'inventory.transfers.create',
+    module: 'inventory',
+    resource: 'transfers',
+    action: 'create',
+    description: 'Crear transferencias entre depósitos',
+  },
+  {
+    code: 'inventory.transfers.confirm',
+    module: 'inventory',
+    resource: 'transfers',
+    action: 'confirm',
+    description: 'Confirmar transferencias entre depósitos',
+  },
+  {
+    code: 'inventory.transfers.cancel',
+    module: 'inventory',
+    resource: 'transfers',
+    action: 'cancel',
+    description: 'Anular transferencias entre depósitos',
+  },
 
   // ---- Pricing (price lists — see docs/pricing.md) ----
   // pricing.prices.read is deliberately separate from pricing.prices.update
@@ -368,14 +402,6 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   },
 
   // ---- Future modules (codes registered now; no functionality yet) ----
-  {
-    code: 'inventory.transfers.create',
-    module: 'inventory',
-    resource: 'transfers',
-    action: 'create',
-    description: 'Crear transferencias entre sucursales',
-  },
-
   {
     code: 'sales.orders.read',
     module: 'sales',
