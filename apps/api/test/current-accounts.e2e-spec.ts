@@ -451,12 +451,6 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
     await prisma.supplierPaymentSequence.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
     });
-    await prisma.customerAccountMovement.deleteMany({
-      where: { companyId: { in: [companyAId, companyBId] } },
-    });
-    await prisma.supplierAccountMovement.deleteMany({
-      where: { companyId: { in: [companyAId, companyBId] } },
-    });
     await prisma.salesTender.deleteMany({
       where: { salesDocument: { companyId: { in: [companyAId, companyBId] } } },
     });
@@ -478,6 +472,16 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
       where: { companyId: { in: [companyAId, companyBId] } },
     });
     await prisma.purchaseReceiptSequence.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    // The two ledgers go here, not earlier: they can only be deleted for
+    // good once the sales and receipts they derive from are gone, or the
+    // startup backfill (docs/current-accounts.md) re-creates them from a
+    // concurrently booting suite and the customer delete below fails.
+    await prisma.customerAccountMovement.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.supplierAccountMovement.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
     });
     await prisma.stockMovement.deleteMany({

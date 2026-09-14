@@ -18,6 +18,8 @@ import { CustomerCollectionsController } from './customer-collections.controller
 import { CustomerCollectionsService } from './customer-collections.service';
 import { SupplierPaymentsController } from './supplier-payments.controller';
 import { SupplierPaymentsService } from './supplier-payments.service';
+import { CurrentAccountsBackfillService } from './current-accounts-backfill.service';
+import { CurrentAccountsReadyGuard } from './current-accounts-ready.guard';
 
 /**
  * Customer/Supplier Current Accounts, Collections ("Cobros") and Supplier
@@ -49,7 +51,14 @@ import { SupplierPaymentsService } from './supplier-payments.service';
     SupplierAccountService,
     CustomerCollectionsService,
     SupplierPaymentsService,
+    CurrentAccountsBackfillService,
+    CurrentAccountsReadyGuard,
   ],
-  exports: [CustomerAccountService, SupplierAccountService],
+  exports: [
+    CustomerAccountService,
+    SupplierAccountService,
+    // HealthModule reports the backfill state; the readiness gate lives here.
+    CurrentAccountsBackfillService,
+  ],
 })
 export class AccountsModule {}

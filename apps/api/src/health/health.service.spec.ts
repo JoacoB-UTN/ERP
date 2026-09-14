@@ -1,14 +1,22 @@
 import { HealthService } from './health.service';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import type { CurrentAccountsBackfillService } from '../accounts/current-accounts-backfill.service';
+import type { CurrentAccountsBackfillState } from '@erp/shared';
 
 describe('HealthService', () => {
-  function build(databaseOk: boolean, redisOk: boolean) {
+  function build(
+    databaseOk: boolean,
+    redisOk: boolean,
+    backfill: CurrentAccountsBackfillState = 'complete',
+  ) {
     const prisma = { isHealthy: jest.fn().mockResolvedValue(databaseOk) };
     const redis = { isHealthy: jest.fn().mockResolvedValue(redisOk) };
+    const currentAccountsBackfill = { getState: () => backfill };
     const service = new HealthService(
       prisma as unknown as PrismaService,
       redis as unknown as RedisService,
+      currentAccountsBackfill as unknown as CurrentAccountsBackfillService,
     );
     return service;
   }
@@ -18,6 +26,7 @@ describe('HealthService', () => {
     await expect(service.check()).resolves.toEqual({
       status: 'ok',
       services: { database: 'ok', redis: 'ok' },
+      currentAccountsBackfill: 'complete',
     });
   });
 
@@ -26,6 +35,7 @@ describe('HealthService', () => {
     await expect(service.check()).resolves.toEqual({
       status: 'degraded',
       services: { database: 'ok', redis: 'error' },
+      currentAccountsBackfill: 'complete',
     });
   });
 
@@ -34,6 +44,7 @@ describe('HealthService', () => {
     await expect(service.check()).resolves.toEqual({
       status: 'error',
       services: { database: 'error', redis: 'ok' },
+      currentAccountsBackfill: 'complete',
     });
   });
 
@@ -42,6 +53,26 @@ describe('HealthService', () => {
     await expect(service.check()).resolves.toEqual({
       status: 'error',
       services: { database: 'error', redis: 'error' },
+      currentAccountsBackfill: 'complete',
     });
+  });
+
+  it('reports the backfill state without letting it change `status`', async () => {
+    // A backfill that has not finished does not make the SERVER unhealthy.
+    // It makes one module unable to answer, and that is enforced by the
+    // readiness gate on the Current Accounts endpoints, not here.
+    for (const state of [
+      'pending',
+      'running',
+      'failed',
+      'disabled',
+    ] as CurrentAccountsBackfillState[]) {
+      const service = build(true, true, state);
+      await expect(service.check()).resolves.toEqual({
+        status: 'ok',
+        services: { database: 'ok', redis: 'ok' },
+        currentAccountsBackfill: state,
+      });
+    }
   });
 });

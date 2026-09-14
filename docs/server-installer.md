@@ -279,10 +279,15 @@ PostgreSQL 16 and a real provisioned database:
   silently became `infrastructure/windows/dist/...` and the compile aborted
   with "No files found matching". The path is now passed absolute, and the
   workflow run produced **`ERPServerSetup-0.1.0.exe`, 89.3 MB**, uploaded as an
-  artifact. That was the first time the installer existed as a file. It says
-  nothing about whether it installs — see the pending list below — and that
-  artifact carried no PostgreSQL (it predates the `Stage PostgreSQL` step; a
-  new dispatch would include it).
+  artifact. That was the first time the installer existed as a file, and it
+  carried no PostgreSQL — it predates the `Stage PostgreSQL` step.
+- **A compiled `.exe` that contains PostgreSQL now exists.** Run **#14** of
+  `ERP Server installer` (dispatched on `main` at `728f2ee` with
+  `compile_installer=true`, 2026-09-14 08:22–08:30 UTC) succeeded and uploaded
+  the **`erp-server-installer`** artifact, **116 MB compressed**, downloadable
+  from the repository's Actions tab until 2026-12-13. That is the first
+  installer built with a database inside it. It says nothing about whether it
+  installs — see the pending list below; the `.exe` has still never been run.
 - **The payload builds.** 503 MB, 25,451 files after pruning dev dependencies
   (from 74,000+ before). All expected entry points, both Next standalone trees
   with their static assets, and no rendered service definitions (so no secrets)
@@ -338,11 +343,13 @@ fixed:
 - **Running the installer.** Compiling it is verified (above); no
   `ERPServerSetup-*.exe` has ever been executed on any machine, clean or
   otherwise.
-- **A compiled `.exe` that contains PostgreSQL.** The payload now stages it and
-  CI verifies the binaries and their major on every payload build, but
-  compiling is manual (`compile_installer`) and no `.exe` has been produced
-  since — so no *artifact* containing PostgreSQL exists yet. Dispatch the
-  workflow to make one.
+- **The bundled PostgreSQL actually working.** The payload stages it and CI
+  verifies `initdb`, `pg_ctl`, `postgres`, `pg_dump` and `pg_restore` are
+  present and that `initdb --version` reports major `16`, and run #14 put all
+  of that inside an `.exe`. What none of it shows is that `initdb` can create
+  a cluster: a version banner proves the binary loads its DLLs and nothing
+  more. The pruning above is what makes this worth stating — the first real
+  installation is the test that something needed was not trimmed.
 - **Code signing.** The artifact is unsigned, so Windows SmartScreen will
   flag it on a customer machine.
 - `initdb` and the bundled PostgreSQL running under a Windows service account.

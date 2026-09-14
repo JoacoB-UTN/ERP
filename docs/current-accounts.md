@@ -240,19 +240,127 @@ Semantics it applies:
   (`confirmedAt` set) → accrual **and** reversal, so the history shows both.
   `CANCELLED` without ever confirming, or `DRAFT` → nothing.
 
-### Open question
+### It runs on API startup — decision taken
 
-**It is a standalone script, and nothing makes an upgrade run it.**
+The gap this section used to describe is closed. `CurrentAccountsBackfillService`
+(`apps/api/src/accounts/current-accounts-backfill.service.ts`) runs the backfill
+on `onApplicationBootstrap`, so an installation that upgrades into this module
+posts its historical movements the first time the API comes up, with nobody
+needing to know the script exists. The CLI still works and is still the way to
+do it by hand.
 
-A Local ERP installation that upgrades into this module gets the tables and
-the code, and a completely empty ledger against sales that already exist —
-every customer reads as owing nothing. The script fixes that and is safe to
-run, but an administrator has to know to run it.
+**Why a startup check, and not the other two options.**
 
-That gap is not closed. Whether it becomes a migration step, a startup check,
-or a prompt in the installer is an open decision; until it is made, an
-upgrade of an existing installation is not complete without running the
-backfill by hand.
+- **Not a migration.** A Prisma migration is SQL, and the semantics above are
+  not mechanical: a confirmed sale posts `SALE_CHARGE` *plus* `TENDER_SETTLEMENT`
+  only when it has a tender, and a receipt `CANCELLED` after being confirmed
+  posts an accrual *and* its reversal while one cancelled straight from draft
+  posts nothing. Restating that in SQL would create a second copy of the rules
+  to keep in step with the TypeScript one. A migration also runs exactly once,
+  so the planned Tango data migration would land historical rows it would never
+  see.
+- **Not an installer step.** It would fix the Windows `.exe` path and leave
+  Docker, manual upgrades and development alone with the same empty ledger.
+
+**Why running it on every boot is safe.** The backfill is idempotent by
+construction (above), and it only ever *inserts* — it never updates or deletes
+a movement, so it cannot damage a ledger that is already correct. A cheap
+`EXISTS` probe runs first, so a healthy installation pays one query per boot
+and loads nothing.
+
+**How it behaves:**
+
+- The probe runs outside any transaction or lock. If the ledger is complete,
+  that single query is the whole cost and nothing else happens.
+- When there is work, everything runs inside one `$transaction` holding a
+  **transaction-scoped** advisory lock (`pg_try_advisory_xact_lock`). Several
+  API instances can boot at once on a LAN; one does the work and the others
+  move on. A session-scoped lock would be wrong here: Prisma gives each
+  standalone query whichever pooled connection is free, so the lock and its
+  release can land on different connections — the release then fails silently
+  and the lock is held until that connection dies, which on a long-lived API
+  process means the backfill never runs again.
+- It re-probes inside the lock, in case another instance finished in between.
+- Documents are read in batches (`BACKFILL_BATCH_SIZE`), so an installation
+  with years of history does not load all of it into memory at boot.
+- It never blocks or crashes startup. A failure is logged with the command to
+  run by hand, and the API serves anyway: a ledger still missing rows is bad,
+  an API that will not boot is worse.
+- It writes one `AuditLog` row, in the same transaction as the movements, and
+  only when it actually posted something. The row carries no `companyId`,
+  `tenantId` or `userId` — the backfill spans every company and has no actor,
+  and inventing one would be a lie (see the comment above `model AuditLog`).
+
+**Turning it off.** `ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false` skips the
+load, for an operator who would rather run
+`npm run db:backfill-current-accounts --workspace=apps/api` themselves. It
+turns off the **write**, not the question: the cheap `EXISTS` probe still
+runs at boot, so an installation whose ledger the operator already loaded is
+recognised as complete instead of being refused. Nothing is posted either
+way.
+
+That distinction is the whole difference between a flag and a trap. Without
+the probe, `disabled` is terminal — nothing else ever revisits it — and the
+module answers 503 for the life of the process even once the ledger is
+loaded, which would make the documented recovery below impossible.
+
+### The module refuses to answer until the ledger is loaded
+
+A balance here is derived from the ledger, so a ledger still missing its
+history does not answer *wrong* in any visible way — it answers **zero**,
+confidently. An installation that has just upgraded would show every
+customer owing nothing, and "no debe nada" is indistinguishable from "we
+have not loaded the history yet".
+
+So `CurrentAccountsReadyGuard` sits on every Current Accounts controller and
+refuses with **503 `CURRENT_ACCOUNTS_NOT_READY`** unless the backfill state
+is `complete`. 503 rather than 500 or an empty list: the request is not
+wrong, the server is not ready to answer it, and it will be shortly.
+
+The states, and why each is or is not served:
+
+| State | Served? | Meaning |
+|---|---|---|
+| `complete` | yes | A pass finished and the probe says nothing is outstanding |
+| `pending` | no | Nothing has finished yet, or a pass ended with work still outstanding |
+| `running` | no | A pass is in flight |
+| `failed` | no | A pass threw; the reason is kept for the operator panel |
+| `disabled` | no | Turned off by configuration **and** the probe found work outstanding |
+
+`disabled` is **not** `complete`. Turning the automatic load off hands the
+responsibility to an operator; it does not make the ledger correct, and the
+gate must not imply that it did. But the flag does not decide the state on
+its own either — with it off, a ledger the probe finds nothing outstanding
+in reports `complete` and is served. So an installation that runs the script
+by hand and restarts really does get `complete` on the next boot, with the
+flag still off. (If the probe itself cannot run, the state is `disabled`:
+nothing was established, so nothing is claimed.)
+
+**`pending` is re-checked, not trusted.** On a LAN two API instances boot
+together; the one that loses the advisory lock skips its own pass and
+records `pending`, which is true at that moment — and nothing else would
+ever revisit it, so that process would refuse current accounts for its whole
+life over a ledger that is in fact loaded. The guard calls
+`refreshIfPending()`, one cheap `EXISTS` per request while pending and never
+again once it resolves.
+
+### What the operator sees
+
+Gestión's **Estado del sistema** panel reads the state from `GET /health`
+and shows one row: **Al día**, **Ejecutando…**, **Falló**, **Desactivado**
+or **Pendiente**. While it is anything but *Al día*, the panel's overall
+verdict says *Cuentas corrientes no disponibles* rather than *Sistema
+operativo* — the infrastructure being healthy is not the same as the ERP
+being able to answer, and saying otherwise would contradict the screen the
+operator just hit.
+
+The row is a **state word and nothing else**: no counts, no company names,
+no amounts. `GET /health` is unauthenticated.
+
+The backfill state deliberately does not move `/health`'s own `status`,
+which stays a statement about infrastructure liveness. A backfill that has
+not finished does not make the server unhealthy; it makes one module unable
+to answer, and that is enforced where it matters, by the gate.
 
 ## Deferred
 

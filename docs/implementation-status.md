@@ -14,6 +14,14 @@ Current accounts, Backups/restore, the Windows ERP Server installer, the
 Gestión sales chart, Tango/Excel price import, user creation, and the
 Brand → ProductLine rename.
 
+**Partially reconciled 2026-09-14 against `main` at `83838a5`**, covering
+the "ERP Server installer (Windows)" section only: PRs #34 (PostgreSQL in
+the payload), #35 and #36 landed after the verification above and #34
+changed what that section asserted, but did not update it. That section
+now matches the merged workflow and `server-installer.md`. **The suites
+were not re-run for this reconciliation** and the counts above are still
+those of the `6225928` run — no other section was re-checked.
+
 This file is authoritative for "what exists right now." If it disagrees
 with a domain doc, the domain doc is stale — fix it. If it disagrees with
 the code, the code is right — fix this file.
@@ -274,19 +282,50 @@ cancel). Backed by `accounts-hooks.ts` in `auth-client` and
 summed with exact decimal-string arithmetic, never `+`, because it is
 compared against the document amount and shown to the user as money.
 
-**Historical backfill, and the gap it leaves.**
-`npm run db:backfill-current-accounts --workspace=apps/api` posts
-movements for sales and receipts confirmed *outside* the live service
-path (genuinely historical data, or seed fixtures inserted directly). It
-is idempotent by construction rather than by a flag — every insert is
-`createMany({ skipDuplicates: true })` against the same unique constraint
-the live path uses. **Nothing makes an upgrade run it**: an existing Local
-ERP installation that upgrades into this module gets the tables and the
-code and a completely empty ledger against sales that already exist, so
-every customer reads as owing nothing until an administrator knows to run
-the script by hand. Whether that becomes a migration step, a startup
-check or an installer prompt is an open decision and is **not** closed —
-see "Not implemented / incomplete" below.
+**Historical backfill — runs on API startup.**
+`backfillCurrentAccounts` posts movements for sales and receipts confirmed
+*outside* the live service path (genuinely historical data, or seed
+fixtures inserted directly). It is idempotent by construction rather than
+by a flag — every insert is `createMany({ skipDuplicates: true })` against
+the same unique constraint the live path uses — and it only ever inserts,
+never updates or deletes.
+
+`CurrentAccountsBackfillService` runs it on `onApplicationBootstrap`, so an
+installation upgrading into this module posts its history the first time
+the API comes up instead of reading as "nobody owes anything" until an
+administrator finds the script. A cheap `EXISTS` probe runs first, so a
+healthy boot costs one query; when there is work, it runs inside one
+transaction holding a transaction-scoped advisory lock
+(`pg_try_advisory_xact_lock`, so it cannot leak across pooled connections
+the way a session-scoped lock does), re-probes inside that lock, reads
+documents in batches, and writes one `AuditLog` row — no company, tenant or
+actor invented — in the same transaction. A failure is logged and never
+blocks startup. `ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false` turns it off;
+`npm run db:backfill-current-accounts --workspace=apps/api` still runs it by
+hand.
+
+**The module refuses to answer until the ledger is loaded.**
+`CurrentAccountsReadyGuard` sits on every Current Accounts controller and
+returns **503 `CURRENT_ACCOUNTS_NOT_READY`** unless the state is
+`complete` — `pending`, `running`, `failed` and `disabled` are all refused,
+because a ledger missing its history answers *zero*, confidently, and that
+is indistinguishable from "nobody owes anything". `disabled` is not
+`complete`: turning the automatic load off hands the job to an operator, it
+does not do the job. A `pending` state is re-checked per request
+(`refreshIfPending`), so an instance that lost the advisory lock to a
+sibling does not refuse forever over a ledger that is loaded.
+
+Gestión's Estado del sistema panel shows the state — Al día / Ejecutando… /
+Falló / Desactivado / Pendiente — read from `GET /health`, as a state word
+with no counts, company names or amounts. Covered by
+`current-accounts-backfill.service.spec.ts`,
+`current-accounts-ready.guard.spec.ts`, `health.service.spec.ts`,
+`system-status.test.ts` and `current-accounts-backfill.e2e-spec.ts`, which
+drives the real boot path — fixtures inserted through a separate client
+before any app exists, then `app.init()`, including two instances booting
+at once and an injected transaction failure. See
+[current-accounts.md](current-accounts.md) for why a startup check rather
+than a migration or an installer step.
 
 Explicitly NOT implemented as part of this: editing a draft from Gestión
 (`PATCH` exists and is wired, but the UI only confirms or cancels), date
@@ -624,13 +663,14 @@ mapping tests, 8 panel tests, 5 screen tests) — the first automated tests
 this app has had; the vitest setup mirrors Facturación's.
 
 ### ERP Server installer (Windows)
-**Status: PARTIAL — the payload is built and proven and the `.exe`
-compiles in CI; installing it anywhere is not.** See
+**Status: PARTIAL — the payload is built and proven, and the `.exe` now
+compiles in CI with PostgreSQL inside it; installing it anywhere is
+not.** See
 [server-installer.md](server-installer.md) for the full matrix of what
 was and was not exercised.
 
 Verified by actually running it: the payload builds (503 MB, 25,451 files
-after pruning dev dependencies); the packaged API boots in production
+after pruning dev dependencies — 679 MB since PR #34 added PostgreSQL); the packaged API boots in production
 mode against a real PostgreSQL 16 and serves, reporting `degraded` rather
 than hanging when Redis is absent; provisioning produces a real empty
 installation (1 company, 1 administrator, 8 system roles, 88 permissions
@@ -655,18 +695,39 @@ matching a seeded database. Earlier notes recording 78 predate the
 permissions added by Purchases and Current accounts;
 `docs/server-installer.md` was reconciled to 88 alongside this.)
 
-**The installer compiles in CI — verified.** PR #25 fixed the last thing
-blocking it (Inno Setup resolves a relative `Source:` against the `.iss`
-file's own directory, not the working directory, so the payload path had
-to be passed absolute) and the workflow then ran and produced
-**`ERPServerSetup-0.1.0.exe`, 89.3 MB**, uploaded as a build artifact.
-That is the first time the installer existed as a file. Two caveats that
-matter when reading "the installer builds": the compile step is
-`workflow_dispatch` input `compile_installer`, **default `false`**, so it
-is opt-in and does not run on every payload build; and the artifact it
-produces carries **no bundled PostgreSQL**, because the job deliberately
-runs `build-payload.ps1` without `-PostgresDir` (bundling adds ~200 MB to
-every run). A release installer has to include it.
+**The installer compiles in CI, and now compiles with PostgreSQL inside
+it — verified.** PR #25 fixed the last thing blocking the compile (Inno
+Setup resolves a relative `Source:` against the `.iss` file's own
+directory, not the working directory, so the payload path had to be
+passed absolute) and the workflow then produced **`ERPServerSetup-0.1.0.exe`,
+89.3 MB** — the first time the installer existed as a file, and Node-only.
+
+**PR #34 (`c8a9b86`) closed the PostgreSQL gap.** A `Stage PostgreSQL`
+step resolves a bin directory of the major in `POSTGRES_MAJOR` (`16`)
+before the build and passes it as `-PostgresDir`, preferring one already
+on the runner and otherwise downloading the official Windows binaries
+(`POSTGRES_FALLBACK_VERSION`, `16.10-1`); the GitHub runner ships
+PostgreSQL 17.11, so the major check rejected it and the fallback
+download ran, which is the path working as designed. Staging runs on
+**every** payload build, and the build then verifies `initdb`, `pg_ctl`,
+`postgres`, `pg_dump` and `pg_restore` are present and that `initdb
+--version` reports the expected major. The payload's own copy of
+PostgreSQL is pruned of what a headless cluster never uses (`doc`,
+`include`, `symbols`, `pgAdmin 4`, `StackBuilder`) — **822 MB → 120 MB**,
+leaving a **679 MB** payload against 513 MB before, when it had no
+database at all. `install.ps1` now refuses to start when `initdb.exe` is
+missing rather than dying mid-install.
+
+**The first `.exe` with a database inside it exists.** Run **#14** of
+`ERP Server installer`, dispatched on `main` at `728f2ee` with
+`compile_installer=true` (2026-09-14 08:22–08:30 UTC), succeeded and
+uploaded the **`erp-server-installer`** artifact, **116 MB compressed**,
+downloadable from the repository's Actions tab until 2026-12-13. Note the
+compile step is still `workflow_dispatch` input `compile_installer`,
+**default `false`** — it is opt-in and does not run on every payload
+build. The 116 MB figure is a compressed artifact and the 89.3 MB figure
+above is an `.exe`; they are not directly comparable and no difference
+between the two should be claimed.
 
 **Still not verified, and needing a clean Windows PC** — this is the gate
 before any customer install. Compiling the `.exe` says nothing about
@@ -674,10 +735,13 @@ whether it installs:
 
 - **Installation on a clean Windows machine.** The `.exe` has never been
   run anywhere.
-- **PostgreSQL bundled into the installer.** It is bundled *by design* —
-  the ERP ships and supervises its own instance, loopback-only — and the
-  scripting exists, but every artifact produced so far is Node-only, so
-  this is designed and scripted, not proven.
+- **The bundled PostgreSQL actually starting.** It *is* bundled now (run
+  #14 above), and CI proves the binaries are present and report major
+  `16`. What nothing proves is that `initdb` can create a cluster —
+  `initdb --version` shows the binary loads its DLLs and nothing more.
+  The pruning that took it to 120 MB makes this the sharp edge: the
+  first real installation is the test of whether anything needed was
+  trimmed away.
 - **Code signing.** The artifact is unsigned, so Windows SmartScreen
   will flag it.
 - **Service registration.** WinSW service definitions parse and the
@@ -799,12 +863,11 @@ handling, and no fiscal-printer integration of any kind exists.
   previously verified only in-session, not in git. This is now fixed;
   see [multi-agent-workflow.md](multi-agent-workflow.md) for the
   branch/PR workflow going forward.
-- **The current-accounts backfill is not automated.** Nothing in a
-  migration, a startup check or the installer runs
-  `db:backfill-current-accounts`, so upgrading an existing installation
-  into the module leaves an empty ledger against sales that already
-  exist. Documented above and in current-accounts.md; the decision on
-  where it belongs is open.
+- ~~**The current-accounts backfill is not automated.**~~ Closed: the API
+  runs it on startup (see "Current accounts" above and
+  current-accounts.md). What remains deliberately undone is any UI for it
+  — the "Estado del sistema" panel does not show backfill state, so an
+  operator reads the API log or the `AuditLog` row.
 - **`apps/api/src/modules/*` is still 16 README-only folders**
   (`accounting`, `accounts-payable`, `accounts-receivable`, `audit`,
   `auth`, `core`, `customers`, `integrations`, `inventory`,
@@ -863,8 +926,8 @@ VM**. The recommended order from here:
    "ERP Server installer (Windows)" that is marked unverified is the gate
    before any customer install, and `initdb` under a service account is
    the most likely place to find the next problem.
-2. **Close the backfill-on-upgrade gap**, or decide deliberately that it
-   stays a documented manual step.
+2. ~~**Close the backfill-on-upgrade gap.**~~ Done — the API runs the
+   backfill on startup (see "Current accounts" above).
 3. **Plan the Tango data migration** — customers, suppliers, products,
    stock and balances. The price importer is not this.
 4. **Then** the fiscal work (ARCA, IVA), which is what turns an internal
