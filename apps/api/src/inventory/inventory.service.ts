@@ -1094,24 +1094,6 @@ export class InventoryService {
   }
 
   /**
-   * Exposed for StockTransfersService — see stock-transfers.service.ts and
-   * docs/inventory.md. Writes BOTH halves of one transfer line: a
-   * `TRANSFER_OUT` leaving `sourceWarehouse` and an equal `TRANSFER_IN`
-   * arriving at `destinationWarehouse`, in the caller's transaction, so
-   * the two can never exist apart.
-   *
-   * The OUT is written first on purpose: `applyMovement` validates the
-   * negative-stock policy against the balance Postgres actually returned,
-   * so an insufficient source aborts the whole transaction before the
-   * destination is ever credited.
-   *
-   * Cancelling a confirmed transfer calls this again with the two
-   * warehouses SWAPPED. That is what makes a compensating pair identical
-   * in shape to the original instead of a second code path — and it
-   * re-runs the same stock check, so a cancellation cannot silently drive
-   * the destination negative either.
-   */
-  /**
    * Takes one advisory lock per `(warehouse, variant)` balance the caller is
    * about to touch, in a globally stable order.
    *
@@ -1161,6 +1143,24 @@ export class InventoryService {
     }
   }
 
+  /**
+   * Exposed for StockTransfersService — see stock-transfers.service.ts and
+   * docs/inventory.md. Writes BOTH halves of one transfer line: a
+   * `TRANSFER_OUT` leaving `sourceWarehouse` and an equal `TRANSFER_IN`
+   * arriving at `destinationWarehouse`, in the caller's transaction, so
+   * the two can never exist apart.
+   *
+   * The OUT is written first on purpose: `applyMovement` validates the
+   * negative-stock policy against the balance Postgres actually returned,
+   * so an insufficient source aborts the whole transaction before the
+   * destination is ever credited.
+   *
+   * Cancelling a confirmed transfer calls this again with the two
+   * warehouses SWAPPED. That is what makes a compensating pair identical
+   * in shape to the original instead of a second code path — and it
+   * re-runs the same stock check, so a cancellation cannot silently drive
+   * the destination negative either.
+   */
   async applyTransferLine(
     tx: Prisma.TransactionClient,
     ctx: RequestContext,
