@@ -163,9 +163,7 @@ describe('Stock transfers (e2e)', () => {
     const permConfirm = await makePermission('inventory.transfers.confirm');
     const permCancel = await makePermission('inventory.transfers.cancel');
     const permStockRead = await makePermission('inventory.stock.read');
-    const permMovementsRead = await makePermission(
-      'inventory.movements.read',
-    );
+    const permMovementsRead = await makePermission('inventory.movements.read');
 
     async function makeRole(
       companyId: string,
@@ -244,7 +242,12 @@ describe('Stock transfers (e2e)', () => {
       });
     }
     await prisma.userCompany.create({
-      data: { userId: userAdminId, tenantId, companyId: companyBId, active: true },
+      data: {
+        userId: userAdminId,
+        tenantId,
+        companyId: companyBId,
+        active: true,
+      },
     });
 
     async function assign(userId: string, roleId: string, companyId: string) {
@@ -310,8 +313,8 @@ describe('Stock transfers (e2e)', () => {
       userId: userAdminId,
       companyId: companyAId,
       tenantId,
-      branchId: null,
-    } as RequestContext;
+      branchId: undefined,
+    };
   }
 
   /**
@@ -678,7 +681,9 @@ describe('Stock transfers (e2e)', () => {
       const compOut = compensating.find(
         (m) => m.movementType === 'TRANSFER_OUT',
       )!;
-      const compIn = compensating.find((m) => m.movementType === 'TRANSFER_IN')!;
+      const compIn = compensating.find(
+        (m) => m.movementType === 'TRANSFER_IN',
+      )!;
       expect(compOut.warehouseId).toBe(warehouseDestId);
       expect(compIn.warehouseId).toBe(warehouseSourceId);
 

@@ -405,8 +405,7 @@ export class StockTransfersService {
           cancelledBy: ctx.userId,
         },
       });
-      if (guarded.count === 0)
-        throw new StockTransferNotCancellableException();
+      if (guarded.count === 0) throw new StockTransferNotCancellableException();
 
       if (wasConfirmed) {
         for (const line of existing.lines) {
