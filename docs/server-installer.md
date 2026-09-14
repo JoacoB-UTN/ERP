@@ -161,6 +161,15 @@ Two things worth knowing about the payload build:
   PostgreSQL install. `bin`, `lib` and `share` stay: `initdb` reads its
   templates from `share` and the executables load their DLLs from `lib`. The
   build logs the size before and after.
+- **Junctions are excluded (`/XJ`) and the workspace packages materialised.**
+  npm puts a junction in `node_modules` for every workspace package; two of
+  them point at `apps/*`, whose `.next/` trees carry their own nested
+  `node_modules`. Following them copies the entire frontend builds into
+  `server/node_modules` and fails on a CI runner. `@erp/shared` and
+  `@erp/config` — the only two the built server imports — are copied into
+  `server/node_modules/@erp/` as real directories after the prune, so the
+  payload ships no reparse points.
+
 ### Sizes: three different things, routinely confused
 
 They are not variants of one number, and none of them is "the size of the
@@ -190,15 +199,6 @@ Earlier revisions of this document also carried a "513 MB" payload and a
 was actually measured alongside a file count, and 1,381 is consistent with
 neither (503 + 822 = 1,325). Nobody re-measured either, so neither is
 stated.
-
-- **Junctions are excluded (`/XJ`) and the workspace packages materialised.**
-  npm puts a junction in `node_modules` for every workspace package; two of
-  them point at `apps/*`, whose `.next/` trees carry their own nested
-  `node_modules`. Following them copies the entire frontend builds into
-  `server/node_modules` and fails on a CI runner. `@erp/shared` and
-  `@erp/config` — the only two the built server imports — are copied into
-  `server/node_modules/@erp/` as real directories after the prune, so the
-  payload ships no reparse points.
 
 ## Configuration and secrets
 
