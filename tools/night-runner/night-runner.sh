@@ -580,6 +580,12 @@ main() {
   reset_to_main
 
   log "──────────────────────────────────────────"
+  if (( DRY_RUN )); then
+    log "Fin de la corrida en seco. Tareas que se habrían ejecutado: $completed."
+    log "No se invocó a Claude, no se verificó nada y no se pusheó nada."
+    log "Logs: $LOG_DIR"
+    return 0
+  fi
   log "Fin. Tareas verdes: $completed. Con problemas: $failures."
   log "Ramas de la noche:"
   git -C "$REPO_DIR" branch -r --list 'origin/agent/claude-*' \
