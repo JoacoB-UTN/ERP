@@ -60,7 +60,10 @@ assignment. 8 system roles seeded per company (Administrador, Gerente,
 Ventas, Depósito, Compras, Tesorería, Contabilidad, Solo lectura).
 Frontend `usePermissions()`/`can()`/`canAny()`/`canAll()`. Covered by
 `authorization.e2e-spec.ts` (9 mandatory scenarios). The seeded catalogue
-is 88 permissions (verified by row count against a seeded database).
+is 88 permissions — the length of `PERMISSION_CATALOG` in
+`packages/shared`, which is the single source both `seed.ts` and
+`provision.ts` iterate, cross-checked against the row count in a seeded
+database.
 
 **User creation: DONE.** `POST /administration/users` creates the
 account, its membership in the *active* company and its initial roles in
@@ -569,15 +572,16 @@ that no write operation is exposed) and by the server-agent suite (38
 tests).
 
 ### ERP Server installer (Windows)
-**Status: PARTIAL — the payload is built and proven; a clean-VM install
-is not.** See [server-installer.md](server-installer.md) for the full
-matrix of what was and was not exercised.
+**Status: PARTIAL — the payload is built and proven and the `.exe`
+compiles in CI; installing it anywhere is not.** See
+[server-installer.md](server-installer.md) for the full matrix of what
+was and was not exercised.
 
 Verified by actually running it: the payload builds (503 MB, 25,451 files
 after pruning dev dependencies); the packaged API boots in production
 mode against a real PostgreSQL 16 and serves, reporting `degraded` rather
 than hanging when Redis is absent; provisioning produces a real empty
-installation (1 company, 1 administrator, 8 system roles, 78 permissions,
+installation (1 company, 1 administrator, 8 system roles, 88 permissions,
 2 currencies, 0 customers/products/sales) and is idempotent across runs;
 the provisioned administrator can log in and holds every permission; the
 packaged agent takes a verified backup and the packaged API reports it;
@@ -589,18 +593,52 @@ and are fixed — including one where every installation would have aborted
 because a template's own comment contained the literal
 `{{PLACEHOLDER}}` that the unreplaced-placeholder guard matched.
 
-**Not verified, and needing a clean Windows VM** — this is the gate
-before any customer install: compiling `erp-server.iss` (no Inno Setup on
-the implementing machine); `initdb` and the bundled PostgreSQL running
-under a Windows service account; WinSW service *registration* and start
-order against the real Service Control Manager, and failure/restart
-behaviour; the ACL hardening against a real non-administrator user; and
-the upgrade-over-existing-installation and uninstall paths. PostgreSQL is
-bundled **by design** — the ERP ships and supervises its own instance,
-loopback-only — but `-PostgresDir` is optional in the payload build and a
-Node-only payload is what has actually been exercised end to end, so
-"PostgreSQL inside the installer" is designed and scripted, not yet
-proven on a VM. Redis is deliberately not bundled.
+(The permission figure is not a constant maintained by hand:
+`provision.ts` iterates `PERMISSION_CATALOG` from `packages/shared` and
+prints its `.length`, so provisioning creates exactly the catalogue —
+88 entries as of this verification, counted from the built catalogue and
+matching a seeded database. Earlier notes recording 78 predate the
+permissions added by Purchases and Current accounts.
+`docs/server-installer.md` still carries that older figure in two places
+and should be reconciled separately.)
+
+**The installer compiles in CI — verified.** PR #25 fixed the last thing
+blocking it (Inno Setup resolves a relative `Source:` against the `.iss`
+file's own directory, not the working directory, so the payload path had
+to be passed absolute) and the workflow then ran and produced
+**`ERPServerSetup-0.1.0.exe`, 89.3 MB**, uploaded as a build artifact.
+That is the first time the installer existed as a file. Two caveats that
+matter when reading "the installer builds": the compile step is
+`workflow_dispatch` input `compile_installer`, **default `false`**, so it
+is opt-in and does not run on every payload build; and the artifact it
+produces carries **no bundled PostgreSQL**, because the job deliberately
+runs `build-payload.ps1` without `-PostgresDir` (bundling adds ~200 MB to
+every run). A release installer has to include it.
+
+**Still not verified, and needing a clean Windows PC** — this is the gate
+before any customer install. Compiling the `.exe` says nothing about
+whether it installs:
+
+- **Installation on a clean Windows machine.** The `.exe` has never been
+  run anywhere.
+- **PostgreSQL bundled into the installer.** It is bundled *by design* —
+  the ERP ships and supervises its own instance, loopback-only — and the
+  scripting exists, but every artifact produced so far is Node-only, so
+  this is designed and scripted, not proven.
+- **Code signing.** The artifact is unsigned, so Windows SmartScreen
+  will flag it.
+- **Service registration.** WinSW service definitions parse and the
+  executables run — CI checks that on every change — but `install`/
+  `start` against the real Service Control Manager, the start order and
+  the failure/restart behaviour are untested. Note the PostgreSQL service
+  runs `postgres.exe` directly rather than `pg_ctl runservice`, which
+  would register itself with the SCM and collide with WinSW.
+- **`initdb` under a Windows service account** (locale and directory
+  permissions — the most likely place to find the next problem).
+- **ACL hardening** against a real non-administrator user.
+- **Upgrade over an existing installation, and the uninstall path.**
+
+Redis is deliberately not bundled.
 
 ## Foundation-only (deliberately incomplete)
 
