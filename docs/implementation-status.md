@@ -302,8 +302,28 @@ documents in batches, and writes one `AuditLog` row — no company, tenant or
 actor invented — in the same transaction. A failure is logged and never
 blocks startup. `ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false` turns it off;
 `npm run db:backfill-current-accounts --workspace=apps/api` still runs it by
-hand. Covered by `current-accounts-backfill.service.spec.ts` and
-`current-accounts-backfill.e2e-spec.ts`. See
+hand.
+
+**The module refuses to answer until the ledger is loaded.**
+`CurrentAccountsReadyGuard` sits on every Current Accounts controller and
+returns **503 `CURRENT_ACCOUNTS_NOT_READY`** unless the state is
+`complete` — `pending`, `running`, `failed` and `disabled` are all refused,
+because a ledger missing its history answers *zero*, confidently, and that
+is indistinguishable from "nobody owes anything". `disabled` is not
+`complete`: turning the automatic load off hands the job to an operator, it
+does not do the job. A `pending` state is re-checked per request
+(`refreshIfPending`), so an instance that lost the advisory lock to a
+sibling does not refuse forever over a ledger that is loaded.
+
+Gestión's Estado del sistema panel shows the state — Al día / Ejecutando… /
+Falló / Desactivado / Pendiente — read from `GET /health`, as a state word
+with no counts, company names or amounts. Covered by
+`current-accounts-backfill.service.spec.ts`,
+`current-accounts-ready.guard.spec.ts`, `health.service.spec.ts`,
+`system-status.test.ts` and `current-accounts-backfill.e2e-spec.ts`, which
+drives the real boot path — fixtures inserted through a separate client
+before any app exists, then `app.init()`, including two instances booting
+at once and an injected transaction failure. See
 [current-accounts.md](current-accounts.md) for why a startup check rather
 than a migration or an installer step.
 

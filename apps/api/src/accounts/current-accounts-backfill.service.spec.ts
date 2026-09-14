@@ -74,6 +74,68 @@ describe('CurrentAccountsBackfillService', () => {
     mockedBackfill.mockResolvedValue(NOTHING);
   });
 
+  describe('reported state', () => {
+    it('starts pending — before anything ran, nothing is known', () => {
+      const { service } = build();
+      expect(service.getState()).toBe('pending');
+    });
+
+    it('is `disabled` when turned off, never `complete`', async () => {
+      const { service } = build({ enabled: false });
+      await service.onApplicationBootstrap();
+      // Handing the job to an operator is not doing the job.
+      expect(service.getState()).toBe('disabled');
+    });
+
+    it('is `complete` once a pass ends with nothing outstanding', async () => {
+      mockedHasPending.mockResolvedValue(false);
+      const { service } = build();
+      await service.onApplicationBootstrap();
+      expect(service.getState()).toBe('complete');
+    });
+
+    it('stays `pending` when a pass ends with work still outstanding', async () => {
+      // What a skipped pass looks like: another instance held the lock.
+      mockedHasPending.mockResolvedValue(true);
+      const { service } = build({ lockAcquired: false });
+      await service.onApplicationBootstrap();
+      expect(service.getState()).toBe('pending');
+    });
+
+    it('is `failed`, with the reason, when a pass throws', async () => {
+      mockedHasPending.mockRejectedValue(new Error('database is on fire'));
+      const { service } = build();
+      await service.onApplicationBootstrap();
+      expect(service.getState()).toBe('failed');
+      expect(service.getLastError()).toContain('database is on fire');
+    });
+
+    it('re-checks a pending state on demand, and only a pending one', async () => {
+      mockedHasPending.mockResolvedValue(true);
+      const { service } = build({ lockAcquired: false });
+      await service.onApplicationBootstrap();
+      expect(service.getState()).toBe('pending');
+
+      // The sibling that held the lock finished in the meantime.
+      mockedHasPending.mockResolvedValue(false);
+      await expect(service.refreshIfPending()).resolves.toBe('complete');
+
+      // Already resolved: no further probing, however many times it is asked.
+      const calls = mockedHasPending.mock.calls.length;
+      await service.refreshIfPending();
+      expect(mockedHasPending.mock.calls).toHaveLength(calls);
+    });
+
+    it('keeps refusing when the re-check itself cannot run', async () => {
+      mockedHasPending.mockResolvedValue(true);
+      const { service } = build({ lockAcquired: false });
+      await service.onApplicationBootstrap();
+
+      mockedHasPending.mockRejectedValue(new Error('no connection'));
+      await expect(service.refreshIfPending()).resolves.toBe('pending');
+    });
+  });
+
   it('does nothing at all when disabled — not even the probe', async () => {
     const { service, transaction } = build({ enabled: false });
 
@@ -90,7 +152,9 @@ describe('CurrentAccountsBackfillService', () => {
 
     await service.onApplicationBootstrap();
 
-    expect(mockedHasPending).toHaveBeenCalledTimes(1);
+    // Two: the cheap probe that decides whether to open a transaction, and
+    // the one after the pass that decides `complete` vs `pending`.
+    expect(mockedHasPending).toHaveBeenCalledTimes(2);
     expect(transaction).not.toHaveBeenCalled();
     expect(mockedBackfill).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
@@ -172,7 +236,9 @@ describe('CurrentAccountsBackfillService', () => {
 
     await service.onApplicationBootstrap();
 
-    expect(mockedHasPending).toHaveBeenCalledTimes(2);
+    // Three: the cheap probe, the re-probe inside the lock, and the one
+    // after the pass that settles the reported state.
+    expect(mockedHasPending).toHaveBeenCalledTimes(3);
     expect(mockedBackfill).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
   });

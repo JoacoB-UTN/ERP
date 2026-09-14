@@ -113,7 +113,27 @@ every boot safe; it does not have to be invented.
     deleting confirmed financial documents, so nothing in production
     deletes a confirmed sale out from under the backfill.)
 
-11. **Docs in the same PR.** `docs/current-accounts.md` — the "Open
+11. **Current accounts must not answer while the ledger is incomplete.** A
+    balance is derived from the ledger, so a missing history reads as a
+    confident **zero** — indistinguishable from "nobody owes anything". A
+    readiness gate refuses with 503 unless the state is `complete`, and
+    `disabled` is refused too: turning the load off hands the job to an
+    operator, it does not do the job. A `pending` state must be re-checked
+    rather than trusted, or the instance that lost the advisory lock refuses
+    forever over a ledger that is loaded.
+
+12. **The operator can see it.** Estado del sistema shows Al día /
+    Ejecutando… / Falló / Desactivado / Pendiente, as a state word with no
+    counts, company names or amounts — `GET /health` is unauthenticated.
+
+13. **The e2e drives the real boot path.** Fixtures inserted through a
+    separate client BEFORE any Nest app exists, then `app.init()` as the only
+    thing that makes the backfill run. Nothing may call
+    `backfillCurrentAccounts` or `AuditService.record` to produce the result
+    it then asserts. Plus two instances booting at once, and an injected
+    transaction failure — deterministic, no sleeps.
+
+14. **Docs in the same PR.** `docs/current-accounts.md` — the "Open
     question" section becomes the decision and its reasoning.
     `docs/implementation-status.md` — the "Historical backfill" text and
     the "current-accounts backfill is not automated" technical-debt

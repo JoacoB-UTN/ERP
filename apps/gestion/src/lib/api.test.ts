@@ -36,7 +36,11 @@ function respondWithInvalidJson() {
   );
 }
 
-const healthy: HealthResponse = { status: 'ok', services: { database: 'ok', redis: 'ok' } };
+const healthy: HealthResponse = {
+  status: 'ok',
+  services: { database: 'ok', redis: 'ok' },
+  currentAccountsBackfill: 'complete',
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -55,7 +59,11 @@ describe('fetchHealth', () => {
     // This is how the API reports its own trouble. Discarding it would turn
     // "the database is down" into "the server is unreachable", which is a
     // different problem with a different fix.
-    const body: HealthResponse = { status: 'error', services: { database: 'error', redis: 'ok' } };
+    const body: HealthResponse = {
+      status: 'error',
+      services: { database: 'error', redis: 'ok' },
+      currentAccountsBackfill: 'complete',
+    };
     respondWith(body, { ok: false, status: 503 });
     const probe = await fetchHealth();
     expect(probe.reachable).toBe(true);
@@ -67,6 +75,7 @@ describe('fetchHealth', () => {
     const body: HealthResponse = {
       status: 'degraded',
       services: { database: 'ok', redis: 'error' },
+currentAccountsBackfill: 'complete',
     };
     respondWith(body, { ok: false, status: 503 });
     const probe = await fetchHealth();

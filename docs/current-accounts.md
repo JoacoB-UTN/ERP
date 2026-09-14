@@ -295,6 +295,60 @@ and loads nothing.
 entirely, for an operator who would rather run
 `npm run db:backfill-current-accounts --workspace=apps/api` themselves.
 
+### The module refuses to answer until the ledger is loaded
+
+A balance here is derived from the ledger, so a ledger still missing its
+history does not answer *wrong* in any visible way — it answers **zero**,
+confidently. An installation that has just upgraded would show every
+customer owing nothing, and "no debe nada" is indistinguishable from "we
+have not loaded the history yet".
+
+So `CurrentAccountsReadyGuard` sits on every Current Accounts controller and
+refuses with **503 `CURRENT_ACCOUNTS_NOT_READY`** unless the backfill state
+is `complete`. 503 rather than 500 or an empty list: the request is not
+wrong, the server is not ready to answer it, and it will be shortly.
+
+The states, and why each is or is not served:
+
+| State | Served? | Meaning |
+|---|---|---|
+| `complete` | yes | A pass finished and the probe says nothing is outstanding |
+| `pending` | no | Nothing has finished yet, or a pass ended with work still outstanding |
+| `running` | no | A pass is in flight |
+| `failed` | no | A pass threw; the reason is kept for the operator panel |
+| `disabled` | no | Turned off by configuration |
+
+`disabled` is **not** `complete`. Turning the automatic load off hands the
+responsibility to an operator; it does not make the ledger correct, and the
+gate must not imply that it did. An installation that runs the script by
+hand and restarts gets `complete` on the next boot.
+
+**`pending` is re-checked, not trusted.** On a LAN two API instances boot
+together; the one that loses the advisory lock skips its own pass and
+records `pending`, which is true at that moment — and nothing else would
+ever revisit it, so that process would refuse current accounts for its whole
+life over a ledger that is in fact loaded. The guard calls
+`refreshIfPending()`, one cheap `EXISTS` per request while pending and never
+again once it resolves.
+
+### What the operator sees
+
+Gestión's **Estado del sistema** panel reads the state from `GET /health`
+and shows one row: **Al día**, **Ejecutando…**, **Falló**, **Desactivado**
+or **Pendiente**. While it is anything but *Al día*, the panel's overall
+verdict says *Cuentas corrientes no disponibles* rather than *Sistema
+operativo* — the infrastructure being healthy is not the same as the ERP
+being able to answer, and saying otherwise would contradict the screen the
+operator just hit.
+
+The row is a **state word and nothing else**: no counts, no company names,
+no amounts. `GET /health` is unauthenticated.
+
+The backfill state deliberately does not move `/health`'s own `status`,
+which stays a statement about infrastructure liveness. A backfill that has
+not finished does not make the server unhealthy; it makes one module unable
+to answer, and that is enforced where it matters, by the gate.
+
 ## Deferred
 
 - **No UI for editing a draft.** `PATCH` exists and is wired, but from

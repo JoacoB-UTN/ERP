@@ -41,6 +41,27 @@ const BACKFILL_TRANSACTION_MAX_WAIT_MS = 30 * 1000;
 export type BackfillTrigger = 'startup';
 
 /**
+ * What the backfill has actually established, for the readiness gate and the
+ * Estado del sistema panel.
+ *
+ * - `pending`   — it has not finished a pass yet, or a pass ended with work
+ *                 still outstanding (another instance holds the lock, or the
+ *                 transaction was rolled back). Current accounts may be
+ *                 missing historical movements RIGHT NOW.
+ * - `running`   — a pass is in flight.
+ * - `complete`  — a pass finished and the probe says nothing is pending.
+ * - `failed`    — a pass threw. The ledger is in whatever state it was;
+ *                 startup deliberately continued anyway.
+ * - `disabled`  — turned off by configuration. Nothing is claimed about the
+ *                 ledger, because nothing was checked.
+ *
+ * `disabled` is NOT `complete`: an operator who took responsibility for
+ * running the script by hand has not thereby made the ledger correct.
+ */
+export type CurrentAccountsBackfillState =
+  'pending' | 'running' | 'complete' | 'failed' | 'disabled';
+
+/**
  * Runs the Current Accounts historical backfill when the API boots — see
  * docs/current-accounts.md.
  *
@@ -68,6 +89,51 @@ export type BackfillTrigger = 'startup';
 export class CurrentAccountsBackfillService implements OnApplicationBootstrap {
   private readonly logger = new Logger(CurrentAccountsBackfillService.name);
 
+  /**
+   * Starts at `pending`, not `complete`: before anything has run, the honest
+   * answer about a ledger that may be missing history is "we do not know
+   * yet", and the readiness gate has to refuse on that.
+   */
+  private state: CurrentAccountsBackfillState = 'pending';
+
+  /** Non-null only while state is `failed`, for the operator-facing panel. */
+  private lastError: string | null = null;
+
+  getState(): CurrentAccountsBackfillState {
+    return this.state;
+  }
+
+  getLastError(): string | null {
+    return this.lastError;
+  }
+
+  /**
+   * Re-evaluates a `pending` state against the database, and returns the
+   * state either way.
+   *
+   * `pending` is the one state that can become stale on its own. An instance
+   * that lost the advisory lock to a sibling skipped its pass and recorded
+   * `pending`, which was true then; the sibling then finished and nothing
+   * would ever tell this instance. Without this, that process would refuse
+   * current accounts for its whole life over a ledger that is loaded.
+   *
+   * Only `pending`: `running` resolves itself when the pass ends, `failed`
+   * and `disabled` are deliberate states that need a new pass or an operator,
+   * and `complete` costs nothing because it returns immediately.
+   */
+  async refreshIfPending(): Promise<CurrentAccountsBackfillState> {
+    if (this.state !== 'pending') return this.state;
+    try {
+      if (!(await hasPendingCurrentAccountsBackfill(this.prisma))) {
+        this.state = 'complete';
+      }
+    } catch {
+      // A probe that cannot run leaves the state exactly as it was: refusing
+      // is the safe answer, and the readiness gate keeps refusing.
+    }
+    return this.state;
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -80,6 +146,7 @@ export class CurrentAccountsBackfillService implements OnApplicationBootstrap {
       { infer: true },
     );
     if (!enabled) {
+      this.state = 'disabled';
       this.logger.log(
         'Current accounts backfill on boot is disabled (ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false) — run `npm run db:backfill-current-accounts --workspace=apps/api` by hand if this installation is upgrading into the module.',
       );
@@ -94,9 +161,19 @@ export class CurrentAccountsBackfillService implements OnApplicationBootstrap {
    * continues.
    */
   async run(trigger: BackfillTrigger): Promise<void> {
+    this.state = 'running';
+    this.lastError = null;
     try {
       await this.runOrThrow(trigger);
+      // The pass finished. Whether it left the ledger complete is a fact to
+      // read, not to assume: it may have skipped because another instance
+      // held the lock, and skipping is not finishing.
+      this.state = (await hasPendingCurrentAccountsBackfill(this.prisma))
+        ? 'pending'
+        : 'complete';
     } catch (error) {
+      this.state = 'failed';
+      this.lastError = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Current accounts backfill failed — the ledger may be missing historical movements. Run \`npm run db:backfill-current-accounts --workspace=apps/api\` to post them. ${
           error instanceof Error ? error.message : String(error)

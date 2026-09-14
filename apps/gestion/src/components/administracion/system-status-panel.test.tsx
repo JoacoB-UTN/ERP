@@ -13,7 +13,14 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   health: {
     status: 'connected',
-    probe: { reachable: true, response: { status: 'ok', services: { database: 'ok', redis: 'ok' } } },
+    probe: {
+      reachable: true,
+      response: {
+        status: 'ok',
+        services: { database: 'ok', redis: 'ok' },
+        currentAccountsBackfill: 'complete',
+      },
+    },
     isFirstCheck: false,
     isChecking: false,
     lastCheckedAt: 0,
@@ -28,7 +35,14 @@ vi.mock('@/lib/use-server-health', () => ({
 function healthy(overrides: Record<string, unknown> = {}) {
   return {
     status: 'connected',
-    probe: { reachable: true, response: { status: 'ok', services: { database: 'ok', redis: 'ok' } } },
+    probe: {
+      reachable: true,
+      response: {
+        status: 'ok',
+        services: { database: 'ok', redis: 'ok' },
+        currentAccountsBackfill: 'complete',
+      },
+    },
     isFirstCheck: false,
     isChecking: false,
     lastCheckedAt: Date.now(),
@@ -101,7 +115,10 @@ describe('SystemStatusPanel', () => {
     });
     render(<SystemStatusPanel />);
     expect(screen.getByText('Sin conexión con el servidor')).toBeTruthy();
-    expect(screen.getAllByText('No se pudo comprobar')).toHaveLength(2);
+    // Three now: base de datos, caché y el histórico de cuentas corrientes.
+    // Sin respuesta del servidor no se comprobó ninguno de los tres, y decir
+    // otra cosa sería inventar un diagnóstico.
+    expect(screen.getAllByText('No se pudo comprobar')).toHaveLength(3);
     expect(screen.queryByText('No disponible')).toBeNull();
   });
 
