@@ -47,7 +47,7 @@ browser Fullscreen API is used.
 Open POS (context already selected in the top bar)
   → product search auto-focused
   → scan/search product → added immediately, quantity/price/availability shown
-  → (F2) select customer
+  → (F2) change customer if it is not the walk-in one already selected
   → adjust quantity with +/− on the selected line if needed
   → see the total, prominent, always visible
   → Cobrar (F10) → pick a payment method → (CASH) enter amount received
@@ -80,8 +80,81 @@ instead of stock and never imply inventory tracking.
 clears its customer on "Nueva venta"), POS deliberately keeps the
 selected customer across consecutive sales in the same session — the
 same buyer commonly makes several purchases at a counter in a row — and
-only clears it on a company switch (see "Company isolation" below). No
-customer ID is ever hardcoded; the search is always the way in.
+only clears it on a company switch (see "Company isolation" below).
+
+**POS starts on the walk-in customer.** Most counter sales are to nobody
+in particular, and making the operator search for "Consumidor Final"
+before every one of them is the wrong default for a screen whose whole
+purpose is speed. On open, POS resolves the active company's walk-in
+customer and pre-selects it. This is POS-only: `/ventas/nueva` still
+starts empty, because a Facturación sale is normally to a named buyer.
+
+The rules, in `components/pos/default-customer.ts`:
+
+- **No id is ever hardcoded.** The match is on `Customer.code ===
+  '000001'`, which is unique *per company* (see customers.md), so the
+  same literal resolves to a different row in every company and to
+  nothing at all in a company that does not have one.
+- **It is a convention, and only the demo seed guarantees it.** `seed.ts`
+  pins that code ("Never renumbered"). `provision.ts` — what the ERP
+  Server installer actually runs — deliberately creates **zero
+  customers**, so a real installation does not start with this row: it
+  has to be created by hand, or later by the migration from Tango. Until
+  it exists, POS keeps the manual selector and behaves exactly as it did
+  before this feature.
+- **Code and tax condition must both match** (`taxCondition ===
+  'CONSUMIDOR_FINAL'`). `GET /customers/lookup` searches `code` with a
+  `contains`, so the response is a superset and the exact comparison
+  happens client-side.
+- **`displayName` is never consulted.** It is free text an administrator
+  can rename, and "Consumidor Final S.R.L." is a plausible real company.
+- **Never an inactive customer.** The endpoint already filters to ACTIVE
+  server-side; the picker re-checks it anyway.
+- **Two matches select nothing.** `code` is unique per company, so an
+  ambiguous result means an assumption broke, and guessing which customer
+  gets charged is the one thing this must not do.
+- **No customer is created, ever.** A company without a walk-in customer
+  is a supported case: POS opens with the field empty and the operator
+  searches, exactly as before this existed.
+
+It resolves through the same company-scoped `useCustomerLookup` the
+picker itself uses — no new endpoint, and the query key carries the
+companyId, so one company's walk-in row can never be read back for
+another. It never blocks: the workspace renders and product search takes
+focus while the lookup is in flight, and a failed lookup just leaves the
+field empty rather than surfacing an error.
+
+**It is gated on `customers.read`, checked separately.** `GET
+/customers/lookup` is guarded by `@RequirePermissions('customers.read')`,
+which is a *different* permission from the `sales.documents.create` that
+gates the rest of POS — a custom role can hold one without the other.
+The automatic search therefore runs only when the workspace is operative,
+a company is active, **and** `can('customers.read')`, so a cashier role
+without customer access opens POS without firing a request that would
+come back 403. This is a client-side gate for a request nobody should
+send, not a replacement for the server's own check, which is unchanged
+and still the thing that actually enforces access.
+
+**The lookup is a capped search, so a match is not guaranteed to be
+found.** The endpoint matches `code` with a `contains`, orders by
+`legalName` (not by code) and returns at most the requested page — POS
+asks for 10. Auto-generated codes are six digits zero-padded, so in
+practice only `000001` itself contains `000001`; but codes can also be
+entered by hand, so a company with ten-plus manually coded customers
+whose codes contain that substring and whose legal names sort earlier
+could push the real row out of the page. The failure mode is a safe
+degradation — no exact match, manual selection, exactly the pre-feature
+behaviour — which is the only reason a capped search is acceptable here.
+It has not been worth a dedicated endpoint; if it ever bites, that is the
+fix.
+
+**The operator always wins.** The selection is *derived*, not written
+into state: the customer field holds three values — "nothing chosen yet"
+(the walk-in customer may fill it), "explicitly cleared" (F2 / Cambiar
+cliente, which stays cleared and is never re-filled on the next render),
+and an explicit choice (never overwritten). Only a company switch returns
+it to the first state. That is also why clearing with F2 cannot loop:
+cleared is a real value that beats the default, not the absence of one.
 
 **Adding an already-in-cart variant increments its quantity** — scanning
 the same barcode twice yields one line at quantity 2, not two lines —
@@ -206,6 +279,14 @@ Company, then switching to Second Demo Company (which has no seeded
 warehouse/price list) immediately cleared both the cart and the
 customer, and the workspace correctly showed "Elegí un depósito y una
 lista de precios activos..." with zero leaked Demo Company data.
+
+The walk-in customer follows the same rule. A switch returns the customer
+field to "nothing chosen yet" in the same commit that clears the cart, so
+the previous company's customer is gone before anything else runs; the
+replacement is then resolved from a lookup keyed by the *new* companyId,
+which is pending until that company's own request lands. There is no
+window in which one company's customer is displayed while another is
+active.
 
 ## Gestión integration
 

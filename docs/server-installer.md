@@ -1,10 +1,12 @@
 # ERP Server installer (Windows)
 
-**Status: IMPLEMENTED, NOT YET VALIDATED ON A CLEAN MACHINE.** The payload
-build and the provisioning path are verified (see "What is actually verified"
-at the end); compiling the `.exe` and running a real install need Inno Setup
-and a clean Windows box, neither of which the implementing session had. Treat
-the first install on a test VM as part of the work, not as a formality.
+**Status: IMPLEMENTED AND IT COMPILES; NOT YET INSTALLED ANYWHERE.** The
+payload build, the provisioning path and — since PR #25 — compiling the `.exe`
+in CI are all verified (see "What is actually verified" at the end). What has
+never happened is an install: no `ERPServerSetup-*.exe` has been run on any
+machine. Producing an installer and installing with it are different claims,
+and only the first one is currently true. Treat the first install on a clean
+Windows box as part of the work, not as a formality.
 
 This is the second half of Phase 1's remaining work. The first half — scheduled
 backups — is [backups.md](backups.md), and this installer is what registers
@@ -104,6 +106,14 @@ iscc infrastructure/windows/erp-server.iss /DPayloadDir=dist/erp-server /DAppVer
 `-PostgresDir` is optional: omit it to build a Node-only payload for testing,
 which is how the smoke test in CI runs.
 
+CI can perform step 2 as well: `server-installer.yml` takes a
+`compile_installer` boolean, **default `false`**, and when it is set the job
+installs Inno Setup, compiles, and uploads the `.exe` as an artifact. It is
+opt-in rather than automatic because the compile is slow and the payload is
+what most changes need checking against. Note that the artifact CI produces
+carries **no PostgreSQL**, since the job runs `build-payload.ps1` without
+`-PostgresDir` — a release installer has to be built with it.
+
 WinSW (MIT) is downloaded at build time against a pinned SHA-256 and staged
 with its licence; nothing is fetched at install time. `-WinSWPath` builds from
 a local copy when the build machine is offline. See
@@ -181,6 +191,15 @@ data; deleting those folders has to be a decision someone makes deliberately.
 The payload was built and then actually run, end to end, against a real
 PostgreSQL 16 and a real provisioned database:
 
+- **The installer compiles.** PR #25 fixed the last thing in the way — Inno
+  Setup resolves a relative `Source:` against the `.iss` file's own directory
+  rather than the working directory, so a repo-root-relative payload path
+  silently became `infrastructure/windows/dist/...` and the compile aborted
+  with "No files found matching". The path is now passed absolute, and the
+  workflow run produced **`ERPServerSetup-0.1.0.exe`, 89.3 MB**, uploaded as an
+  artifact. That was the first time the installer existed as a file. It says
+  nothing about whether it installs — see the pending list below — and the
+  artifact carries no PostgreSQL.
 - **The payload builds.** 503 MB, 25,451 files after pruning dev dependencies
   (from 74,000+ before). All expected entry points, both Next standalone trees
   with their static assets, and no rendered service definitions (so no secrets)
@@ -190,11 +209,11 @@ PostgreSQL 16 and a real provisioned database:
   running it reports `{"status":"degraded","services":{"database":"ok","redis":"error"}}`
   instead of hanging, which is the whole point of the Redis fix above.
 - **Provisioning produces a real, empty installation**: 1 company
-  ("Ferretería El Tornillo"), 1 administrator, 8 system roles, 78 permissions,
+  ("Ferretería El Tornillo"), 1 administrator, 8 system roles, 88 permissions,
   2 currencies, and 0 customers / 0 products / 0 sales. Idempotent across
   repeated runs.
 - **The provisioned administrator can log in** to the packaged API and holds
-  all 78 permissions including `system.backups.read`.
+  all 88 permissions including `system.backups.read`.
 - **The packaged agent takes a verified backup** of that database, and the
   packaged API then reports it: schedule `03:00, 15:00`, retention 30 days,
   next run computed correctly, 2 archives on disk.
@@ -231,7 +250,13 @@ fixed:
 
 **Not verified, and needing a clean Windows VM:**
 
-- Compiling `erp-server.iss` (no Inno Setup on the implementing machine).
+- **Running the installer.** Compiling it is verified (above); no
+  `ERPServerSetup-*.exe` has ever been executed on any machine, clean or
+  otherwise.
+- **A release installer that actually contains PostgreSQL.** Bundling is
+  designed and scripted, but every artifact produced so far is Node-only.
+- **Code signing.** The artifact is unsigned, so Windows SmartScreen will
+  flag it on a customer machine.
 - `initdb` and the bundled PostgreSQL running under a Windows service account.
 - WinSW service *registration* and start order. The configurations parse and
   the executables run; what is untested is `install`/`start` against the real

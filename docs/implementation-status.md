@@ -322,7 +322,20 @@ focused product search, barcode add, quantity/discount via keyboard
 (+/-/Delete on an "active line"), F2 customer switch, F10 checkout with
 a payment panel (Efectivo/Tarjeta/Transferencia/Otro, live change
 calculation and client+server insufficient-cash validation for cash),
-customer persisted across consecutive POS sales in a session. Manually
+customer persisted across consecutive POS sales in a session.
+
+**Walk-in customer (2026-09-14).** POS now opens with the active
+company's "Consumidor Final" pre-selected instead of an empty field, so a
+counter sale does not begin with a search. Matched on `Customer.code ===
+'000001'` **and** `taxCondition === 'CONSUMIDOR_FINAL'`, both required,
+never on `displayName`, never an inactive row, and never when two rows
+match — `code` is unique per company, so no id is hardcoded and a company
+without that customer simply opens with the field empty. It reuses the
+existing company-scoped `GET /customers/lookup` (no new endpoint, no
+schema change) and the selection is derived rather than stored, so
+clearing with F2 stays cleared and a manual choice is never overwritten.
+POS-only: `/ventas/nueva` still starts empty. See
+[pos.md](pos.md). Manually
 verified: barcode add + quantity-increment on repeat scan, +/- and F2/F10
 keyboard shortcuts (via direct KeyboardEvent dispatch — the browser
 automation tool used for verification has a timing quirk with
@@ -598,9 +611,8 @@ because a template's own comment contained the literal
 prints its `.length`, so provisioning creates exactly the catalogue —
 88 entries as of this verification, counted from the built catalogue and
 matching a seeded database. Earlier notes recording 78 predate the
-permissions added by Purchases and Current accounts.
-`docs/server-installer.md` still carries that older figure in two places
-and should be reconciled separately.)
+permissions added by Purchases and Current accounts;
+`docs/server-installer.md` was reconciled to 88 alongside this.)
 
 **The installer compiles in CI — verified.** PR #25 fixed the last thing
 blocking it (Inno Setup resolves a relative `Source:` against the `.iss`

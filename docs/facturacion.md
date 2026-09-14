@@ -95,6 +95,15 @@ condition label — never the full Gestión customer form. No customer ID
 is ever hardcoded; the search box is the only way in, and it autofocuses
 when the workspace loads with no customer selected yet.
 
+**POS is the one exception to "the search box is the only way in"**, and
+only to that half of the rule: it pre-selects the active company's
+walk-in customer on open, matched on a per-company `code` plus tax
+condition — still never a hardcoded id, and still through this same
+`useCustomerLookup`. `/ventas/nueva` is unchanged and starts empty,
+because a Facturación sale is normally to a named buyer. See
+[pos.md](pos.md)'s "POS starts on the walk-in customer" for the matching
+rules and for why the operator's own choice can never be overwritten.
+
 ## Product lookup, price, and availability
 
 `ProductSearch` (`components/ventas/product-search.tsx`) searches by
