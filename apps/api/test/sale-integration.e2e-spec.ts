@@ -7,6 +7,7 @@ import * as argon2 from 'argon2';
 import { COMPANY_ID_HEADER } from '@erp/shared';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
+import { deleteCurrentAccountsData } from './helpers/current-accounts-cleanup';
 import { InventoryService } from '../src/inventory/inventory.service';
 
 interface ErrorEnvelope {
@@ -345,6 +346,9 @@ describe('Sale integration — cross-company references, repricing, concurrency,
   });
 
   afterAll(async () => {
+    // First: the ledger references customers, suppliers and their
+    // documents, so it has to go before any of them.
+    await deleteCurrentAccountsData(prisma, [companyAId, companyBId]);
     await prisma.auditLog.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
     });

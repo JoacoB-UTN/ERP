@@ -160,6 +160,25 @@ export function compareDecimalStrings(a: string, b: string): number {
   return 0;
 }
 
+/** Exact `a + b` as a decimal string, at the finer of the two inputs' precision. Never `Number()`. */
+export function addDecimalStrings(a: string, b: string): string {
+  const scale = Math.max(countDecimalPlaces(a), countDecimalPlaces(b));
+  const result = toScaledBigInt(a, scale) + toScaledBigInt(b, scale);
+  return fromScaledBigInt(result, scale);
+}
+
+/**
+ * Exact sum of a list of decimal strings; `'0'` for an empty list.
+ *
+ * Folded through `addDecimalStrings` rather than accumulated as numbers,
+ * for the same reason the rest of this block exists: a running total of
+ * money shown next to the amount it has to match cannot be allowed to drift
+ * by a cent because of binary floating point.
+ */
+export function sumDecimalStrings(values: string[]): string {
+  return values.reduce((total, value) => addDecimalStrings(total, value), '0');
+}
+
 /** Exact `a - b` as a decimal string, at the finer of the two inputs' precision. Never `Number()`. */
 export function subtractDecimalStrings(a: string, b: string): string {
   const scale = Math.max(countDecimalPlaces(a), countDecimalPlaces(b));

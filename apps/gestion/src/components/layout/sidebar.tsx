@@ -3,7 +3,11 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  Banknote,
+  BookText,
+  BookUser,
   Contact,
+  HandCoins,
   FileClock,
   History,
   Home,
@@ -135,6 +139,38 @@ function SidebarContent({
           label: 'Recepciones',
           icon: PackageCheck,
           visible: allowed('purchases.goods-receipts.read'),
+        },
+      ],
+    },
+    {
+      // Its own section rather than tucked under Operación: cobros y pagos
+      // are a treasury job done by different people than the ones selling,
+      // and the two account screens are the reference they work against.
+      label: 'Cuentas corrientes',
+      items: [
+        {
+          href: '/cuentas-corrientes/clientes',
+          label: 'Clientes',
+          icon: BookUser,
+          visible: allowed('accounts.receivable.read'),
+        },
+        {
+          href: '/cuentas-corrientes/proveedores',
+          label: 'Proveedores',
+          icon: BookText,
+          visible: allowed('accounts.payable.read'),
+        },
+        {
+          href: '/cobros',
+          label: 'Cobros',
+          icon: HandCoins,
+          visible: allowed('treasury.receipts.read'),
+        },
+        {
+          href: '/pagos',
+          label: 'Pagos',
+          icon: Banknote,
+          visible: allowed('treasury.payments.read'),
         },
       ],
     },

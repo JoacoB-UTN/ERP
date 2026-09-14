@@ -7,6 +7,7 @@ import * as argon2 from 'argon2';
 import { COMPANY_ID_HEADER } from '@erp/shared';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
+import { deleteCurrentAccountsData } from './helpers/current-accounts-cleanup';
 import { InventoryService } from '../src/inventory/inventory.service';
 
 /**
@@ -326,6 +327,9 @@ describe('Dashboard (e2e)', () => {
   });
 
   afterAll(async () => {
+    // First: the ledger references customers, suppliers and their
+    // documents, so it has to go before any of them.
+    await deleteCurrentAccountsData(prisma, [companyAId, companyBId]);
     await prisma.salesTender.deleteMany({
       where: { salesDocument: { companyId: { in: [companyAId, companyBId] } } },
     });
@@ -713,6 +717,9 @@ describe('Dashboard (e2e)', () => {
     });
 
     afterAll(async () => {
+      // First: the ledger references customers, suppliers and their
+      // documents, so it has to go before any of them.
+      await deleteCurrentAccountsData(prisma, [tzCompanyId]);
       await prisma.salesDocument.deleteMany({
         where: { companyId: tzCompanyId },
       });

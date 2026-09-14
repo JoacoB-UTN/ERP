@@ -20,6 +20,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { PricingModule } from './pricing/pricing.module';
 import { SalesModule } from './sales/sales.module';
 import { PurchasesModule } from './purchases/purchases.module';
+import { AccountsModule } from './accounts/accounts.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { SystemModule } from './system/system.module';
@@ -71,6 +72,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
     PricingModule,
     SalesModule,
     PurchasesModule,
+    AccountsModule,
     DashboardModule,
     RealtimeModule,
     SystemModule,
