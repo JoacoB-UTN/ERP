@@ -706,15 +706,21 @@ passed absolute) and the workflow then produced **`ERPServerSetup-0.1.0.exe`,
 89.3 MB** — the first time the installer existed as a file, and Node-only.
 
 **PR #34 (`c8a9b86`) closed the PostgreSQL gap.** A `Stage PostgreSQL`
-step resolves a bin directory of the major in `POSTGRES_MAJOR` (`16`)
-before the build and passes it as `-PostgresDir`, preferring one already
-on the runner and otherwise downloading the official Windows binaries
-(`POSTGRES_FALLBACK_VERSION`, `16.10-1`); the GitHub runner ships
-PostgreSQL 17.11, so the major check rejected it and the fallback
-download ran, which is the path working as designed. Staging runs on
+step resolves a bin directory before the build and passes it as
+`-PostgresDir`. As #34 wrote it, that step preferred any PostgreSQL of
+the right *major* already on the runner and only downloaded as a
+fallback; **that is no longer how it works** — the step now always
+downloads the exact build named by `POSTGRES_VERSION`, verifies it
+against `POSTGRES_SHA256` (a release compile refuses to run with no pin
+at all), and records version, digest and source URL in
+`pgsql/POSTGRES-SOURCE.txt` inside the payload, because "whatever the
+runner has this week" meant two builds of the same commit could ship
+different binaries and nothing checked or recorded which. Staging runs on
 **every** payload build, and the build then verifies `initdb`, `pg_ctl`,
-`postgres`, `pg_dump` and `pg_restore` are present and that `initdb
---version` reports the expected major. The payload's own copy of
+`postgres`, `pg_dump`, `pg_restore` and `psql` are present, that `initdb
+--version` reports the expected major, and — the part a version banner
+never showed — that the engine can actually `initdb` a cluster, start,
+serve a query and take a `pg_dump`. The payload's own copy of
 PostgreSQL is pruned of what a headless cluster never uses (`doc`,
 `include`, `symbols`, `pgAdmin 4`, `StackBuilder`) — the bundled
 PostgreSQL directory goes from **822 MB to 120 MB**, leaving a **679 MB**
@@ -743,21 +749,15 @@ whether it installs:
 
 - **Installation on a clean Windows machine.** The `.exe` has never been
   run anywhere.
-- **The bundled PostgreSQL actually starting.** It *is* bundled now (run
-  #14 above), and CI proves the binaries are present and report major
-  `16`. What nothing proves is that `initdb` can create a cluster —
-  `initdb --version` shows the binary loads its DLLs and nothing more.
-  The pruning that took the bundled engine from 822 MB to 120 MB makes
-  this the sharp edge: the first real installation is the test of whether
-  anything needed was trimmed away.
-- **Which PostgreSQL is bundled, and whether it arrived intact.** The
-  staging step accepts any PostgreSQL of the right *major* already on the
-  GitHub runner, so the exact build that ships depends on GitHub's image
-  that week, and two runs of the same commit can bundle different
-  binaries. When it does download instead, nothing checks a hash or a
-  signature. Nothing records which build went in, either — so an installed
-  machine cannot answer the question. Addressed in a separate PR; see
-  "Open risk" in [server-installer.md](server-installer.md).
+- **The bundled PostgreSQL under a Windows service account.** That the
+  engine *runs* is no longer assumed: a `Smoke-test the bundled
+  PostgreSQL` step uses the payload's own binaries to `initdb` a cluster,
+  start it, connect and query, take a `pg_dump` and stop it, on every
+  payload build — so the pruning from 822 MB to 120 MB is proven not to
+  have trimmed anything the engine needs. What that does **not** cover is
+  the Windows-specific half: a service account rather than the runner's
+  user, the Service Control Manager, and ACLs on the data directory. That
+  still needs a real machine.
 - **Code signing.** The artifact is unsigned, so Windows SmartScreen
   will flag it.
 - **Service registration.** WinSW service definitions parse and the

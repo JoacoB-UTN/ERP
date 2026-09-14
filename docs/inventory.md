@@ -170,6 +170,28 @@ the other's `increment` still applies momentarily but is caught by the
 post-increment check inside its own transaction and rolled back — never
 both succeeding, never a value below zero left committed.
 
+### Lock ordering, for writes that touch more than one balance
+
+Per-row serialization is not enough once a single transaction touches
+**two** balances. A transfer A→B and a transfer B→A moving the same
+variant touch the same two rows in opposite orders, so each transaction
+can end up holding the row the other is waiting for. Postgres resolves
+that deadlock by killing one of them, which surfaces to the caller as a
+failed confirmation rather than a refused one.
+
+`InventoryService.lockBalancesInStableOrder(tx, companyId, pairs)` removes
+the cycle: it takes one `pg_advisory_xact_lock` per `(warehouse, variant)`
+pair, in a sorted order every caller shares, before any movement is
+applied. Advisory locks rather than `SELECT ... FOR UPDATE` because the
+balance row may not exist yet — the first movement for a pair creates it,
+and `FOR UPDATE` locks nothing when there is no row, which is exactly the
+case two concurrent transfers hit. The locks are released on commit or
+rollback, so nothing leaks if the transaction dies.
+
+`StockTransfersService.confirm()` and `cancel()` call it. **Sales and
+adjustments do not**, so a transfer can still in principle deadlock
+against one of those; extending the helper to them is a separate change.
+
 ## Negative stock policy
 
 ```
@@ -329,7 +351,7 @@ to express the opposite one by accident.
   second code path. The original movements are never edited or deleted;
   the ledger only ever grows.
 
-Two ordering decisions carry the correctness of the whole feature:
+Three ordering decisions carry the correctness of the whole feature:
 
 1. `applyTransferLine` writes the **OUT first**. `applyMovement`
    validates the negative-stock policy against the balance Postgres
@@ -342,6 +364,20 @@ Two ordering decisions carry the correctness of the whole feature:
    That is what makes a double confirm **impossible** rather than merely
    unlikely — the same guard shape as `SalesService.confirm`. Cancellation
    uses the identical guard against whichever status it started from.
+3. **The lines that produce movements are read inside the transaction
+   that writes them**, after the guard, never from the copy loaded before
+   it. A confirmation that posted from the earlier snapshot could write
+   stock for lines a concurrent `update()` had already replaced —
+   movements matching no version of the document. `update()` carries the
+   same conditional guard (`WHERE status = 'DRAFT'`), so an edit that
+   arrives once the transfer is confirmed is refused instead of rewriting
+   a document whose stock has already moved.
+
+   That guard always writes `updatedAt`, even when the request only
+   replaces lines. An update with nothing to SET takes no row lock, and
+   without the lock the edit and a concurrent confirmation never serialise
+   on the transfer row — which is how a confirmation ended up posting the
+   pre-edit quantities. The write is what creates the ordering.
 
 Validation mirrors adjustments — both warehouses belong to the active
 company and are `ACTIVE`; the variant belongs to the active company; the

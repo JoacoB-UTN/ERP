@@ -30,10 +30,25 @@ env:
   # exercised, and would leave the backup agent's pg_dump on a different
   # major than the cluster it dumps.
   POSTGRES_MAJOR: '16'
-  # Only used when the runner has no PostgreSQL 16 of its own. Bump this
-  # when EnterpriseDB retires the build; the step fails loudly with the URL
-  # it tried rather than producing a payload without a database.
-  POSTGRES_FALLBACK_VERSION: '16.10-1'
+  # The EXACT build that ships. Not "some 16.x": a customer's cluster, the
+  # backup agent's pg_dump and every CI run have to be the same binaries, and
+  # "whatever the runner happens to have" is none of those. Bump deliberately,
+  # together with POSTGRES_SHA256 below.
+  POSTGRES_VERSION: '16.10-1'
+  # SHA-256 of the .zip named by POSTGRES_VERSION, so a build cannot bundle a
+  # binary nobody vouched for. A mismatch fails the build; an unset value does
+  # not silently pass either — the Stage PostgreSQL step prints the digest it
+  # computed and REFUSES to compile a release installer without a pin.
+  #
+  # Be precise about what this pin is worth: it was taken from the digest CI
+  # computed on run 34860184022, downloading over HTTPS from the URL below.
+  # That is trust-on-first-use. It detects the archive CHANGING from here on
+  # — a swapped build, a corrupted transfer, a tampered mirror — which is the
+  # half of the problem that bites in practice. It is NOT verification against
+  # a checksum EnterpriseDB published, because they do not publish one next to
+  # this artifact. Cross-checking against a vendor-signed digest is still open;
+  # see docs/server-installer.md.
+  POSTGRES_SHA256: 'ebb3b6af4fa69dea9951b66855bc4d42dc04e56ccb9aa7024ce3c58bd89d6b0c'
   # Dummy/test-only values — never real secrets. Needed because `next build`
   # and `prisma generate` read the environment.
   DATABASE_URL: 'postgresql://erp:erp@localhost:5432/erp_platform_test?schema=public'
@@ -72,53 +87,84 @@ jobs:
         # Exercising it only at release would mean discovering a broken
         # download the day we cut one.
         run: |
-          $major = "${{ env.POSTGRES_MAJOR }}"
-          $binDir = $null
+          $version  = "${{ env.POSTGRES_VERSION }}"
+          $major    = "${{ env.POSTGRES_MAJOR }}"
+          $expected = "${{ env.POSTGRES_SHA256 }}".Trim().ToLowerInvariant()
+          $release  = "${{ inputs.compile_installer }}" -eq 'true'
 
-          # 1. The runner's own PostgreSQL, but only if it is the right major.
-          $candidates = @()
-          if ($env:PGBIN) { $candidates += $env:PGBIN }
-          $candidates += (Get-ChildItem 'C:\Program Files\PostgreSQL' -Directory -ErrorAction SilentlyContinue |
-                          ForEach-Object { Join-Path $_.FullName 'bin' })
+          # The runner's own PostgreSQL is deliberately NOT used, whatever
+          # major it happens to be. It is an unpinned, unverifiable build that
+          # changes when GitHub changes its image, and it would make the
+          # bundled database differ between two runs of the same commit.
+          $url  = "https://get.enterprisedb.com/postgresql/postgresql-$version-windows-x64-binaries.zip"
+          $zip  = Join-Path $env:RUNNER_TEMP 'pgsql.zip'
+          $dest = Join-Path $env:RUNNER_TEMP 'pgsql-download'
 
-          foreach ($c in $candidates) {
-            $initdb = Join-Path $c 'initdb.exe'
-            if (-not (Test-Path $initdb)) { continue }
-            $v = (& $initdb --version 2>&1 | Out-String).Trim()
-            if ($v -match "\s$major\.") {
-              Write-Host "Using the runner's PostgreSQL: $c ($v)"
-              $binDir = $c
-              break
-            }
-            Write-Host "Skipping $c -- wrong major ($v, want $major.x)"
-          }
-
-          # 2. Otherwise fetch the official Windows binaries.
-          if (-not $binDir) {
-            $version = "${{ env.POSTGRES_FALLBACK_VERSION }}"
-            $url = "https://get.enterprisedb.com/postgresql/postgresql-$version-windows-x64-binaries.zip"
-            $zip = Join-Path $env:RUNNER_TEMP 'pgsql.zip'
-            $dest = Join-Path $env:RUNNER_TEMP 'pgsql-download'
-            Write-Host "No PostgreSQL $major.x on the runner; downloading $url"
-            try {
-              Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-            } catch {
-              Write-Host "::error::Could not download PostgreSQL from $url -- $($_.Exception.Message). Bump POSTGRES_FALLBACK_VERSION to a build EnterpriseDB still publishes."
-              exit 1
-            }
-            Expand-Archive -Path $zip -DestinationPath $dest -Force
-            $binDir = Join-Path $dest 'pgsql\bin'
-          }
-
-          if (-not (Test-Path (Join-Path $binDir 'initdb.exe'))) {
-            Write-Host "::error::Resolved PostgreSQL bin directory has no initdb.exe: $binDir"
+          Write-Host "Downloading pinned PostgreSQL $version"
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+          } catch {
+            Write-Host "::error::Could not download PostgreSQL from $url -- $($_.Exception.Message). Bump POSTGRES_VERSION (and POSTGRES_SHA256) to a build EnterpriseDB still publishes."
             exit 1
           }
+
+          $actual = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "SHA-256 of postgresql-$version-windows-x64-binaries.zip:"
+          Write-Host "  $actual"
+
+          if ($expected) {
+            if ($actual -ne $expected) {
+              Write-Host "::error::PostgreSQL checksum mismatch. Expected $expected, got $actual. Either the pinned digest is stale or the download was tampered with; do not bundle this."
+              exit 1
+            }
+            Write-Host 'Checksum matches the pinned value.'
+          } elseif ($release) {
+            Write-Host "::error::POSTGRES_SHA256 is not set, so this download is unverified and must not go into a release installer. Set POSTGRES_SHA256 to $actual in .github/workflows/server-installer.yml and re-run."
+            exit 1
+          } else {
+            Write-Host "::warning::POSTGRES_SHA256 is not set: the download was NOT verified. Paste $actual into POSTGRES_SHA256 to pin it. Release builds (compile_installer=true) refuse to run without it."
+          }
+
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          $binDir = Join-Path $dest 'pgsql\bin'
+
+          if (-not (Test-Path (Join-Path $binDir 'initdb.exe'))) {
+            Write-Host "::error::The downloaded archive has no initdb.exe under pgsql\bin: $binDir"
+            exit 1
+          }
+
+          # Recorded so the payload, the job summary and a support call all
+          # say the same thing about which database was shipped.
+          $provenance = @(
+            "version=$version"
+            "sha256=$actual"
+            "verified=$([bool]$expected)"
+            "source=$url"
+          )
+          $provenanceFile = Join-Path $env:RUNNER_TEMP 'POSTGRES-SOURCE.txt'
+          Set-Content -Path $provenanceFile -Value $provenance -Encoding utf8
+
           Add-Content -Path $env:GITHUB_OUTPUT -Value "dir=$binDir" -Encoding utf8
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version" -Encoding utf8
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "sha256=$actual" -Encoding utf8
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "provenance=$provenanceFile" -Encoding utf8
+
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### Bundled PostgreSQL`n`n- version: ``$version```n- sha256: ``$actual```n- checksum pinned: $([bool]$expected)" -Encoding utf8
 
       - name: Build payload
         shell: pwsh
         run: ./infrastructure/windows/build-payload.ps1 -Build -PostgresDir '${{ steps.postgres.outputs.dir }}'
+
+      - name: Record which PostgreSQL was bundled
+        shell: pwsh
+        # Travels with the payload so the installed machine can say what it is
+        # running, and install.ps1 prints it during validation. A support call
+        # about "the database" starts from a version and a digest instead of a
+        # guess.
+        run: |
+          Copy-Item -Path '${{ steps.postgres.outputs.provenance }}' `
+                    -Destination 'dist/erp-server/pgsql/POSTGRES-SOURCE.txt' -Force
+          Get-Content 'dist/erp-server/pgsql/POSTGRES-SOURCE.txt'
 
       - name: Verify payload contents
         shell: pwsh
@@ -153,7 +199,11 @@ jobs:
             "$payload/pgsql/bin/pg_ctl.exe",
             "$payload/pgsql/bin/postgres.exe",
             "$payload/pgsql/bin/pg_dump.exe",
-            "$payload/pgsql/bin/pg_restore.exe"
+            "$payload/pgsql/bin/pg_restore.exe",
+            # The smoke test below connects with it; listed so a future
+            # pruning change fails here rather than inside that step.
+            "$payload/pgsql/bin/psql.exe",
+            "$payload/pgsql/POSTGRES-SOURCE.txt"
           )
           $missing = $required | Where-Object { -not (Test-Path $_) }
           if ($missing) {
@@ -171,6 +221,66 @@ jobs:
             exit 1
           }
           Write-Host "Payload contents OK. Bundled $v"
+
+      - name: Smoke-test the bundled PostgreSQL
+        shell: pwsh
+        # Until now the only thing proving the bundled database worked was
+        # `initdb --version`, which shows the binary loads its DLLs and
+        # nothing more. It says nothing about whether a cluster can be
+        # CREATED — which is the question the payload pruning actually puts
+        # at risk, since `share/` holds the templates initdb reads and `lib/`
+        # the libraries the server loads.
+        #
+        # So: initdb, start, connect, query, stop, using the payload's own
+        # binaries and nothing else on the runner. Not a substitute for
+        # installing on a clean Windows VM — no service account, no Service
+        # Control Manager, no ACLs — but it moves "can this engine run at
+        # all" from untested to tested on every payload build.
+        run: |
+          $pgBin = Resolve-Path 'dist/erp-server/pgsql/bin'
+          $data  = Join-Path $env:RUNNER_TEMP 'pgsmoke-data'
+          $log   = Join-Path $env:RUNNER_TEMP 'pgsmoke.log'
+          $port  = 55432
+          $pw    = Join-Path $env:RUNNER_TEMP 'pgsmoke-pw.txt'
+          Set-Content -Path $pw -Value 'smoke-only-not-a-secret' -Encoding ascii -NoNewline
+
+          Write-Host '--- initdb ---'
+          & "$pgBin/initdb.exe" --pgdata=$data --username=erp --pwfile=$pw `
+              --encoding=UTF8 --locale=C --auth-local=scram-sha-256 --auth-host=scram-sha-256
+          if ($LASTEXITCODE -ne 0) { throw "initdb failed ($LASTEXITCODE): the bundled PostgreSQL cannot create a cluster." }
+
+          try {
+            Write-Host '--- pg_ctl start ---'
+            & "$pgBin/pg_ctl.exe" -D $data -l $log -o "-p $port -c listen_addresses=127.0.0.1" -w start
+            if ($LASTEXITCODE -ne 0) {
+              if (Test-Path $log) { Get-Content $log }
+              throw "pg_ctl start failed ($LASTEXITCODE): the bundled PostgreSQL will not start."
+            }
+
+            Write-Host '--- connect and query ---'
+            $env:PGPASSWORD = 'smoke-only-not-a-secret'
+            $out = & "$pgBin/psql.exe" -h 127.0.0.1 -p $port -U erp -d postgres -tAc `
+                   "SELECT current_setting('server_version') || ' ok'"
+            if ($LASTEXITCODE -ne 0) { throw "psql could not query the cluster ($LASTEXITCODE)." }
+            $out = ($out | Out-String).Trim()
+            Write-Host "    $out"
+            if ($out -notmatch '^16\.') { throw "The running cluster reports '$out', expected 16.x." }
+
+            # pg_dump is what the backup agent runs; proving it works against
+            # this cluster is the other half of "the database is usable".
+            Write-Host '--- pg_dump ---'
+            $dump = Join-Path $env:RUNNER_TEMP 'pgsmoke.dump'
+            & "$pgBin/pg_dump.exe" -h 127.0.0.1 -p $port -U erp -d postgres -Fc -f $dump
+            if ($LASTEXITCODE -ne 0) { throw "pg_dump failed ($LASTEXITCODE)." }
+            if (-not (Test-Path $dump)) { throw 'pg_dump reported success but wrote no file.' }
+            Write-Host "    dump written: $((Get-Item $dump).Length) bytes"
+          } finally {
+            Write-Host '--- pg_ctl stop ---'
+            & "$pgBin/pg_ctl.exe" -D $data -m fast -w stop
+            Remove-Item $pw -Force -ErrorAction SilentlyContinue
+            $env:PGPASSWORD = $null
+          }
+          Write-Host 'Bundled PostgreSQL initialised, started, served a query, dumped and stopped.'
 
       - name: Check the payload carries no secrets
         shell: pwsh

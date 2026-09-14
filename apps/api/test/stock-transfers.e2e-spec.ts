@@ -798,6 +798,153 @@ describe('Stock transfers (e2e)', () => {
         }),
       ).toBe(2);
     });
+
+    it('editing a CONFIRMED transfer is refused', async () => {
+      await seedStock(warehouseSourceId, '30');
+      const transfer = await createDraft({
+        lines: [{ productVariantId: variantId, quantity: '3' }],
+      });
+      const agent = await loginAs(userAdminId);
+
+      expect(
+        (
+          await agent
+            .post(`/api/v1/inventory/transfers/${transfer.id}/confirm`)
+            .set(COMPANY_ID_HEADER, companyAId)
+        ).status,
+      ).toBe(200);
+
+      const edit = await agent
+        .patch(`/api/v1/inventory/transfers/${transfer.id}`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ lines: [{ productVariantId: variantId, quantity: '99' }] });
+
+      expect(edit.status).toBe(409);
+      // The movements still describe the three units that were confirmed.
+      const movements = await prisma.stockMovement.findMany({
+        where: { referenceType: 'StockTransfer', referenceId: transfer.id },
+      });
+      expect(movements).toHaveLength(2);
+      for (const movement of movements) {
+        expect(movement.quantity.abs().equals(new Prisma.Decimal('3'))).toBe(
+          true,
+        );
+      }
+    });
+
+    it('an edit racing a confirmation never leaves movements that disagree with the stored lines', async () => {
+      // The invariant, not a winner: whichever of the two lands first, the
+      // movements a confirmation writes must describe the lines the document
+      // actually holds. Before confirm() re-read its lines inside its own
+      // transaction, it could post the quantity it had snapshotted BEFORE a
+      // concurrent edit committed — stock that matched no version of the
+      // document. Asserted for every interleaving, so there is nothing
+      // timing-dependent to tune.
+      await seedStock(warehouseSourceId, '200');
+      const transfer = await createDraft({
+        lines: [{ productVariantId: variantId, quantity: '4' }],
+      });
+      const agent = await loginAs(userAdminId);
+
+      const [confirmRes, editRes] = await Promise.all([
+        agent
+          .post(`/api/v1/inventory/transfers/${transfer.id}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId),
+        agent
+          .patch(`/api/v1/inventory/transfers/${transfer.id}`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({ lines: [{ productVariantId: variantId, quantity: '9' }] }),
+      ]);
+
+      // The confirmation always succeeds; the edit either won the race (200)
+      // or arrived once the transfer was no longer a draft (409).
+      expect(confirmRes.status).toBe(200);
+      expect([200, 409]).toContain(editRes.status);
+
+      const stored = await prisma.stockTransferLine.findMany({
+        where: { stockTransferId: transfer.id },
+      });
+      const movements = await prisma.stockMovement.findMany({
+        where: { referenceType: 'StockTransfer', referenceId: transfer.id },
+      });
+
+      expect(stored).toHaveLength(1);
+      expect(movements).toHaveLength(2);
+      // Compared as strings so a failure prints both numbers rather than
+      // just "expected true, received false".
+      const storedQuantity = stored[0].quantity.toString();
+      for (const movement of movements) {
+        expect(
+          `edit=${editRes.status} movement=${movement.quantity.abs().toString()}`,
+        ).toBe(`edit=${editRes.status} movement=${storedQuantity}`);
+      }
+    });
+
+    it('opposing transfers between the same two warehouses do not deadlock', async () => {
+      // A→B and B→A touch the same two balance rows in opposite orders. Each
+      // transaction can end up holding the row the other needs, and Postgres
+      // breaks that by killing one (SQLSTATE 40P01), which surfaces as a 500
+      // — a lost confirmation, not a refused one. `lockBalancesInStableOrder`
+      // takes both locks in one global order so one simply waits.
+      //
+      // Several pairs at once because a single pair may serialise by luck;
+      // the assertions below hold whatever the interleaving turns out to be.
+      const left = await prisma.warehouse.create({
+        data: {
+          tenantId,
+          companyId: companyAId,
+          code: `DLK-L-${suffix}`,
+          name: 'Deadlock left',
+          allowNegativeStock: false,
+        },
+      });
+      const right = await prisma.warehouse.create({
+        data: {
+          tenantId,
+          companyId: companyAId,
+          code: `DLK-R-${suffix}`,
+          name: 'Deadlock right',
+          allowNegativeStock: false,
+        },
+      });
+      await seedStock(left.id, '100');
+      await seedStock(right.id, '100');
+
+      const pairs = 4;
+      const drafts = await Promise.all(
+        Array.from({ length: pairs }).flatMap(() => [
+          createDraft({
+            sourceWarehouseId: left.id,
+            destinationWarehouseId: right.id,
+            lines: [{ productVariantId: variantId, quantity: '2' }],
+          }),
+          createDraft({
+            sourceWarehouseId: right.id,
+            destinationWarehouseId: left.id,
+            lines: [{ productVariantId: variantId, quantity: '2' }],
+          }),
+        ]),
+      );
+
+      const agent = await loginAs(userAdminId);
+      const results = await Promise.all(
+        drafts.map((d) =>
+          agent
+            .post(`/api/v1/inventory/transfers/${d.id}/confirm`)
+            .set(COMPANY_ID_HEADER, companyAId),
+        ),
+      );
+
+      // Every confirmation succeeded: none was killed to break a deadlock.
+      expect(results.map((r) => r.status)).toEqual(
+        Array.from({ length: pairs * 2 }, () => 200),
+      );
+
+      // Each side sent and received the same amount, so both end where they
+      // started — and the ledger, not a cached number, says so.
+      expect(Number(await onHand(left.id))).toBe(100);
+      expect(Number(await onHand(right.id))).toBe(100);
+    });
   });
 
   // ---------- company isolation ----------

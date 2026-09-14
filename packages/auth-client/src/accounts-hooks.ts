@@ -1,6 +1,7 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { keepPreviousCompanyData } from './company-scoped-placeholder';
 import type {
   CreateCustomerCollectionInput,
   CreateSupplierPaymentInput,
@@ -79,7 +80,7 @@ export function createAccountsClient(config: AccountsClientConfig) {
           })}`,
         ),
       enabled: !!companyId,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 
@@ -139,7 +140,7 @@ export function createAccountsClient(config: AccountsClientConfig) {
           })}`,
         ),
       enabled: !!companyId,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 
@@ -215,7 +216,7 @@ export function createAccountsClient(config: AccountsClientConfig) {
           })}`,
         ),
       enabled: !!companyId,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 
@@ -270,7 +271,7 @@ export function createAccountsClient(config: AccountsClientConfig) {
           })}`,
         ),
       enabled: !!companyId,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 

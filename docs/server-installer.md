@@ -112,26 +112,80 @@ installs Inno Setup, compiles, and uploads the `.exe` as an artifact. It is
 opt-in rather than automatic because the compile is slow and the payload is
 what most changes need checking against.
 
-The payload **does** carry PostgreSQL. The `Stage PostgreSQL` step resolves a
-bin directory before the build and passes it as `-PostgresDir`: it prefers a
-PostgreSQL of the major in `POSTGRES_MAJOR` already on the runner, and
-otherwise downloads the official Windows binaries
-(`POSTGRES_FALLBACK_VERSION`). The step fails with the URL it tried rather
-than quietly producing a payload with no database.
+The payload **does** carry PostgreSQL. The `Stage PostgreSQL` step downloads
+the **exact** build named by `POSTGRES_VERSION` and passes its bin directory
+as `-PostgresDir`. The step fails with the URL it tried rather than quietly
+producing a payload with no database.
+
+It deliberately does **not** use whatever PostgreSQL the runner happens to
+carry, even when the major matches. That build is unpinned and
+unverifiable, it changes when GitHub changes its image, and it would make
+two builds of the same commit ship different database binaries.
+
+**The download is checksummed.** `Stage PostgreSQL` computes the SHA-256 of
+the archive and compares it against `POSTGRES_SHA256`:
+
+- Digests match → the build continues.
+- Digests differ → the build fails. Either the pin is stale or the download
+  is not what it should be; neither is something to bundle.
+- `POSTGRES_SHA256` is empty → the step prints the digest it computed and
+  warns that nothing was verified. A **release** build
+  (`compile_installer=true`) refuses to run at all in this state, so an
+  unverified engine cannot reach an `.exe`.
+
+**What the pin is and is not worth.** The pinned digest was taken from what
+CI computed while downloading over HTTPS from the URL above. That is
+**trust-on-first-use**: it detects the archive *changing* from here on — a
+swapped build, a corrupted transfer, a tampered mirror — which is the half
+of the problem that actually bites. It is **not** verification against a
+checksum EnterpriseDB published, because none is published next to that
+artifact. If the very first download had already been wrong, this pin would
+faithfully preserve the wrong thing.
+
+Still open, and worth doing before shipping to customers: cross-checking
+against a vendor-signed digest, or building PostgreSQL from source.
+
+What was staged is recorded in `pgsql/POSTGRES-SOURCE.txt` inside the
+payload — version, digest, whether it was verified, and the source URL —
+and repeated in the workflow's job summary. `install.ps1` prints it while
+validating, so an installed machine and a support call start from the same
+facts instead of a guess.
 
 Staging runs on **every** payload build, not only when compiling a release.
 The payload job exists to run on a clean runner and catch what a developer
 machine hides — a download that 404s or a wrong major would otherwise be
 discovered on release day. The build then verifies `initdb`, `pg_ctl`,
-`postgres`, `pg_dump` and `pg_restore` are present, and that `initdb
+`postgres`, `pg_dump`, `pg_restore` and `psql` are present, and that `initdb
 --version` reports the expected major: bundling a different one would ship an
 engine no CI run exercised and put the backup agent's `pg_dump` on a different
 major than the cluster it dumps.
 
-`install.ps1` refuses to start when `initdb.exe` is missing, naming the
-installer rather than the operator — without that check a Node-only payload
-gets as far as creating services and writing secrets before dying inside
-`initdb`.
+**And then it actually runs the thing.** A `Smoke-test the bundled
+PostgreSQL` step uses the payload's own binaries to `initdb` a cluster, start
+it with `pg_ctl`, connect with `psql` and run a query, take a `pg_dump`, and
+stop it again. Until that step existed the only evidence the bundled engine
+worked was `initdb --version`, which proves the binary loads its DLLs and
+nothing more — it says nothing about whether a cluster can be *created*,
+which is exactly what the payload pruning puts at risk (`share/` holds the
+templates `initdb` reads, `lib/` the libraries the server loads).
+
+It is not a substitute for installing on a clean Windows VM: no service
+account, no Service Control Manager, no ACLs, no upgrade or uninstall. It
+moves one specific question — can this engine run at all — from untested to
+tested on every payload build.
+
+**`install.ps1` validates the payload before it writes anything.** The first
+thing it does — before creating directories, generating secrets or touching
+ACLs — is check that `initdb`, `pg_ctl`, `postgres`, `pg_dump` and
+`pg_restore` are all present, run `initdb --version` and confirm the major,
+and print the recorded provenance. An installer that cannot work says so
+while the machine is still untouched.
+
+That ordering is the fix for a real defect: the check used to run *after*
+secrets had been generated and the install directory had been locked down,
+so a payload built without `-PostgresDir` left a half-installed machine —
+directories, a secrets file and restrictive ACLs for a database that was
+never going to start.
 
 WinSW (MIT) is downloaded at build time against a pinned SHA-256 and staged
 with its licence; nothing is fetched at install time. `-WinSWPath` builds from
@@ -314,35 +368,23 @@ fixed:
    service definitions. The comment no longer spells it out, and the CI check
    above would now catch a recurrence.
 
-### Open risk: which PostgreSQL ends up in the payload, and whether it is intact
+### Resolved: which PostgreSQL ends up in the payload, and whether it is intact
 
-Two separate problems, both open on this branch:
+Both halves of this used to be open, and both are closed above; the entry is
+kept because it names what to re-check if `Stage PostgreSQL` is ever
+rewritten. The step used to prefer whatever PostgreSQL the runner carried and
+fall back to a download nothing verified, so the exact build that shipped was
+decided by GitHub's image that week, two runs of the same commit could bundle
+different binaries, nothing checked a hash, and nothing recorded what went
+in. It now downloads one pinned `POSTGRES_VERSION`, fails on a `POSTGRES_SHA256`
+mismatch, refuses a release compile with no pin at all, and writes version,
+digest and source URL into `pgsql/POSTGRES-SOURCE.txt`.
 
-**Version.** `Stage PostgreSQL` prefers any PostgreSQL already on the GitHub
-runner whose *major* matches `POSTGRES_MAJOR`, and only downloads
-`POSTGRES_FALLBACK_VERSION` when it finds none. So the exact build that ships
-is decided by whatever GitHub happens to have installed that week. Two runs
-of the **same commit** can bundle different binaries, and the one a customer
-gets may be a build no test ever exercised. A major check is not a pin.
-
-**Integrity.** When the fallback download does run, nothing verifies it. The
-archive is fetched over HTTPS and unzipped, with no checksum and no
-signature, and whatever comes out is copied into the payload and shipped.
-TLS says the bytes came from that host; it says nothing about the bytes
-being the ones that host was supposed to serve, and nothing at all if the
-build is ever pointed at a mirror.
-
-**Neither is recorded.** Nothing in the payload, the artifact or the job
-output says which PostgreSQL went in, so an installed machine cannot answer
-the question either — which is the one that matters during a support call
-about a database that will not start.
-
-This is fixed in a separate PR (`fix/post-merge-review-corrections`): the
-version gets pinned exactly, the download gets a SHA-256 check that fails the
-build on mismatch and blocks release compiles while unset, and version +
-digest + source URL are recorded in `pgsql/POSTGRES-SOURCE.txt` inside the
-payload. Until that lands, treat the bundled engine as unpinned and
-unverified, and do not ship an installer from this branch to anyone.
+**What is still open** is narrower and stated above: the pin is
+trust-on-first-use, not a vendor-published checksum, because EnterpriseDB
+publishes none next to that artifact. Cross-checking against a vendor-signed
+digest, or building PostgreSQL from source, is worth doing before shipping to
+customers.
 
 **Not verified, and needing a clean Windows VM:**
 

@@ -62,6 +62,64 @@ $backupDir  = Join-Path $InstallDir 'backups'
 $logsDir    = Join-Path $InstallDir 'logs'
 $secretsFile= Join-Path $InstallDir 'config\erp-secrets.json'
 
+# ---------------------------------------------------------------------------
+# Payload validation -- FIRST, before anything is created on this machine
+# ---------------------------------------------------------------------------
+# Every check that can say "this installer cannot work here" runs before the
+# installer writes a single thing. The previous order validated the PostgreSQL
+# binaries only once secrets had been generated and the install directory had
+# been ACL'd, so a payload built without -PostgresDir left a half-installed
+# machine behind: directories, a secrets file and locked-down permissions for
+# a database that was never going to start. Failing here leaves nothing to
+# clean up.
+Write-Step 'Validating payload'
+
+$requiredBinaries = @{
+  'initdb.exe'      = 'create the database cluster'
+  'pg_ctl.exe'      = 'start and stop the database service'
+  'postgres.exe'    = 'run the database'
+  'pg_dump.exe'     = 'take backups'
+  'pg_restore.exe'  = 'verify and restore backups'
+}
+
+$missingBinaries = @()
+foreach ($name in $requiredBinaries.Keys) {
+  if (-not (Test-Path (Join-Path $pgBin $name))) {
+    $missingBinaries += "$name (needed to $($requiredBinaries[$name]))"
+  }
+}
+if ($missingBinaries) {
+  throw @"
+This installer was built without PostgreSQL and cannot install.
+
+Missing from $pgBin :
+  $($missingBinaries -join "`n  ")
+
+Nothing has been written to this machine. See docs/server-installer.md.
+"@
+}
+
+# The bundled major must be the one the product is built and tested against:
+# the backup agent's pg_dump has to match the cluster it dumps, and a cluster
+# initialised by one major cannot be read by another.
+$initdbExe = Join-Path $pgBin 'initdb.exe'
+$bundledVersion = (& $initdbExe --version 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) {
+  throw "The bundled initdb could not run ($initdbExe). It reported: $bundledVersion"
+}
+if ($bundledVersion -notmatch '\s16\.') {
+  throw "This installer bundles '$bundledVersion', but the ERP is built for PostgreSQL 16.x. Nothing has been written to this machine."
+}
+Write-Host "    bundled $bundledVersion"
+
+# What was actually staged at build time, recorded by build-payload.ps1.
+$pgProvenance = Join-Path $InstallDir 'pgsql\POSTGRES-SOURCE.txt'
+if (Test-Path $pgProvenance) {
+  Write-Host "    provenance: $(((Get-Content $pgProvenance) -join '; '))"
+} else {
+  Write-Warning 'No pgsql\POSTGRES-SOURCE.txt in the payload: this build did not record which PostgreSQL it staged or its checksum.'
+}
+
 foreach ($dir in @($backupDir, $logsDir, (Split-Path $secretsFile -Parent))) {
   New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
@@ -117,14 +175,8 @@ Set-Acl -Path $InstallDir -AclObject $acl
 # ---------------------------------------------------------------------------
 # PostgreSQL cluster
 # ---------------------------------------------------------------------------
-# Checked before anything is initialised, and phrased at the installer rather
-# than the operator: a payload built without -PostgresDir gets this far and
-# would otherwise fail inside initdb with "term not recognized", halfway
-# through an install that already created services and wrote secrets.
-$initdbExe = Join-Path $pgBin 'initdb.exe'
-if (-not (Test-Path $initdbExe)) {
-  throw "initdb.exe not found at $initdbExe. This installer was built without PostgreSQL — see docs/server-installer.md."
-}
+# $initdbExe was resolved and version-checked by the payload validation at the
+# top of this script, before anything was written to this machine.
 
 if (Test-Path (Join-Path $pgData 'PG_VERSION')) {
   Write-Step 'PostgreSQL data directory already initialised'

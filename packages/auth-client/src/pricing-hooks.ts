@@ -1,6 +1,7 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousCompanyData } from './company-scoped-placeholder';
 import type {
   CurrenciesResponse,
   CreatePriceListInput,
@@ -146,7 +147,7 @@ export function createPricingClient(config: PricingClientConfig) {
           `/pricing/lists/${id}/history${buildQueryString({ page: query.page, pageSize: query.pageSize })}`,
         ),
       enabled: !!companyId && !!id,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 
@@ -169,7 +170,7 @@ export function createPricingClient(config: PricingClientConfig) {
           })}`,
         ),
       enabled: !!companyId && !!priceListId,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 
@@ -370,7 +371,7 @@ export function createPricingClient(config: PricingClientConfig) {
           })}`,
         ),
       enabled: !!companyId && !!priceListId && !!variantId,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 

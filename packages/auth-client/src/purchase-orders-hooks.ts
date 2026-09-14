@@ -1,6 +1,7 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousCompanyData } from './company-scoped-placeholder';
 import type {
   CreatePurchaseOrderInput,
   UpdatePurchaseOrderInput,
@@ -61,7 +62,7 @@ export function createPurchaseOrdersClient(config: PurchaseOrdersClientConfig) {
           })}`,
         ),
       enabled: !!companyId,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPreviousCompanyData(companyId),
     });
   }
 
