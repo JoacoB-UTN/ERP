@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, Printer } from 'lucide-react';
 import { formatMoney, salesTenderMethodLabel } from '@erp/shared';
@@ -13,9 +13,15 @@ import {
   useCreateSale,
   useUpdateSale,
   useConfirmSale,
+  useCustomerLookup,
 } from '@/lib/auth-client';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { CustomerPicker, type CustomerPickerSelection, type CustomerPickerHandle } from '@/components/ventas/customer-picker';
+import {
+  CustomerPicker,
+  toSelection,
+  type CustomerPickerSelection,
+  type CustomerPickerHandle,
+} from '@/components/ventas/customer-picker';
 import { ProductSearch, type ProductSearchHandle, type ProductSearchSelection } from '@/components/ventas/product-search';
 import { computeCartTotals, toSaleLineInputs, type SaleLineDraft } from '@/components/ventas/cart';
 import { usePriceMap } from '@/components/ventas/use-price-map';
@@ -25,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { PosCart } from './pos-cart';
 import { PaymentPanel } from './payment-panel';
 import { resolvePosKeydownAction } from './pos-keyboard';
+import { pickDefaultPosCustomer, DEFAULT_POS_CUSTOMER_CODE } from './default-customer';
 
 /**
  * POS mode — a specialized, ultra-fast checkout screen inside Facturación
@@ -51,7 +58,18 @@ export function PosWorkspace() {
   const updateSale = useUpdateSale();
   const confirmSale = useConfirmSale();
 
-  const [customer, setCustomer] = useState<CustomerPickerSelection | null>(null);
+  // Three states, not two, and the distinction is what makes the walk-in
+  // customer below safe:
+  //   undefined -> the operator has neither chosen nor cleared anyone for
+  //                this company yet, so the walk-in customer may fill the
+  //                slot;
+  //   null      -> explicitly cleared (F2 / "Cambiar cliente"), which must
+  //                STAY cleared rather than being immediately re-filled;
+  //   selection -> an explicit choice, never overwritten.
+  // Reset to `undefined` only on a company switch.
+  const [customerChoice, setCustomerChoice] = useState<CustomerPickerSelection | null | undefined>(
+    undefined,
+  );
   const [lines, setLines] = useState<SaleLineDraft[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   // The editable DRAFT id — kept up to date across `persistDraft()` calls
@@ -103,7 +121,13 @@ export function PosWorkspace() {
     }
     if (companyId !== companyRef.current) {
       companyRef.current = companyId;
-      setCustomer(null);
+      // Back to "nothing chosen yet", which both drops the previous
+      // company's customer in this same commit and re-arms the walk-in
+      // resolver for the company being switched TO. The resolver reads a
+      // query keyed by companyId, so it can only ever produce a row that
+      // belongs to the new company — and produces none at all until that
+      // company's own request lands.
+      setCustomerChoice(undefined);
       setLines([]);
       setActiveKey(null);
       setSavedSaleId(null);
@@ -132,6 +156,42 @@ export function PosWorkspace() {
   useEffect(() => {
     if (ready) searchRef.current?.focus();
   }, [ready]);
+
+  // Walk-in customer, so a counter sale does not start by making the
+  // operator search for "Consumidor Final" every time (see docs/pos.md).
+  // POS-only: `/ventas/nueva` still starts with no customer, because a
+  // Facturación sale is normally to a named buyer.
+  //
+  // It rides the same company-scoped `GET /customers/lookup` the picker
+  // itself uses — no new endpoint and no second customer API — and the
+  // query key carries the companyId, so one company's result can never be
+  // read back for another. `enabled` is gated on `ready`, which includes
+  // `sales.documents.create`, so POS never asks for customers it has no
+  // business reading.
+  //
+  // Nothing here blocks: the workspace renders and product search is
+  // focusable while this is in flight, and if it fails the operator just
+  // picks a customer by hand, which is the pre-existing behaviour.
+  const defaultCustomerLookup = useCustomerLookup(
+    { search: DEFAULT_POS_CUSTOMER_CODE, limit: 10 },
+    { enabled: ready },
+  );
+
+  const defaultCustomer = useMemo(() => {
+    const match = pickDefaultPosCustomer(defaultCustomerLookup.data?.items);
+    return match ? toSelection(match) : null;
+  }, [defaultCustomerLookup.data]);
+
+  // Derived, never written into state by an effect: writing it would mean
+  // a render pass whose customer disagrees with the one already painted,
+  // and it would have to fight the operator to stay out of the way (a
+  // cleared field would need a separate "already tried" latch to avoid
+  // being re-filled on the next render). Reading it here instead makes
+  // "cleared" a first-class value — `null` beats the default, `undefined`
+  // defers to it — so the operator always wins by construction. An
+  // in-flight or failed lookup simply yields `null`, which is the exact
+  // behaviour POS had before this existed.
+  const customer = customerChoice === undefined ? defaultCustomer : customerChoice;
 
   // Re-derived after every render (no dependency array) so the handler
   // always closes over the LATEST customer/lines/checkout state. The
@@ -164,7 +224,7 @@ export function PosWorkspace() {
       switch (action.type) {
         case 'toggle-customer':
           if (customer) {
-            setCustomer(null);
+            setCustomerChoice(null);
             setTimeout(() => customerRef.current?.focus(), 0);
           } else {
             customerRef.current?.focus();
@@ -483,8 +543,8 @@ export function PosWorkspace() {
           <CustomerPicker
             ref={customerRef}
             value={customer}
-            onSelect={setCustomer}
-            onClear={() => setCustomer(null)}
+            onSelect={setCustomerChoice}
+            onClear={() => setCustomerChoice(null)}
             invalid={customerNeedsAttention}
             errorId="pos-customer-error"
           />

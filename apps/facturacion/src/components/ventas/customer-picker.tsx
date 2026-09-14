@@ -21,7 +21,13 @@ export interface CustomerPickerHandle {
   focus: () => void;
 }
 
-function toSelection(item: CustomerLookupItem): CustomerPickerSelection {
+/**
+ * The one place a lookup row becomes a picker selection. Exported because
+ * POS resolves its initial customer without the operator touching the
+ * search box (see `default-customer.ts`) and must produce the identical
+ * shape — a second mapping would be free to drift from this one.
+ */
+export function toSelection(item: CustomerLookupItem): CustomerPickerSelection {
   return {
     customerId: item.id,
     displayName: item.displayName,
