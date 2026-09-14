@@ -110,9 +110,28 @@ CI can perform step 2 as well: `server-installer.yml` takes a
 `compile_installer` boolean, **default `false`**, and when it is set the job
 installs Inno Setup, compiles, and uploads the `.exe` as an artifact. It is
 opt-in rather than automatic because the compile is slow and the payload is
-what most changes need checking against. Note that the artifact CI produces
-carries **no PostgreSQL**, since the job runs `build-payload.ps1` without
-`-PostgresDir` — a release installer has to be built with it.
+what most changes need checking against.
+
+The payload **does** carry PostgreSQL. The `Stage PostgreSQL` step resolves a
+bin directory before the build and passes it as `-PostgresDir`: it prefers a
+PostgreSQL of the major in `POSTGRES_MAJOR` already on the runner, and
+otherwise downloads the official Windows binaries
+(`POSTGRES_FALLBACK_VERSION`). The step fails with the URL it tried rather
+than quietly producing a payload with no database.
+
+Staging runs on **every** payload build, not only when compiling a release.
+The payload job exists to run on a clean runner and catch what a developer
+machine hides — a download that 404s or a wrong major would otherwise be
+discovered on release day. The build then verifies `initdb`, `pg_ctl`,
+`postgres`, `pg_dump` and `pg_restore` are present, and that `initdb
+--version` reports the expected major: bundling a different one would ship an
+engine no CI run exercised and put the backup agent's `pg_dump` on a different
+major than the cluster it dumps.
+
+`install.ps1` refuses to start when `initdb.exe` is missing, naming the
+installer rather than the operator — without that check a Node-only payload
+gets as far as creating services and writing secrets before dying inside
+`initdb`.
 
 WinSW (MIT) is downloaded at build time against a pinned SHA-256 and staged
 with its licence; nothing is fetched at install time. `-WinSWPath` builds from
@@ -198,8 +217,9 @@ PostgreSQL 16 and a real provisioned database:
   with "No files found matching". The path is now passed absolute, and the
   workflow run produced **`ERPServerSetup-0.1.0.exe`, 89.3 MB**, uploaded as an
   artifact. That was the first time the installer existed as a file. It says
-  nothing about whether it installs — see the pending list below — and the
-  artifact carries no PostgreSQL.
+  nothing about whether it installs — see the pending list below — and that
+  artifact carried no PostgreSQL (it predates the `Stage PostgreSQL` step; a
+  new dispatch would include it).
 - **The payload builds.** 503 MB, 25,451 files after pruning dev dependencies
   (from 74,000+ before). All expected entry points, both Next standalone trees
   with their static assets, and no rendered service definitions (so no secrets)
@@ -253,8 +273,11 @@ fixed:
 - **Running the installer.** Compiling it is verified (above); no
   `ERPServerSetup-*.exe` has ever been executed on any machine, clean or
   otherwise.
-- **A release installer that actually contains PostgreSQL.** Bundling is
-  designed and scripted, but every artifact produced so far is Node-only.
+- **A compiled `.exe` that contains PostgreSQL.** The payload now stages it and
+  CI verifies the binaries and their major on every payload build, but
+  compiling is manual (`compile_installer`) and no `.exe` has been produced
+  since — so no *artifact* containing PostgreSQL exists yet. Dispatch the
+  workflow to make one.
 - **Code signing.** The artifact is unsigned, so Windows SmartScreen will
   flag it on a customer machine.
 - `initdb` and the bundled PostgreSQL running under a Windows service account.

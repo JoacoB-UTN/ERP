@@ -117,6 +117,15 @@ Set-Acl -Path $InstallDir -AclObject $acl
 # ---------------------------------------------------------------------------
 # PostgreSQL cluster
 # ---------------------------------------------------------------------------
+# Checked before anything is initialised, and phrased at the installer rather
+# than the operator: a payload built without -PostgresDir gets this far and
+# would otherwise fail inside initdb with "term not recognized", halfway
+# through an install that already created services and wrote secrets.
+$initdbExe = Join-Path $pgBin 'initdb.exe'
+if (-not (Test-Path $initdbExe)) {
+  throw "initdb.exe not found at $initdbExe. This installer was built without PostgreSQL — see docs/server-installer.md."
+}
+
 if (Test-Path (Join-Path $pgData 'PG_VERSION')) {
   Write-Step 'PostgreSQL data directory already initialised'
 } else {
@@ -128,7 +137,7 @@ if (Test-Path (Join-Path $pgData 'PG_VERSION')) {
   $pwFile = Join-Path $env:TEMP "erp-initdb-$([guid]::NewGuid()).txt"
   try {
     Set-Content -Path $pwFile -Value $secrets.dbPassword -Encoding ascii -NoNewline
-    & (Join-Path $pgBin 'initdb.exe') `
+    & $initdbExe `
       --pgdata=$pgData --username=erp --pwfile=$pwFile `
       --encoding=UTF8 --locale=C --auth-local=scram-sha-256 --auth-host=scram-sha-256
     if ($LASTEXITCODE -ne 0) { throw "initdb failed with exit code $LASTEXITCODE" }
