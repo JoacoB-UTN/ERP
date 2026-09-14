@@ -153,6 +153,15 @@ Two things worth knowing about the payload build:
   paths exceed Windows' 260-character `MAX_PATH`, and `Copy-Item` fails on them
   with a "cannot find part of the path" error naming a file that plainly
   exists.
+- **The bundled PostgreSQL is pruned.** The official Windows distribution
+  carries headers, docs, debug symbols and GUI tooling; a supervised
+  server-only cluster needs none of it, and untrimmed it took the payload from
+  513 MB to 1,381 MB. `doc`, `include`, `symbols`, `pgAdmin 4` and
+  `StackBuilder` are removed **from the payload's own copy** — never from the
+  source, which on a developer machine may be a real PostgreSQL install.
+  `bin`, `lib` and `share` stay: `initdb` reads its templates from `share` and
+  the executables load their DLLs from `lib`. The build logs the size before
+  and after.
 - **Junctions are excluded (`/XJ`) and the workspace packages materialised.**
   npm puts a junction in `node_modules` for every workspace package; two of
   them point at `apps/*`, whose `.next/` trees carry their own nested
