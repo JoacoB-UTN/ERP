@@ -104,7 +104,14 @@ export function describeSystemStatus(input: {
         label: 'Caché (Redis)',
         value: 'No disponible',
         tone: 'warning',
-        hint: 'El sistema sigue funcionando sin el caché. No se pierden datos.',
+        // "The system keeps working" is only true while the database is up.
+        // With PostgreSQL down as well, the overall verdict already says
+        // operations cannot continue, and repeating the opposite on this card
+        // would have the panel contradict itself in the worst moment to be
+        // confusing. Then the card states the fact and nothing more.
+        hint: databaseDown
+          ? undefined
+          : 'El sistema sigue funcionando sin el caché. No se pierden datos.',
       }
     : { key: 'redis', label: 'Caché (Redis)', value: 'Operativo', tone: 'success' };
 

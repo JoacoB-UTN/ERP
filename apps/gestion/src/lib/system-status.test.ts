@@ -83,6 +83,32 @@ describe('describeSystemStatus', () => {
     expect(v.overallLabel).toBe('Base de datos no disponible');
   });
 
+  it('does not tell the operator the system keeps working when the database is down too', () => {
+    // The panel used to say "operations cannot continue" at the top and "the
+    // system keeps working without the cache" on the Redis card, in the same
+    // breath. The Redis reassurance is only true while PostgreSQL is up.
+    const v = view(reachable('error', 'error', 'error'));
+    expect(service(v, 'redis').hint).toBeUndefined();
+
+    const everything = [
+      v.overallLabel,
+      v.overallDetail,
+      ...v.services.flatMap((s) => [s.value, s.hint ?? '']),
+    ].join(' ');
+    expect(everything).not.toMatch(/sigue funcionando/i);
+    expect(everything).not.toMatch(/no se pierden datos/i);
+    // And the overall verdict still leads with the database, not the cache.
+    expect(v.overallLabel).toBe('Base de datos no disponible');
+  });
+
+  it('keeps the reassurance when only Redis is down', () => {
+    // The complement: removing the hint unconditionally would have been just
+    // as wrong, because this is the case it exists for.
+    const v = view(reachable('degraded', 'ok', 'error'));
+    expect(service(v, 'redis').hint).toMatch(/sigue funcionando/i);
+    expect(service(v, 'redis').hint).toMatch(/no se pierden datos/i);
+  });
+
   it('says it is still checking before the first result', () => {
     const v = view(undefined, true);
     expect(v.overallLabel).toBe('Comprobando el estado…');
