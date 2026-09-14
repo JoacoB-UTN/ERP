@@ -43,3 +43,7 @@ Thumbs.db
 
 # Prisma
 apps/api/prisma/*.db
+
+# Redis (a redis-server started from the repo root snapshots here)
+dump.rdb
+*.rdb

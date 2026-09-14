@@ -155,13 +155,12 @@ Two things worth knowing about the payload build:
   exists.
 - **The bundled PostgreSQL is pruned.** The official Windows distribution
   carries headers, docs, debug symbols and GUI tooling; a supervised
-  server-only cluster needs none of it, and untrimmed it took the payload from
-  513 MB to 1,381 MB. `doc`, `include`, `symbols`, `pgAdmin 4` and
-  `StackBuilder` are removed **from the payload's own copy** — never from the
-  source, which on a developer machine may be a real PostgreSQL install.
-  `bin`, `lib` and `share` stay: `initdb` reads its templates from `share` and
-  the executables load their DLLs from `lib`. The build logs the size before
-  and after.
+  server-only cluster needs none of it. `doc`, `include`, `symbols`,
+  `pgAdmin 4` and `StackBuilder` are removed **from the payload's own copy**
+  — never from the source, which on a developer machine may be a real
+  PostgreSQL install. `bin`, `lib` and `share` stay: `initdb` reads its
+  templates from `share` and the executables load their DLLs from `lib`. The
+  build logs the size before and after.
 - **Junctions are excluded (`/XJ`) and the workspace packages materialised.**
   npm puts a junction in `node_modules` for every workspace package; two of
   them point at `apps/*`, whose `.next/` trees carry their own nested
@@ -170,6 +169,36 @@ Two things worth knowing about the payload build:
   `@erp/config` — the only two the built server imports — are copied into
   `server/node_modules/@erp/` as real directories after the prune, so the
   payload ships no reparse points.
+
+### Sizes: three different things, routinely confused
+
+They are not variants of one number, and none of them is "the size of the
+installer" on its own:
+
+| What | Size | Where it comes from |
+|---|---|---|
+| Payload, Node-only (historic) | **503 MB**, 25,451 files | The payload build that was measured, before PostgreSQL was bundled at all |
+| Bundled PostgreSQL, before pruning | **822 MB** | Its own directory inside the payload, as staged |
+| Bundled PostgreSQL, after pruning | **120 MB** | The same directory once `doc`/`include`/`symbols`/pgAdmin/StackBuilder are gone |
+| Payload, current (with PostgreSQL) | **679 MB** | What the payload build produces today |
+| Compiled `.exe`, Node-only (historic) | **89.3 MB** | `ERPServerSetup-0.1.0.exe`, the first installer that ever existed as a file |
+| Uploaded artifact of run #14 | **116 MB compressed** | The GitHub Actions artifact `erp-server-installer` |
+
+Two traps worth naming, because both have already been walked into:
+
+- **679 MB is a payload, 116 MB is a compressed artifact, 89.3 MB is an
+  `.exe`.** Comparing any two of them says nothing. In particular the
+  116 MB artifact is *not* smaller than the 89.3 MB `.exe` in any
+  meaningful sense — one is zipped, the other is not — and no difference
+  between them should be claimed.
+- **The 120 MB figure is the pruned PostgreSQL directory, not the payload
+  and not the installer.**
+
+Earlier revisions of this document also carried a "513 MB" payload and a
+"1,381 MB" untrimmed total. Both are gone: 513 contradicts the 503 MB that
+was actually measured alongside a file count, and 1,381 is consistent with
+neither (503 + 822 = 1,325). Nobody re-measured either, so neither is
+stated.
 
 ## Configuration and secrets
 
@@ -225,11 +254,17 @@ PostgreSQL 16 and a real provisioned database:
   silently became `infrastructure/windows/dist/...` and the compile aborted
   with "No files found matching". The path is now passed absolute, and the
   workflow run produced **`ERPServerSetup-0.1.0.exe`, 89.3 MB**, uploaded as an
-  artifact. That was the first time the installer existed as a file. It says
-  nothing about whether it installs — see the pending list below — and that
-  artifact carried no PostgreSQL (it predates the `Stage PostgreSQL` step; a
-  new dispatch would include it).
-- **The payload builds.** 503 MB, 25,451 files after pruning dev dependencies
+  artifact. That was the first time the installer existed as a file, and it
+  carried no PostgreSQL — it predates the `Stage PostgreSQL` step.
+- **A compiled `.exe` that contains PostgreSQL now exists.** Run **#14** of
+  `ERP Server installer` (dispatched on `main` at `728f2ee` with
+  `compile_installer=true`, 2026-09-14 08:22–08:30 UTC) succeeded and uploaded
+  the **`erp-server-installer`** artifact, **116 MB compressed**, downloadable
+  from the repository's Actions tab until 2026-12-13. That is the first
+  installer built with a database inside it. It says nothing about whether it
+  installs — see the pending list below; the `.exe` has still never been run.
+- **The payload builds.** 503 MB Node-only, 25,451 files after pruning dev
+  dependencies — 679 MB today, with PostgreSQL bundled (see "Sizes" above)
   (from 74,000+ before). All expected entry points, both Next standalone trees
   with their static assets, and no rendered service definitions (so no secrets)
   inside it.
@@ -279,16 +314,48 @@ fixed:
    service definitions. The comment no longer spells it out, and the CI check
    above would now catch a recurrence.
 
+### Open risk: which PostgreSQL ends up in the payload, and whether it is intact
+
+Two separate problems, both open on this branch:
+
+**Version.** `Stage PostgreSQL` prefers any PostgreSQL already on the GitHub
+runner whose *major* matches `POSTGRES_MAJOR`, and only downloads
+`POSTGRES_FALLBACK_VERSION` when it finds none. So the exact build that ships
+is decided by whatever GitHub happens to have installed that week. Two runs
+of the **same commit** can bundle different binaries, and the one a customer
+gets may be a build no test ever exercised. A major check is not a pin.
+
+**Integrity.** When the fallback download does run, nothing verifies it. The
+archive is fetched over HTTPS and unzipped, with no checksum and no
+signature, and whatever comes out is copied into the payload and shipped.
+TLS says the bytes came from that host; it says nothing about the bytes
+being the ones that host was supposed to serve, and nothing at all if the
+build is ever pointed at a mirror.
+
+**Neither is recorded.** Nothing in the payload, the artifact or the job
+output says which PostgreSQL went in, so an installed machine cannot answer
+the question either — which is the one that matters during a support call
+about a database that will not start.
+
+This is fixed in a separate PR (`fix/post-merge-review-corrections`): the
+version gets pinned exactly, the download gets a SHA-256 check that fails the
+build on mismatch and blocks release compiles while unset, and version +
+digest + source URL are recorded in `pgsql/POSTGRES-SOURCE.txt` inside the
+payload. Until that lands, treat the bundled engine as unpinned and
+unverified, and do not ship an installer from this branch to anyone.
+
 **Not verified, and needing a clean Windows VM:**
 
 - **Running the installer.** Compiling it is verified (above); no
   `ERPServerSetup-*.exe` has ever been executed on any machine, clean or
   otherwise.
-- **A compiled `.exe` that contains PostgreSQL.** The payload now stages it and
-  CI verifies the binaries and their major on every payload build, but
-  compiling is manual (`compile_installer`) and no `.exe` has been produced
-  since — so no *artifact* containing PostgreSQL exists yet. Dispatch the
-  workflow to make one.
+- **The bundled PostgreSQL actually working.** The payload stages it and CI
+  verifies `initdb`, `pg_ctl`, `postgres`, `pg_dump` and `pg_restore` are
+  present and that `initdb --version` reports major `16`, and run #14 put all
+  of that inside an `.exe`. What none of it shows is that `initdb` can create
+  a cluster: a version banner proves the binary loads its DLLs and nothing
+  more. The pruning above is what makes this worth stating — the first real
+  installation is the test that something needed was not trimmed.
 - **Code signing.** The artifact is unsigned, so Windows SmartScreen will
   flag it on a customer machine.
 - `initdb` and the bundled PostgreSQL running under a Windows service account.

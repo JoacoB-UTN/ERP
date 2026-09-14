@@ -14,6 +14,14 @@ Current accounts, Backups/restore, the Windows ERP Server installer, the
 Gestión sales chart, Tango/Excel price import, user creation, and the
 Brand → ProductLine rename.
 
+**Partially reconciled 2026-09-14 against `main` at `83838a5`**, covering
+the "ERP Server installer (Windows)" section only: PRs #34 (PostgreSQL in
+the payload), #35 and #36 landed after the verification above and #34
+changed what that section asserted, but did not update it. That section
+now matches the merged workflow and `server-installer.md`. **The suites
+were not re-run for this reconciliation** and the counts above are still
+those of the `6225928` run — no other section was re-checked.
+
 This file is authoritative for "what exists right now." If it disagrees
 with a domain doc, the domain doc is stale — fix it. If it disagrees with
 the code, the code is right — fix this file.
@@ -624,13 +632,17 @@ mapping tests, 8 panel tests, 5 screen tests) — the first automated tests
 this app has had; the vitest setup mirrors Facturación's.
 
 ### ERP Server installer (Windows)
-**Status: PARTIAL — the payload is built and proven and the `.exe`
-compiles in CI; installing it anywhere is not.** See
+**Status: PARTIAL — the payload is built and proven, and the `.exe` now
+compiles in CI with PostgreSQL inside it; installing it anywhere is
+not.** See
 [server-installer.md](server-installer.md) for the full matrix of what
 was and was not exercised.
 
-Verified by actually running it: the payload builds (503 MB, 25,451 files
-after pruning dev dependencies); the packaged API boots in production
+Verified by actually running it: the payload builds (**503 MB Node-only**,
+25,451 files after pruning dev dependencies; **679 MB today**, with
+PostgreSQL bundled — see "Sizes" in server-installer.md, which separates
+the payload from the compiled `.exe` and from the compressed artifact);
+the packaged API boots in production
 mode against a real PostgreSQL 16 and serves, reporting `degraded` rather
 than hanging when Redis is absent; provisioning produces a real empty
 installation (1 company, 1 administrator, 8 system roles, 88 permissions
@@ -655,18 +667,44 @@ matching a seeded database. Earlier notes recording 78 predate the
 permissions added by Purchases and Current accounts;
 `docs/server-installer.md` was reconciled to 88 alongside this.)
 
-**The installer compiles in CI — verified.** PR #25 fixed the last thing
-blocking it (Inno Setup resolves a relative `Source:` against the `.iss`
-file's own directory, not the working directory, so the payload path had
-to be passed absolute) and the workflow then ran and produced
-**`ERPServerSetup-0.1.0.exe`, 89.3 MB**, uploaded as a build artifact.
-That is the first time the installer existed as a file. Two caveats that
-matter when reading "the installer builds": the compile step is
-`workflow_dispatch` input `compile_installer`, **default `false`**, so it
-is opt-in and does not run on every payload build; and the artifact it
-produces carries **no bundled PostgreSQL**, because the job deliberately
-runs `build-payload.ps1` without `-PostgresDir` (bundling adds ~200 MB to
-every run). A release installer has to include it.
+**The installer compiles in CI, and now compiles with PostgreSQL inside
+it — verified.** PR #25 fixed the last thing blocking the compile (Inno
+Setup resolves a relative `Source:` against the `.iss` file's own
+directory, not the working directory, so the payload path had to be
+passed absolute) and the workflow then produced **`ERPServerSetup-0.1.0.exe`,
+89.3 MB** — the first time the installer existed as a file, and Node-only.
+
+**PR #34 (`c8a9b86`) closed the PostgreSQL gap.** A `Stage PostgreSQL`
+step resolves a bin directory of the major in `POSTGRES_MAJOR` (`16`)
+before the build and passes it as `-PostgresDir`, preferring one already
+on the runner and otherwise downloading the official Windows binaries
+(`POSTGRES_FALLBACK_VERSION`, `16.10-1`); the GitHub runner ships
+PostgreSQL 17.11, so the major check rejected it and the fallback
+download ran, which is the path working as designed. Staging runs on
+**every** payload build, and the build then verifies `initdb`, `pg_ctl`,
+`postgres`, `pg_dump` and `pg_restore` are present and that `initdb
+--version` reports the expected major. The payload's own copy of
+PostgreSQL is pruned of what a headless cluster never uses (`doc`,
+`include`, `symbols`, `pgAdmin 4`, `StackBuilder`) — the bundled
+PostgreSQL directory goes from **822 MB to 120 MB**, leaving a **679 MB**
+payload against the **503 MB** it measured when it carried no database at
+all. Three different things, and the one number that is NOT in that list
+is the size of the installer: see "Sizes" in
+[server-installer.md](server-installer.md). `install.ps1` now refuses to start when `initdb.exe` is
+missing rather than dying mid-install.
+
+**The first `.exe` with a database inside it exists.** Run **#14** of
+`ERP Server installer`, dispatched on `main` at `728f2ee` with
+`compile_installer=true` (2026-09-14 08:22–08:30 UTC), succeeded and
+uploaded the **`erp-server-installer`** artifact, **116 MB compressed**,
+downloadable from the repository's Actions tab until 2026-12-13. Note the
+compile step is still `workflow_dispatch` input `compile_installer`,
+**default `false`** — it is opt-in and does not run on every payload
+build. The 116 MB figure is a **compressed artifact**, the 89.3 MB figure
+above is an **`.exe`**, and the 679 MB figure is a **payload directory**.
+No two of them are comparable, and no difference between any of them
+should be claimed — in particular the 116 MB artifact is not "smaller"
+than the 89.3 MB `.exe` in any meaningful sense.
 
 **Still not verified, and needing a clean Windows PC** — this is the gate
 before any customer install. Compiling the `.exe` says nothing about
@@ -674,10 +712,21 @@ whether it installs:
 
 - **Installation on a clean Windows machine.** The `.exe` has never been
   run anywhere.
-- **PostgreSQL bundled into the installer.** It is bundled *by design* —
-  the ERP ships and supervises its own instance, loopback-only — and the
-  scripting exists, but every artifact produced so far is Node-only, so
-  this is designed and scripted, not proven.
+- **The bundled PostgreSQL actually starting.** It *is* bundled now (run
+  #14 above), and CI proves the binaries are present and report major
+  `16`. What nothing proves is that `initdb` can create a cluster —
+  `initdb --version` shows the binary loads its DLLs and nothing more.
+  The pruning that took the bundled engine from 822 MB to 120 MB makes
+  this the sharp edge: the first real installation is the test of whether
+  anything needed was trimmed away.
+- **Which PostgreSQL is bundled, and whether it arrived intact.** The
+  staging step accepts any PostgreSQL of the right *major* already on the
+  GitHub runner, so the exact build that ships depends on GitHub's image
+  that week, and two runs of the same commit can bundle different
+  binaries. When it does download instead, nothing checks a hash or a
+  signature. Nothing records which build went in, either — so an installed
+  machine cannot answer the question. Addressed in a separate PR; see
+  "Open risk" in [server-installer.md](server-installer.md).
 - **Code signing.** The artifact is unsigned, so Windows SmartScreen
   will flag it.
 - **Service registration.** WinSW service definitions parse and the
