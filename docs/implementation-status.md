@@ -60,7 +60,7 @@ assignment. 8 system roles seeded per company (Administrador, Gerente,
 Ventas, Depósito, Compras, Tesorería, Contabilidad, Solo lectura).
 Frontend `usePermissions()`/`can()`/`canAny()`/`canAll()`. Covered by
 `authorization.e2e-spec.ts` (9 mandatory scenarios). The seeded catalogue
-is 88 permissions — the length of `PERMISSION_CATALOG` in
+is 91 permissions — the length of `PERMISSION_CATALOG` in
 `packages/shared`, which is the single source both `seed.ts` and
 `provision.ts` iterate, cross-checked against the row count in a seeded
 database.
@@ -139,14 +139,28 @@ in the schema and still drives quantity precision in Inventory.
 **Status: DONE**
 `apps/api/src/inventory` + `src/warehouses`. `StockMovement` ledger,
 `InventoryBalance` projection, `StockReservation` (service-level only —
-no public API yet, see below), `StockAdjustment` (draft/confirm/cancel).
-Gestión: `/stock` (Existencias/Movimientos/Ajustes/Depósitos + Carga
-inicial). Facturación: the warehouse selector now drives a real
-stock-aware sale flow (`GET /inventory/lookup` for product search +
-availability — see [facturacion.md](facturacion.md)) in addition to
-Gestión's own sale flow. Covered by `inventory.e2e-spec.ts` (concurrency,
-reconciliation/rebuild, negative-stock policy) and `sales.e2e-spec.ts`
-(the `SALE` movement type, added by Prompt #10).
+no public API yet, see below), `StockAdjustment` (draft/confirm/cancel),
+`StockTransfer` (draft/confirm/cancel-with-compensation).
+Gestión: `/stock` (Existencias/Movimientos/Ajustes/Transferencias/
+Depósitos + Carga inicial). Facturación: the warehouse selector now
+drives a real stock-aware sale flow (`GET /inventory/lookup` for product
+search + availability — see [facturacion.md](facturacion.md)) in addition
+to Gestión's own sale flow. Covered by `inventory.e2e-spec.ts`
+(concurrency, reconciliation/rebuild, negative-stock policy),
+`stock-transfers.e2e-spec.ts` (both halves of a confirmation, insufficient
+stock with full rollback, compensating cancellation, two concurrent
+confirmations of the same transfer, company isolation, permissions) and
+`sales.e2e-spec.ts` (the `SALE` movement type, added by Prompt #10).
+
+Sub-item — **Warehouse transfers**: **DONE**. Moving stock between two
+warehouses is one document (`TR-000001`) rather than two unrelated
+adjustments. A confirmation writes a `TRANSFER_OUT`/`TRANSFER_IN` pair in
+one transaction, OUT first so an insufficient source aborts before the
+destination is credited; cancelling a confirmed transfer adds a
+compensating pair with the warehouses swapped and never edits what was
+already written. `confirm()` opens with a conditional status UPDATE, so a
+double confirm is impossible rather than merely unlikely. See
+[inventory.md](inventory.md).
 
 Sub-item — **Stock reservations**: **PARTIAL**. `InventoryService.reserve`/
 `release`/`consume` are implemented and tested at the service level, but
@@ -619,8 +633,10 @@ Verified by actually running it: the payload builds (503 MB, 25,451 files
 after pruning dev dependencies); the packaged API boots in production
 mode against a real PostgreSQL 16 and serves, reporting `degraded` rather
 than hanging when Redis is absent; provisioning produces a real empty
-installation (1 company, 1 administrator, 8 system roles, 88 permissions,
-2 currencies, 0 customers/products/sales) and is idempotent across runs;
+installation (1 company, 1 administrator, 8 system roles, 88 permissions
+— the catalogue's size on the day of that run; it seeds whatever
+`PERMISSION_CATALOG` holds, 91 today — 2 currencies, 0 customers/products/
+sales) and is idempotent across runs;
 the provisioned administrator can log in and holds every permission; the
 packaged agent takes a verified backup and the packaged API reports it;
 packaged Gestión serves the real UI and resolves the API from the page's
@@ -726,14 +742,6 @@ reporting surface: no configurable widgets, no report builder, no
 exports, no aging or stock valuation reports, and a single currency per
 series. The only export anywhere in the product is the price-list
 spreadsheet described under Pricing.
-
-### Warehouse transfers
-**Status: NOT IMPLEMENTED.** `MovementType` reserves `TRANSFER_IN` and
-`TRANSFER_OUT` for forward compatibility, but no service, endpoint,
-screen or test produces them — `grep -ri transfer apps/api/src` returns
-nothing outside the generated Prisma client. Moving stock between
-warehouses today requires an adjustment out of one and into the other,
-which records two unrelated adjustments instead of one transfer.
 
 ### Returns and credit/debit notes
 **Status: NOT IMPLEMENTED.** `MovementType.SALE_RETURN` /
