@@ -34,6 +34,8 @@
     "test:e2e": "npm run test:e2e --workspace=apps/api",
     "pretest:facturacion": "npm run build:packages",
     "test:facturacion": "npm run test --workspace=apps/facturacion",
+    "pretest:gestion": "npm run build:packages",
+    "test:gestion": "npm run test --workspace=apps/gestion",
     "test:desktop": "npm run test --workspace=apps/desktop",
     "test:server-agent": "npm run test --workspace=apps/server-agent",
     "package:desktop": "npm run package --workspace=apps/desktop",
