@@ -1,11 +1,11 @@
 # Task 016 — Transferencias de stock entre depósitos
 
-Status: IN PROGRESS
+Status: DONE
 Depends on: 008 (Inventory)
 Agent: Claude
 Base branch: main
 Branch: feature/stock-transfers
-PR:
+PR: #33 (merge `f99cbb4`, 14 sep 2026)
 
 ## Objective
 
