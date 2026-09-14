@@ -48,8 +48,7 @@ type ProductWithSummaryRelations = Product & {
   category: ProductCategory | null;
   line: ProductLine | null;
 };
-type ProductWithDetailRelations = ProductWithSummaryRelations & {
-};
+type ProductWithDetailRelations = ProductWithSummaryRelations & {};
 
 type AuditableProductFields = Record<
   | 'name'

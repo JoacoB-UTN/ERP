@@ -97,7 +97,13 @@ export class SalesSeriesService {
         step,
         'current',
       ),
-      this.windowTotals(companyId, currency.id, granularity, buckets, 'current'),
+      this.windowTotals(
+        companyId,
+        currency.id,
+        granularity,
+        buckets,
+        'current',
+      ),
       this.windowTotals(
         companyId,
         currency.id,
@@ -275,7 +281,9 @@ export class SalesSeriesService {
     buckets: number,
     which: 'current' | 'previous',
   ): Promise<DashboardSalesTotalsDto> {
-    const from = Prisma.raw(which === 'current' ? 'b.win_start' : 'b.prev_start');
+    const from = Prisma.raw(
+      which === 'current' ? 'b.win_start' : 'b.prev_start',
+    );
     const to = Prisma.raw(which === 'current' ? 'b.win_end' : 'b.win_start');
     const rows = await this.prisma.$queryRaw<
       Array<{ total: Prisma.Decimal | null; cnt: bigint }>
@@ -297,7 +305,9 @@ export class SalesSeriesService {
     // uses. Zero sales means a zero ticket, not a division by zero.
     const averageTicket =
       count > 0
-        ? amount.dividedBy(count).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP)
+        ? amount
+            .dividedBy(count)
+            .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP)
         : ZERO;
     return {
       amount: amount.toString(),

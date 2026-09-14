@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import type { CreateProductLineInput, UpdateProductLineInput, ProductLineDto } from '@erp/shared';
+import type {
+  CreateProductLineInput,
+  UpdateProductLineInput,
+  ProductLineDto,
+} from '@erp/shared';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { RequestContext } from '../company-context/types';

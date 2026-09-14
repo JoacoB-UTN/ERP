@@ -24,10 +24,6 @@ import { ProductLinesService } from './product-lines.service';
     ProductCategoriesController,
     ProductLinesController,
   ],
-  providers: [
-    ProductsService,
-    ProductCategoriesService,
-    ProductLinesService,
-  ],
+  providers: [ProductsService, ProductCategoriesService, ProductLinesService],
 })
 export class ProductsModule {}

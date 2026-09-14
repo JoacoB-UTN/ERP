@@ -165,20 +165,27 @@ export class PriceImportService {
     priceListId: string,
     query: PriceExportQuery,
   ): Promise<{ fileName: string; buffer: Buffer }> {
-    const list = await this.pricingService.loadPriceList(companyId, priceListId);
+    const list = await this.pricingService.loadPriceList(
+      companyId,
+      priceListId,
+    );
 
     // Reuses the screen's own listing so the file always contains exactly
     // what the filters show — a second query with its own idea of the
     // filters would drift the moment either changed.
-    const items = await this.priceListsService.listItems(companyId, priceListId, {
-      search: query.search,
-      categoryId: query.categoryId,
-      lineId: query.lineId,
-      status: query.status,
-      hasPrice: query.hasPrice,
-      page: 1,
-      pageSize: EXPORT_PAGE_SIZE,
-    });
+    const items = await this.priceListsService.listItems(
+      companyId,
+      priceListId,
+      {
+        search: query.search,
+        categoryId: query.categoryId,
+        lineId: query.lineId,
+        status: query.status,
+        hasPrice: query.hasPrice,
+        page: 1,
+        pageSize: EXPORT_PAGE_SIZE,
+      },
+    );
 
     const selected = query.variantIds ? new Set(query.variantIds) : null;
     const rows = items.items
@@ -200,11 +207,28 @@ export class PriceImportService {
       sheetName: 'Precios',
       columns: [
         { header: PRICE_WORKBOOK_HEADERS.variantId, width: 38, readOnly: true },
-        { header: PRICE_WORKBOOK_HEADERS.productCode, width: 14, readOnly: true },
+        {
+          header: PRICE_WORKBOOK_HEADERS.productCode,
+          width: 14,
+          readOnly: true,
+        },
         { header: PRICE_WORKBOOK_HEADERS.sku, width: 18, readOnly: true },
-        { header: PRICE_WORKBOOK_HEADERS.productName, width: 42, readOnly: true },
-        { header: PRICE_WORKBOOK_HEADERS.variantName, width: 22, readOnly: true },
-        { header: PRICE_WORKBOOK_HEADERS.currentPrice, width: 16, readOnly: true, numeric: true },
+        {
+          header: PRICE_WORKBOOK_HEADERS.productName,
+          width: 42,
+          readOnly: true,
+        },
+        {
+          header: PRICE_WORKBOOK_HEADERS.variantName,
+          width: 22,
+          readOnly: true,
+        },
+        {
+          header: PRICE_WORKBOOK_HEADERS.currentPrice,
+          width: 16,
+          readOnly: true,
+          numeric: true,
+        },
         { header: PRICE_WORKBOOK_HEADERS.newPrice, width: 16, numeric: true },
       ],
       rows,
@@ -284,7 +308,10 @@ export class PriceImportService {
 
   // ---------- Shared machinery ----------
 
-  private async read(file: Buffer, requiredHeaders: string[]): Promise<SheetTable> {
+  private async read(
+    file: Buffer,
+    requiredHeaders: string[],
+  ): Promise<SheetTable> {
     let table: SheetTable | null;
     try {
       table = await readSheetTable(file, requiredHeaders);
@@ -330,7 +357,10 @@ export class PriceImportService {
         name: true,
         active: true,
         product: { select: { name: true } },
-        codes: { where: { active: true, type: 'BARCODE' }, select: { code: true } },
+        codes: {
+          where: { active: true, type: 'BARCODE' },
+          select: { code: true },
+        },
       },
     });
 
@@ -364,8 +394,10 @@ export class PriceImportService {
       const idHit = row.code ? byId.get(row.code) : undefined;
       let candidates: string[] | undefined;
       if (idHit) candidates = [idHit.id];
-      else if (row.barcode) candidates = byBarcode.get(normalizeCode(row.barcode));
-      if (!candidates && row.code) candidates = bySku.get(normalizeCode(row.code));
+      else if (row.barcode)
+        candidates = byBarcode.get(normalizeCode(row.barcode));
+      if (!candidates && row.code)
+        candidates = bySku.get(normalizeCode(row.code));
 
       if (!candidates || candidates.length === 0) {
         return { ...base, status: 'NOT_FOUND' as const };
@@ -463,7 +495,10 @@ export class PriceImportService {
       await this.pricingService.setPrices(ctx, priceListId, {
         effectiveFrom,
         reason,
-        items: chunk.map((c) => ({ productVariantId: c.variantId, price: c.price })),
+        items: chunk.map((c) => ({
+          productVariantId: c.variantId,
+          price: c.price,
+        })),
       });
       applied += chunk.length;
     }
@@ -475,7 +510,10 @@ export class PriceImportService {
     };
   }
 
-  private toPreview(resolved: ResolvedRow[], fileRows: number): PriceImportPreviewDto {
+  private toPreview(
+    resolved: ResolvedRow[],
+    fileRows: number,
+  ): PriceImportPreviewDto {
     const counts = Object.fromEntries(
       priceImportRowStatusValues.map((s) => [s, 0]),
     ) as Record<PriceImportRowStatus, number>;

@@ -22,11 +22,20 @@ export function cellText(value: ExcelJS.CellValue): string {
     // Object]", which would silently become a product code that matches
     // nothing.
     if ('richText' in value && Array.isArray(value.richText)) {
-      return value.richText.map((part) => part.text).join('').trim();
+      return value.richText
+        .map((part) => part.text)
+        .join('')
+        .trim();
     }
-    if ('text' in value && typeof value.text === 'string') return value.text.trim();
-    if ('result' in value) return cellText(value.result as ExcelJS.CellValue);
-    if ('formula' in value) return '';
+    if ('text' in value && typeof value.text === 'string')
+      return value.text.trim();
+    if ('result' in value) return cellText(value.result);
+    // Anything else object-shaped — a formula with no cached result, an
+    // error value, a shape a future ExcelJS adds — reads as empty rather
+    // than as "[object Object]". A cell we cannot interpret has no text;
+    // pretending it does would put that literal string into a product code
+    // and match nothing, loudly and confusingly.
+    return '';
   }
   return String(value).trim();
 }
@@ -90,7 +99,10 @@ export function parseDecimal(value: ExcelJS.CellValue): string | null {
     // A lone comma is a decimal separator ("1234,56"), unless it is being
     // used for grouping in a value with exactly three trailing digits and
     // more than one group ("1,234,567").
-    text = text.split(',').length > 2 ? text.replace(/,/g, '') : text.replace(',', '.');
+    text =
+      text.split(',').length > 2
+        ? text.replace(/,/g, '')
+        : text.replace(',', '.');
   }
 
   if (!/^-?\d*\.?\d+$/.test(text)) return null;
@@ -196,7 +208,10 @@ export async function buildWorkbook(params: {
     views: [{ state: 'frozen', ySplit: 1 }],
   });
 
-  sheet.columns = params.columns.map((c) => ({ header: c.header, width: c.width }));
+  sheet.columns = params.columns.map((c) => ({
+    header: c.header,
+    width: c.width,
+  }));
 
   const header = sheet.getRow(1);
   header.font = { bold: true };

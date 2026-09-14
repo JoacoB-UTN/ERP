@@ -95,7 +95,8 @@ export class PriceListsController {
   async exportPrices(
     @CurrentRequestContext() ctx: RequestContext,
     @Param('id') id: string,
-    @Query(new ZodValidationPipe(priceExportQuerySchema)) query: PriceExportQuery,
+    @Query(new ZodValidationPipe(priceExportQuerySchema))
+    query: PriceExportQuery,
     @Res() res: Response,
   ): Promise<void> {
     const { fileName, buffer } = await this.priceImportService.exportPrices(
@@ -127,7 +128,11 @@ export class PriceListsController {
     @Param('id') id: string,
     @UploadedFile(uploadPipe) file: Express.Multer.File,
   ): Promise<PriceImportPreviewResponse> {
-    const preview = await this.priceImportService.previewTango(ctx, id, file.buffer);
+    const preview = await this.priceImportService.previewTango(
+      ctx,
+      id,
+      file.buffer,
+    );
     return { preview };
   }
 
@@ -171,7 +176,12 @@ export class PriceListsController {
     @UploadedFile(uploadPipe) file: Express.Multer.File,
     @Body('reason') reason?: string,
   ): Promise<PriceImportResultResponse> {
-    return this.priceImportService.applyPriceWorkbook(ctx, id, file.buffer, reason);
+    return this.priceImportService.applyPriceWorkbook(
+      ctx,
+      id,
+      file.buffer,
+      reason,
+    );
   }
 
   @RequirePermissions('pricing.lists.read')
