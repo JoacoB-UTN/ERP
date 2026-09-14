@@ -106,3 +106,30 @@ export interface SalesDocumentOutstandingResponse {
   total: string;
   outstanding: string;
 }
+
+// ---------- Spanish presentation layer ----------
+
+/**
+ * What each ledger movement is called on screen.
+ *
+ * Written out rather than derived from the enum name because these are read
+ * by an accountant, not a developer: "TENDER_SETTLEMENT" is the code for
+ * "the sale was paid at the counter", and only the second one belongs in a
+ * statement. The map is keyed loosely so a movement type added to the API
+ * before this table renders as its raw code instead of crashing the screen.
+ */
+export const CUSTOMER_ACCOUNT_MOVEMENT_LABELS: Record<string, string> = {
+  SALE_CHARGE: 'Venta',
+  TENDER_SETTLEMENT: 'Cobro en el acto',
+  COLLECTION: 'Cobro',
+  COLLECTION_REVERSAL: 'Anulación de cobro',
+  CREDIT_NOTE: 'Nota de crédito',
+  DEBIT_NOTE: 'Nota de débito',
+  OPENING_BALANCE: 'Saldo inicial',
+  ADJUSTMENT: 'Ajuste',
+  WRITE_OFF: 'Incobrable',
+};
+
+export function customerAccountMovementLabel(value: string): string {
+  return CUSTOMER_ACCOUNT_MOVEMENT_LABELS[value] ?? value;
+}

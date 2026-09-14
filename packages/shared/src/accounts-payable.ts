@@ -99,3 +99,21 @@ export interface PurchaseReceiptOutstandingResponse {
   total: string;
   outstanding: string;
 }
+
+// ---------- Spanish presentation layer ----------
+
+/** Symmetric to CUSTOMER_ACCOUNT_MOVEMENT_LABELS — see accounts-receivable.ts. */
+export const SUPPLIER_ACCOUNT_MOVEMENT_LABELS: Record<string, string> = {
+  PURCHASE_RECEIPT_ACCRUAL: 'Recepción',
+  PURCHASE_RECEIPT_REVERSAL: 'Anulación de recepción',
+  SUPPLIER_PAYMENT: 'Pago',
+  SUPPLIER_PAYMENT_REVERSAL: 'Anulación de pago',
+  PURCHASE_INVOICE: 'Factura de compra',
+  PURCHASE_CREDIT_NOTE: 'Nota de crédito de compra',
+  OPENING_BALANCE: 'Saldo inicial',
+  ADJUSTMENT: 'Ajuste',
+};
+
+export function supplierAccountMovementLabel(value: string): string {
+  return SUPPLIER_ACCOUNT_MOVEMENT_LABELS[value] ?? value;
+}
