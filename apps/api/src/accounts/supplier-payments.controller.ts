@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   createSupplierPaymentSchema,
@@ -22,8 +23,10 @@ import { RequirePermissions } from '../authorization/decorators/require-permissi
 import { CurrentRequestContext } from '../company-context/decorators/current-request-context.decorator';
 import type { RequestContext } from '../company-context/types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
+import { CurrentAccountsReadyGuard } from './current-accounts-ready.guard';
 import { SupplierPaymentsService } from './supplier-payments.service';
 
+@UseGuards(CurrentAccountsReadyGuard)
 @Controller('supplier-payments')
 export class SupplierPaymentsController {
   constructor(

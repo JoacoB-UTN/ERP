@@ -29,11 +29,19 @@ function deferred<T>() {
 
 const ok: HealthProbe = {
   reachable: true,
-  response: { status: 'ok', services: { database: 'ok', redis: 'ok' } },
+  response: {
+    status: 'ok',
+    services: { database: 'ok', redis: 'ok' },
+    currentAccountsBackfill: 'complete',
+  },
 };
 const degraded: HealthProbe = {
   reachable: true,
-  response: { status: 'degraded', services: { database: 'ok', redis: 'error' } },
+  response: {
+    status: 'degraded',
+    services: { database: 'ok', redis: 'error' },
+    currentAccountsBackfill: 'complete',
+  },
 };
 const unreachable: HealthProbe = { reachable: false, response: null };
 
@@ -108,7 +116,11 @@ describe('useServerHealth', () => {
   it('reports a database failure as disconnected while keeping the real answer', async () => {
     const dbDown: HealthProbe = {
       reachable: true,
-      response: { status: 'error', services: { database: 'error', redis: 'ok' } },
+      response: {
+        status: 'error',
+        services: { database: 'error', redis: 'ok' },
+        currentAccountsBackfill: 'complete',
+      },
     };
     mocks.fetchHealth.mockResolvedValue(dbDown);
     const { result } = renderHook(() => useServerHealth(), { wrapper });

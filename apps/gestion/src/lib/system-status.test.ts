@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { CurrentAccountsBackfillState } from '@erp/shared';
 import type { HealthProbe } from './api';
 import { describeSystemStatus, formatCheckedAt } from './system-status';
 
@@ -12,7 +13,11 @@ const reachable = (
   status: 'ok' | 'degraded' | 'error',
   database: 'ok' | 'error',
   redis: 'ok' | 'error',
-): HealthProbe => ({ reachable: true, response: { status, services: { database, redis } } });
+  backfill: CurrentAccountsBackfillState = 'complete',
+): HealthProbe => ({
+  reachable: true,
+  response: { status, services: { database, redis }, currentAccountsBackfill: backfill },
+});
 
 const unreachable: HealthProbe = { reachable: false, response: null };
 
@@ -151,5 +156,56 @@ describe('formatCheckedAt', () => {
     const out = formatCheckedAt(new Date('2026-09-12T09:05:00').getTime(), now);
     expect(out).not.toMatch(/hoy/);
     expect(out).toMatch(/sep/i);
+  });
+});
+
+describe('describeSystemStatus · histórico de cuentas corrientes', () => {
+  const backfillRow = (state: CurrentAccountsBackfillState) =>
+    view(reachable('ok', 'ok', 'ok', state)).services.find(
+      (svc) => svc.key === 'currentAccountsBackfill',
+    );
+
+  it('names each state in words an operator can act on', () => {
+    expect(backfillRow('complete')?.value).toBe('Al día');
+    expect(backfillRow('running')?.value).toBe('Ejecutando…');
+    expect(backfillRow('failed')?.value).toBe('Falló');
+    expect(backfillRow('disabled')?.value).toBe('Desactivado');
+    expect(backfillRow('pending')?.value).toBe('Pendiente');
+  });
+
+  it('does not call the system fully operative while the histórico is not loaded', () => {
+    // The infrastructure being fine is not the same as the ERP being able to
+    // answer. Saying "Sistema operativo" here would contradict the screen the
+    // operator just hit, which is where they would go looking next.
+    for (const state of ['pending', 'running', 'failed', 'disabled'] as const) {
+      const v = view(reachable('ok', 'ok', 'ok', state));
+      expect(v.overallLabel).toBe('Cuentas corrientes no disponibles');
+      expect(v.overallTone).toBe('warning');
+    }
+    expect(view(reachable('ok', 'ok', 'ok', 'complete')).overallLabel).toBe(
+      'Sistema operativo',
+    );
+  });
+
+  it('treats "desactivado" as a warning, never as if the ledger were fine', () => {
+    const row = backfillRow('disabled');
+    expect(row?.tone).toBe('warning');
+    expect(row?.value).not.toBe('Al día');
+  });
+
+  it('shows no business data — only a state word', () => {
+    for (const state of [
+      'complete',
+      'running',
+      'failed',
+      'disabled',
+      'pending',
+    ] as const) {
+      const row = backfillRow(state);
+      const text = `${row?.value ?? ''} ${row?.hint ?? ''}`;
+      // No amounts, no counts, no company or customer names.
+      expect(text).not.toMatch(/\d/);
+      expect(text).not.toMatch(/\$/);
+    }
   });
 });

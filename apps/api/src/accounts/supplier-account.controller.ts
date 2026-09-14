@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
   supplierAccountListQuerySchema,
   supplierStatementQuerySchema,
@@ -16,8 +16,10 @@ import { RequirePermissions } from '../authorization/decorators/require-permissi
 import { CurrentRequestContext } from '../company-context/decorators/current-request-context.decorator';
 import type { RequestContext } from '../company-context/types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
+import { CurrentAccountsReadyGuard } from './current-accounts-ready.guard';
 import { SupplierAccountService } from './supplier-account.service';
 
+@UseGuards(CurrentAccountsReadyGuard)
 @Controller('supplier-accounts')
 export class SupplierAccountController {
   constructor(
@@ -74,6 +76,7 @@ export class SupplierAccountController {
   }
 }
 
+@UseGuards(CurrentAccountsReadyGuard)
 @Controller('purchase-receipts/:purchaseReceiptId/outstanding')
 export class PurchaseReceiptOutstandingController {
   constructor(

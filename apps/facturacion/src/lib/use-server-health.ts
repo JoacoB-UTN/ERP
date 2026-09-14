@@ -24,7 +24,15 @@ async function fetchHealth(): Promise<HealthResponse> {
     }
     return (await res.json()) as HealthResponse;
   } catch {
-    return { status: 'error', services: { database: 'error', redis: 'error' } };
+    return {
+      status: 'error',
+      services: { database: 'error', redis: 'error' },
+      // Nothing was established, so the conservative reading applies: not
+      // `complete`. Facturación does not surface this field — the Current
+      // Accounts panel lives in Gestión — but claiming the ledger was
+      // loaded, on a probe that never arrived, would be an invention.
+      currentAccountsBackfill: 'pending',
+    };
   }
 }
 

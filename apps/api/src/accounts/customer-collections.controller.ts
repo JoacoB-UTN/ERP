@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   createCustomerCollectionSchema,
@@ -22,8 +23,10 @@ import { RequirePermissions } from '../authorization/decorators/require-permissi
 import { CurrentRequestContext } from '../company-context/decorators/current-request-context.decorator';
 import type { RequestContext } from '../company-context/types';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
+import { CurrentAccountsReadyGuard } from './current-accounts-ready.guard';
 import { CustomerCollectionsService } from './customer-collections.service';
 
+@UseGuards(CurrentAccountsReadyGuard)
 @Controller('customer-collections')
 export class CustomerCollectionsController {
   constructor(

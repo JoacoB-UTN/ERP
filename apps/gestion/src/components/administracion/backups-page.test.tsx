@@ -32,7 +32,11 @@ vi.mock('@/lib/use-server-health', () => ({
     status: 'connected',
     probe: {
       reachable: true,
-      response: { status: 'ok', services: { database: 'ok', redis: 'ok' } },
+      response: {
+        status: 'ok',
+        services: { database: 'ok', redis: 'ok' },
+        currentAccountsBackfill: 'complete',
+      },
     },
     isFirstCheck: false,
     isChecking: false,

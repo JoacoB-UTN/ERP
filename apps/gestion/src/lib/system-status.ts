@@ -1,3 +1,4 @@
+import type { CurrentAccountsBackfillState } from '@erp/shared';
 import type { HealthProbe } from './api';
 
 /**
@@ -7,14 +8,20 @@ import type { HealthProbe } from './api';
  * and that is a property of this mapping, testable on its own.
  *
  * It reports only what `GET /health` returns — reachability, PostgreSQL,
- * Redis. No uptime, version, disk, memory or latency: the endpoint does not
- * measure them, so the panel does not show them.
+ * Redis, and the Current Accounts backfill state. No uptime, version, disk,
+ * memory or latency: the endpoint does not measure them, so the panel does
+ * not show them.
+ *
+ * The backfill row is a STATE and nothing else — no counts, no company
+ * names, no amounts. An operator needs to know whether current accounts can
+ * be trusted right now; they do not need, and this screen must not leak,
+ * anything about what is in them.
  */
 
 export type SystemStatusTone = 'success' | 'warning' | 'danger' | 'neutral';
 
 export interface SystemStatusService {
-  key: 'api' | 'database' | 'redis';
+  key: 'api' | 'database' | 'redis' | 'currentAccountsBackfill';
   label: string;
   /** Always a word, never only a colour — the tone is an addition to this, not a substitute. */
   value: string;
@@ -30,6 +37,60 @@ export interface SystemStatusView {
 }
 
 const UNKNOWN = 'No se pudo comprobar';
+
+const BACKFILL_LABEL = 'Cuentas corrientes (histórico)';
+
+/**
+ * One row per backfill state. `disabled` is deliberately NOT worded as if
+ * everything were fine: turning the automatic load off hands the job to an
+ * operator, it does not do the job.
+ */
+function describeBackfill(
+  state: CurrentAccountsBackfillState,
+): SystemStatusService {
+  switch (state) {
+    case 'complete':
+      return {
+        key: 'currentAccountsBackfill',
+        label: BACKFILL_LABEL,
+        value: 'Al día',
+        tone: 'success',
+      };
+    case 'running':
+      return {
+        key: 'currentAccountsBackfill',
+        label: BACKFILL_LABEL,
+        value: 'Ejecutando…',
+        tone: 'neutral',
+        hint: 'Se están cargando los movimientos históricos. Las pantallas de cuentas corrientes no responden hasta que termine.',
+      };
+    case 'failed':
+      return {
+        key: 'currentAccountsBackfill',
+        label: BACKFILL_LABEL,
+        value: 'Falló',
+        tone: 'danger',
+        hint: 'No se pudieron cargar los movimientos históricos. Las cuentas corrientes no están disponibles; avisá a soporte.',
+      };
+    case 'disabled':
+      return {
+        key: 'currentAccountsBackfill',
+        label: BACKFILL_LABEL,
+        value: 'Desactivado',
+        tone: 'warning',
+        hint: 'La carga automática está apagada por configuración. Hasta que se ejecute a mano, las cuentas corrientes no están disponibles.',
+      };
+    case 'pending':
+    default:
+      return {
+        key: 'currentAccountsBackfill',
+        label: BACKFILL_LABEL,
+        value: 'Pendiente',
+        tone: 'warning',
+        hint: 'Todavía no se terminó de cargar el histórico. Las cuentas corrientes no responden hasta entonces.',
+      };
+  }
+}
 
 export function describeSystemStatus(input: {
   /** True only before the first probe resolves. A background refetch is NOT this. */
@@ -50,6 +111,12 @@ export function describeSystemStatus(input: {
         { key: 'api', label: 'Servidor del ERP', value: 'Comprobando…', tone: 'neutral' },
         { key: 'database', label: 'Base de datos', value: 'Comprobando…', tone: 'neutral' },
         { key: 'redis', label: 'Caché (Redis)', value: 'Comprobando…', tone: 'neutral' },
+        {
+          key: 'currentAccountsBackfill',
+          label: BACKFILL_LABEL,
+          value: 'Comprobando…',
+          tone: 'neutral',
+        },
       ],
     };
   }
@@ -73,11 +140,18 @@ export function describeSystemStatus(input: {
         },
         { key: 'database', label: 'Base de datos', value: UNKNOWN, tone: 'neutral' },
         { key: 'redis', label: 'Caché (Redis)', value: UNKNOWN, tone: 'neutral' },
+        {
+          key: 'currentAccountsBackfill',
+          label: BACKFILL_LABEL,
+          value: UNKNOWN,
+          tone: 'neutral',
+        },
       ],
     };
   }
 
   const { services } = probe.response;
+  const backfill = describeBackfill(probe.response.currentAccountsBackfill);
   const databaseDown = services.database === 'error';
   const redisDown = services.redis === 'error';
 
@@ -123,7 +197,7 @@ export function describeSystemStatus(input: {
       overallTone: 'danger',
       overallDetail:
         'El servidor responde, pero su base de datos no. Las operaciones del ERP no pueden continuar hasta que se restablezca.',
-      services: [api, database, redis],
+      services: [api, database, redis, backfill],
     };
   }
 
@@ -133,7 +207,20 @@ export function describeSystemStatus(input: {
       overallTone: 'warning',
       overallDetail:
         'El sistema puede seguir operando con normalidad. Un servicio auxiliar no está disponible y eso no implica pérdida de datos.',
-      services: [api, database, redis],
+      services: [api, database, redis, backfill],
+    };
+  }
+
+  // The infrastructure is fine, but a module that cannot answer is not
+  // "todo operativo". Saying so here is the difference between a panel an
+  // operator can act on and one that contradicts the screen they just hit.
+  if (probe.response.currentAccountsBackfill !== 'complete') {
+    return {
+      overallLabel: 'Cuentas corrientes no disponibles',
+      overallTone: 'warning',
+      overallDetail:
+        'El servidor y la base de datos responden con normalidad, pero todavía no se cargó el histórico de cuentas corrientes. Esas pantallas no responden hasta que termine.',
+      services: [api, database, redis, backfill],
     };
   }
 
@@ -141,7 +228,7 @@ export function describeSystemStatus(input: {
     overallLabel: 'Sistema operativo',
     overallTone: 'success',
     overallDetail: 'El servidor y la base de datos responden con normalidad.',
-    services: [api, database, redis],
+    services: [api, database, redis, backfill],
   };
 }
 
