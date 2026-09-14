@@ -30,6 +30,15 @@ export const envSchema = z
     // backup. Must match the agent's own ERP_BACKUP_DIR.
     ERP_BACKUP_DIR: z.string().min(1).default('./backups'),
 
+    // Runs the Current Accounts historical backfill on API startup — see
+    // docs/current-accounts.md. On by default: an installation that
+    // upgrades into the Current Accounts module otherwise has an empty
+    // ledger against sales that already exist, and every customer reads
+    // as owing nothing until someone runs the script by hand. Set to
+    // "false" to take that responsibility manually
+    // (`npm run db:backfill-current-accounts --workspace=apps/api`).
+    ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT: booleanString('true'),
+
     // ---- Authentication ----
     // Signs short-lived access token JWTs. The default is an obviously-fake
     // placeholder so local dev works out of the box; production MUST set a

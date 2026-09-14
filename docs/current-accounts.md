@@ -240,19 +240,60 @@ Semantics it applies:
   (`confirmedAt` set) → accrual **and** reversal, so the history shows both.
   `CANCELLED` without ever confirming, or `DRAFT` → nothing.
 
-### Open question
+### It runs on API startup — decision taken
 
-**It is a standalone script, and nothing makes an upgrade run it.**
+The gap this section used to describe is closed. `CurrentAccountsBackfillService`
+(`apps/api/src/accounts/current-accounts-backfill.service.ts`) runs the backfill
+on `onApplicationBootstrap`, so an installation that upgrades into this module
+posts its historical movements the first time the API comes up, with nobody
+needing to know the script exists. The CLI still works and is still the way to
+do it by hand.
 
-A Local ERP installation that upgrades into this module gets the tables and
-the code, and a completely empty ledger against sales that already exist —
-every customer reads as owing nothing. The script fixes that and is safe to
-run, but an administrator has to know to run it.
+**Why a startup check, and not the other two options.**
 
-That gap is not closed. Whether it becomes a migration step, a startup check,
-or a prompt in the installer is an open decision; until it is made, an
-upgrade of an existing installation is not complete without running the
-backfill by hand.
+- **Not a migration.** A Prisma migration is SQL, and the semantics above are
+  not mechanical: a confirmed sale posts `SALE_CHARGE` *plus* `TENDER_SETTLEMENT`
+  only when it has a tender, and a receipt `CANCELLED` after being confirmed
+  posts an accrual *and* its reversal while one cancelled straight from draft
+  posts nothing. Restating that in SQL would create a second copy of the rules
+  to keep in step with the TypeScript one. A migration also runs exactly once,
+  so the planned Tango data migration would land historical rows it would never
+  see.
+- **Not an installer step.** It would fix the Windows `.exe` path and leave
+  Docker, manual upgrades and development alone with the same empty ledger.
+
+**Why running it on every boot is safe.** The backfill is idempotent by
+construction (above), and it only ever *inserts* — it never updates or deletes
+a movement, so it cannot damage a ledger that is already correct. A cheap
+`EXISTS` probe runs first, so a healthy installation pays one query per boot
+and loads nothing.
+
+**How it behaves:**
+
+- The probe runs outside any transaction or lock. If the ledger is complete,
+  that single query is the whole cost and nothing else happens.
+- When there is work, everything runs inside one `$transaction` holding a
+  **transaction-scoped** advisory lock (`pg_try_advisory_xact_lock`). Several
+  API instances can boot at once on a LAN; one does the work and the others
+  move on. A session-scoped lock would be wrong here: Prisma gives each
+  standalone query whichever pooled connection is free, so the lock and its
+  release can land on different connections — the release then fails silently
+  and the lock is held until that connection dies, which on a long-lived API
+  process means the backfill never runs again.
+- It re-probes inside the lock, in case another instance finished in between.
+- Documents are read in batches (`BACKFILL_BATCH_SIZE`), so an installation
+  with years of history does not load all of it into memory at boot.
+- It never blocks or crashes startup. A failure is logged with the command to
+  run by hand, and the API serves anyway: a ledger still missing rows is bad,
+  an API that will not boot is worse.
+- It writes one `AuditLog` row, in the same transaction as the movements, and
+  only when it actually posted something. The row carries no `companyId`,
+  `tenantId` or `userId` — the backfill spans every company and has no actor,
+  and inventing one would be a lie (see the comment above `model AuditLog`).
+
+**Turning it off.** `ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false` skips it
+entirely, for an operator who would rather run
+`npm run db:backfill-current-accounts --workspace=apps/api` themselves.
 
 ## Deferred
 

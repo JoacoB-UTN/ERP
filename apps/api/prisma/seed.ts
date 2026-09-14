@@ -3,7 +3,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { passwordSchema, PERMISSION_CATALOG } from '@erp/shared';
 import { PrismaClient, Prisma } from '../src/generated/prisma/client';
 import { ALL_PERMISSION_CODES, SYSTEM_ROLES } from './system-roles';
-import { backfillCurrentAccounts } from './current-accounts-backfill';
+import { backfillCurrentAccounts } from '../src/accounts/current-accounts-backfill';
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),

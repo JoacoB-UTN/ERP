@@ -18,6 +18,7 @@ import { CustomerCollectionsController } from './customer-collections.controller
 import { CustomerCollectionsService } from './customer-collections.service';
 import { SupplierPaymentsController } from './supplier-payments.controller';
 import { SupplierPaymentsService } from './supplier-payments.service';
+import { CurrentAccountsBackfillService } from './current-accounts-backfill.service';
 
 /**
  * Customer/Supplier Current Accounts, Collections ("Cobros") and Supplier
@@ -49,6 +50,7 @@ import { SupplierPaymentsService } from './supplier-payments.service';
     SupplierAccountService,
     CustomerCollectionsService,
     SupplierPaymentsService,
+    CurrentAccountsBackfillService,
   ],
   exports: [CustomerAccountService, SupplierAccountService],
 })

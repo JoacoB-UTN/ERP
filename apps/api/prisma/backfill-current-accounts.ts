@@ -4,14 +4,18 @@
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client';
-import { backfillCurrentAccounts } from './current-accounts-backfill';
+import { backfillCurrentAccounts } from '../src/accounts/current-accounts-backfill';
 
 /**
  * CLI entry point for the Current Accounts backfill — see
- * current-accounts-backfill.ts for the actual (idempotent) logic, also
- * reused by seed.ts for its own demo sales/receipts.
+ * src/accounts/current-accounts-backfill.ts for the actual (idempotent)
+ * logic, also reused by seed.ts for its own demo sales/receipts and run
+ * automatically on API startup by CurrentAccountsBackfillService.
  *
  * Run via `npm run db:backfill-current-accounts --workspace=apps/api`.
+ * Still useful when the startup check is disabled with
+ * ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false, or to post the ledger
+ * without restarting the API.
  */
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
