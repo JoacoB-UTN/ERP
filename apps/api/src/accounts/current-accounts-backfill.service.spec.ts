@@ -80,10 +80,36 @@ describe('CurrentAccountsBackfillService', () => {
       expect(service.getState()).toBe('pending');
     });
 
-    it('is `disabled` when turned off, never `complete`', async () => {
+    it('is `disabled` when turned off and the ledger really is missing rows', async () => {
+      mockedHasPending.mockResolvedValue(true);
       const { service } = build({ enabled: false });
       await service.onApplicationBootstrap();
       // Handing the job to an operator is not doing the job.
+      expect(service.getState()).toBe('disabled');
+    });
+
+    it('is `complete` when turned off but the ledger has nothing outstanding', async () => {
+      // The operator ran the CLI by hand and restarted — exactly what the
+      // flag is for. `disabled` used to be terminal, so this process would
+      // have refused current accounts for its whole life over a ledger that
+      // was already loaded. The flag decides whether to POST, never whether
+      // the ledger is correct: that is the probe's answer.
+      mockedHasPending.mockResolvedValue(false);
+      const { service, transaction } = build({ enabled: false });
+
+      await service.onApplicationBootstrap();
+
+      expect(service.getState()).toBe('complete');
+      // Still posted nothing: probing is not loading.
+      expect(transaction).not.toHaveBeenCalled();
+      expect(mockedBackfill).not.toHaveBeenCalled();
+    });
+
+    it('is `disabled` when turned off and the ledger cannot be checked', async () => {
+      // A probe that cannot run establishes nothing, so nothing is claimed.
+      mockedHasPending.mockRejectedValue(new Error('no connection'));
+      const { service } = build({ enabled: false });
+      await service.onApplicationBootstrap();
       expect(service.getState()).toBe('disabled');
     });
 
@@ -136,12 +162,17 @@ describe('CurrentAccountsBackfillService', () => {
     });
   });
 
-  it('does nothing at all when disabled — not even the probe', async () => {
+  it('posts nothing when disabled, but still looks at the ledger', async () => {
+    // The distinction the flag actually draws. It turns off the WRITE, not
+    // the question: one cheap EXISTS is what separates "the operator loaded
+    // it themselves" from "nobody has loaded it", and without it the module
+    // refuses forever in both cases alike.
+    mockedHasPending.mockResolvedValue(true);
     const { service, transaction } = build({ enabled: false });
 
     await service.onApplicationBootstrap();
 
-    expect(mockedHasPending).not.toHaveBeenCalled();
+    expect(mockedHasPending).toHaveBeenCalledTimes(1);
     expect(transaction).not.toHaveBeenCalled();
     expect(mockedBackfill).not.toHaveBeenCalled();
   });

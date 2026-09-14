@@ -52,11 +52,16 @@ export type BackfillTrigger = 'startup';
  * - `complete`  — a pass finished and the probe says nothing is pending.
  * - `failed`    — a pass threw. The ledger is in whatever state it was;
  *                 startup deliberately continued anyway.
- * - `disabled`  — turned off by configuration. Nothing is claimed about the
- *                 ledger, because nothing was checked.
+ * - `disabled`  — turned off by configuration AND the probe found work
+ *                 still outstanding. Nothing was posted; the ledger is
+ *                 known to be incomplete.
  *
  * `disabled` is NOT `complete`: an operator who took responsibility for
- * running the script by hand has not thereby made the ledger correct.
+ * running the script by hand has not thereby made the ledger correct. But
+ * the flag alone does not decide the state either — when it is off, the
+ * probe still runs and reports `complete` if the ledger genuinely has
+ * nothing outstanding, which is what makes "run the CLI and restart" a
+ * real recovery rather than a one-way door.
  */
 export type CurrentAccountsBackfillState =
   'pending' | 'running' | 'complete' | 'failed' | 'disabled';
@@ -146,10 +151,43 @@ export class CurrentAccountsBackfillService implements OnApplicationBootstrap {
       { infer: true },
     );
     if (!enabled) {
-      this.state = 'disabled';
-      this.logger.log(
-        'Current accounts backfill on boot is disabled (ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false) — run `npm run db:backfill-current-accounts --workspace=apps/api` by hand if this installation is upgrading into the module.',
-      );
+      // Turned off, so nothing is POSTED here. The cheap probe still runs:
+      // refusing to load the ledger is not the same as refusing to look at
+      // it, and an operator who ran the CLI by hand has a complete ledger
+      // that this process would otherwise never notice.
+      //
+      // Without this, `disabled` was terminal. `run()` is only ever called
+      // from this method and `refreshIfPending()` only revisits `pending`,
+      // so every Current Accounts endpoint would answer 503 for the life of
+      // the process — permanently, over a ledger that is in fact loaded.
+      // That turned a supported configuration into a way to break the
+      // module, and the documented recovery ("run it by hand and restart")
+      // did not work, because the restart never re-checked either.
+      //
+      // `disabled` is still not `complete`: what earns `complete` here is
+      // the probe finding nothing outstanding, never the flag itself.
+      try {
+        if (await hasPendingCurrentAccountsBackfill(this.prisma)) {
+          this.state = 'disabled';
+          this.logger.warn(
+            'Current accounts backfill on boot is disabled (ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false) and the ledger IS missing historical movements — current accounts will refuse to answer until `npm run db:backfill-current-accounts --workspace=apps/api` is run and the API restarted.',
+          );
+        } else {
+          this.state = 'complete';
+          this.logger.log(
+            'Current accounts backfill on boot is disabled (ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false); the ledger has nothing outstanding, so current accounts are available.',
+          );
+        }
+      } catch (error) {
+        // A probe that cannot run establishes nothing, so nothing is
+        // claimed: refusing is the safe answer.
+        this.state = 'disabled';
+        this.logger.error(
+          `Current accounts backfill on boot is disabled and the ledger could not be checked — current accounts will refuse to answer. ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
       return;
     }
     await this.run('startup');

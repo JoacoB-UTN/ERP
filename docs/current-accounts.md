@@ -291,9 +291,18 @@ and loads nothing.
   `tenantId` or `userId` — the backfill spans every company and has no actor,
   and inventing one would be a lie (see the comment above `model AuditLog`).
 
-**Turning it off.** `ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false` skips it
-entirely, for an operator who would rather run
-`npm run db:backfill-current-accounts --workspace=apps/api` themselves.
+**Turning it off.** `ERP_CURRENT_ACCOUNTS_BACKFILL_ON_BOOT=false` skips the
+load, for an operator who would rather run
+`npm run db:backfill-current-accounts --workspace=apps/api` themselves. It
+turns off the **write**, not the question: the cheap `EXISTS` probe still
+runs at boot, so an installation whose ledger the operator already loaded is
+recognised as complete instead of being refused. Nothing is posted either
+way.
+
+That distinction is the whole difference between a flag and a trap. Without
+the probe, `disabled` is terminal — nothing else ever revisits it — and the
+module answers 503 for the life of the process even once the ledger is
+loaded, which would make the documented recovery below impossible.
 
 ### The module refuses to answer until the ledger is loaded
 
@@ -316,12 +325,16 @@ The states, and why each is or is not served:
 | `pending` | no | Nothing has finished yet, or a pass ended with work still outstanding |
 | `running` | no | A pass is in flight |
 | `failed` | no | A pass threw; the reason is kept for the operator panel |
-| `disabled` | no | Turned off by configuration |
+| `disabled` | no | Turned off by configuration **and** the probe found work outstanding |
 
 `disabled` is **not** `complete`. Turning the automatic load off hands the
 responsibility to an operator; it does not make the ledger correct, and the
-gate must not imply that it did. An installation that runs the script by
-hand and restarts gets `complete` on the next boot.
+gate must not imply that it did. But the flag does not decide the state on
+its own either — with it off, a ledger the probe finds nothing outstanding
+in reports `complete` and is served. So an installation that runs the script
+by hand and restarts really does get `complete` on the next boot, with the
+flag still off. (If the probe itself cannot run, the state is `disabled`:
+nothing was established, so nothing is claimed.)
 
 **`pending` is re-checked, not trusted.** On a LAN two API instances boot
 together; the one that loses the advisory lock skips its own pass and
