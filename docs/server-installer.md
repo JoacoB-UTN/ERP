@@ -131,8 +131,19 @@ the archive and compares it against `POSTGRES_SHA256`:
 - `POSTGRES_SHA256` is empty → the step prints the digest it computed and
   warns that nothing was verified. A **release** build
   (`compile_installer=true`) refuses to run at all in this state, so an
-  unverified engine cannot reach an `.exe`. Filling the value in is a
-  one-line change reviewed like any other pinned dependency.
+  unverified engine cannot reach an `.exe`.
+
+**What the pin is and is not worth.** The pinned digest was taken from what
+CI computed while downloading over HTTPS from the URL above. That is
+**trust-on-first-use**: it detects the archive *changing* from here on — a
+swapped build, a corrupted transfer, a tampered mirror — which is the half
+of the problem that actually bites. It is **not** verification against a
+checksum EnterpriseDB published, because none is published next to that
+artifact. If the very first download had already been wrong, this pin would
+faithfully preserve the wrong thing.
+
+Still open, and worth doing before shipping to customers: cross-checking
+against a vendor-signed digest, or building PostgreSQL from source.
 
 What was staged is recorded in `pgsql/POSTGRES-SOURCE.txt` inside the
 payload — version, digest, whether it was verified, and the source URL —
