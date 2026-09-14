@@ -42,10 +42,20 @@ const mocks = vi.hoisted(() => ({
     string,
     { isSuccess: boolean; isError: boolean; data: { items: unknown[] } | undefined }
   >,
+  // `null` = every permission granted, which is what all the pre-existing
+  // tests assume. A test that cares sets an explicit list.
+  permissions: null as string[] | null,
+  // The options `PosWorkspace` last passed to `useCustomerLookup`, so a
+  // test can assert the query was never enabled rather than only that no
+  // customer appeared — those are different failures.
+  lastLookupOptions: undefined as { enabled?: boolean } | undefined,
 }));
 
 vi.mock('@/lib/auth-client', () => ({
-  usePermissions: () => ({ can: () => true, isLoading: false }),
+  usePermissions: () => ({
+    can: (code: string) => mocks.permissions === null || mocks.permissions.includes(code),
+    isLoading: false,
+  }),
   useActiveWarehouse: () => ({
     activeWarehouseId: 'warehouse-1',
     isLoading: false,
@@ -61,7 +71,16 @@ vi.mock('@/lib/auth-client', () => ({
   useCreateSale: () => ({ mutateAsync: mocks.createSale }),
   useUpdateSale: () => ({ mutateAsync: mocks.updateSale }),
   useConfirmSale: () => ({ mutateAsync: mocks.confirmSale }),
-  useCustomerLookup: () => mocks.customerLookupByCompany[mocks.companyId] ?? mocks.customerLookup,
+  useCustomerLookup: (_query: unknown, options?: { enabled?: boolean }) => {
+    mocks.lastLookupOptions = options;
+    // A disabled react-query never resolves and carries no data. Modelling
+    // that matters: a mock that handed back rows regardless of `enabled`
+    // would let a component that forgot the permission gate still pass.
+    if (options?.enabled === false) {
+      return { isSuccess: false, isError: false, data: undefined };
+    }
+    return mocks.customerLookupByCompany[mocks.companyId] ?? mocks.customerLookup;
+  },
   apiFetch: vi.fn(async (url: string) => {
     if (url.includes('/pricing/lookup/batch')) {
       return { items: [], currencyCode: 'ARS' };
@@ -180,6 +199,8 @@ beforeEach(() => {
   mocks.companyId = 'company-1';
   mocks.customerLookup = { isSuccess: false, isError: false, data: undefined };
   mocks.customerLookupByCompany = {};
+  mocks.permissions = null;
+  mocks.lastLookupOptions = undefined;
 });
 
 // vitest auto-cleanup isn't configured globally in this project (no
@@ -449,7 +470,7 @@ describe('PosWorkspace default (walk-in) customer', () => {
     expect(await screen.findByText('Café 1 kg')).toBeTruthy();
   });
 
-  it('drops the previous company customer before resolving the new one', async () => {
+  it('drops the previous company default customer before resolving the new one', async () => {
     mocks.customerLookupByCompany = {
       'company-1': resolvedWith([cfItem({ id: 'cf-company-1' })]),
       // company-2 deliberately absent: the real hook keys its query by
@@ -462,15 +483,67 @@ describe('PosWorkspace default (walk-in) customer', () => {
     mocks.companyId = 'company-2';
     rerender(<PosWorkspace />);
 
-    // Company 1's customer is gone, and nothing takes its place while
-    // company 2's own lookup is still in flight.
-    await waitFor(() => expect(selectedCustomerId()).toBeNull());
+    // No `waitFor`: the very first render of company 2 must already be
+    // free of company 1's customer. An effect-based reset would only
+    // clear it on a later pass, and this assertion is what catches that.
+    expect(selectedCustomerId()).toBeNull();
     expect(screen.getByText('select-customer')).toBeTruthy();
 
     // Then company 2's own walk-in row lands and is selected.
     mocks.customerLookupByCompany['company-2'] = resolvedWith([cfItem({ id: 'cf-company-2' })]);
     rerender(<PosWorkspace />);
     await waitFor(() => expect(selectedCustomerId()).toBe('cf-company-2'));
+  });
+
+  it('drops a MANUALLY chosen customer on the first render of the new company', async () => {
+    // The dangerous case: an explicit choice is state the operator made,
+    // so it survives everything except a company switch — and it must not
+    // survive that even for one paint.
+    mocks.customerLookupByCompany = { 'company-1': resolvedWith([]) };
+    const { rerender } = render(<PosWorkspace />);
+    fireEvent.click(await screen.findByText('select-customer'));
+    await screen.findByTestId('selected-customer');
+    expect(selectedCustomerId()).toBe('customer-1');
+
+    mocks.companyId = 'company-2';
+    rerender(<PosWorkspace />);
+
+    expect(selectedCustomerId()).toBeNull();
+    expect(screen.queryByText('Consumidor Final')).toBeNull();
+
+    // And company 2 starts over at "the operator has not decided yet", so
+    // its own walk-in customer is free to fill the slot.
+    mocks.customerLookupByCompany['company-2'] = resolvedWith([cfItem({ id: 'cf-company-2' })]);
+    rerender(<PosWorkspace />);
+    await waitFor(() => expect(selectedCustomerId()).toBe('cf-company-2'));
+  });
+
+  it('never asks for customers without customers.read', async () => {
+    // A custom cashier role: can build and confirm a sale, cannot read the
+    // customer list. `GET /customers/lookup` is guarded by `customers.read`,
+    // so enabling the query here would fire a request that returns 403 the
+    // moment POS opens.
+    mocks.permissions = ['sales.documents.create', 'sales.documents.confirm'];
+    mocks.customerLookup = resolvedWith([cfItem()]);
+    render(<PosWorkspace />);
+
+    await screen.findByText('select-customer');
+    expect(mocks.lastLookupOptions?.enabled).toBe(false);
+    // Asserted separately from `enabled` on purpose: a disabled query that
+    // still auto-selected from cached data would be a different bug.
+    expect(screen.queryByTestId('selected-customer')).toBeNull();
+  });
+
+  it('asks for customers when the role does hold customers.read', async () => {
+    // The complement of the test above — otherwise `enabled: false`
+    // everywhere would also pass it.
+    mocks.permissions = ['sales.documents.create', 'sales.documents.confirm', 'customers.read'];
+    mocks.customerLookup = resolvedWith([cfItem()]);
+    render(<PosWorkspace />);
+
+    await screen.findByTestId('selected-customer');
+    expect(mocks.lastLookupOptions?.enabled).toBe(true);
+    expect(selectedCustomerId()).toBe('customer-cf');
   });
 
   it('does not overwrite a customer the operator picked first', async () => {
