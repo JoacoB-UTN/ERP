@@ -40,6 +40,13 @@ param(
   # binary zip extracted to a staging folder. Optional: omit it to build a
   # payload for testing the Node side without the ~200 MB database.
   [string]$PostgresDir,
+  # Path to vc_redist.x64.exe, the Visual C++ redistributable installer.
+  # REQUIRED whenever -PostgresDir is given: PostgreSQL's Windows binaries
+  # link against the MSVC runtime (vcruntime140.dll, vcruntime140_1.dll,
+  # msvcp140.dll), which a clean Windows install does NOT have. Without it
+  # every PostgreSQL executable dies with 0xC0000135 (DLL not found) before
+  # printing a single line -- see docs/server-installer.md.
+  [string]$VcRedistPath,
   # Path to an already-downloaded WinSW executable. Omit it and the script
   # fetches the pinned release below. Use it on a build machine with no
   # internet, or to substitute the much smaller WinSW.NET461.exe (see the
@@ -343,6 +350,25 @@ try {
     if (-not (Test-Path (Join-Path $PostgresDir 'initdb.exe'))) {
       throw "-PostgresDir must point at a PostgreSQL bin directory containing initdb.exe"
     }
+
+    # Refused rather than warned about, because a payload that carries
+    # PostgreSQL without its runtime is exactly the artifact that shipped
+    # before: it builds, it passes CI, and it cannot install on any clean
+    # Windows machine. Coupling the two here makes that combination
+    # impossible to produce by accident.
+    if (-not $VcRedistPath) {
+      throw @"
+-PostgresDir was given without -VcRedistPath.
+
+PostgreSQL's Windows binaries link against the Visual C++ runtime, which a
+clean Windows install does not have. A payload with PostgreSQL and no
+redistributable installs nothing: initdb dies with 0xC0000135 before it can
+print an error. Pass -VcRedistPath, or build without PostgreSQL.
+"@
+    }
+    if (-not (Test-Path $VcRedistPath)) {
+      throw "-VcRedistPath does not exist: $VcRedistPath"
+    }
     $pgTarget = Join-Path $payload 'pgsql'
     Copy-Tree (Split-Path $PostgresDir -Parent) $pgTarget
 
@@ -362,6 +388,13 @@ try {
     }
     $after = (Get-ChildItem $pgTarget -Recurse -File | Measure-Object Length -Sum).Sum
     Write-Step ("PostgreSQL pruned: {0:N0} MB -> {1:N0} MB" -f ($before/1MB), ($after/1MB))
+
+    # Staged next to the database it exists for, so it is obvious why the
+    # payload carries an unrelated-looking Microsoft installer.
+    $vcTarget = Join-Path $payload 'vcredist'
+    New-Item -ItemType Directory -Path $vcTarget -Force | Out-Null
+    Copy-Item -Path $VcRedistPath -Destination (Join-Path $vcTarget 'vc_redist.x64.exe')
+    Write-Step ("Staged Visual C++ redistributable ({0:N0} MB)" -f ((Get-Item $VcRedistPath).Length/1MB))
   } else {
     Write-Warning "No -PostgresDir given: the payload will not contain PostgreSQL. Node services can still be tested."
   }

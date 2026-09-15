@@ -99,13 +99,70 @@ Nothing has been written to this machine. See docs/server-installer.md.
 "@
 }
 
+# ---------------------------------------------------------------------------
+# Visual C++ runtime -- BEFORE any PostgreSQL binary is executed
+# ---------------------------------------------------------------------------
+# PostgreSQL's Windows binaries link against the MSVC runtime
+# (vcruntime140.dll, vcruntime140_1.dll, msvcp140.dll). A clean Windows
+# install does NOT ship it. Without this step every PostgreSQL executable
+# exits with 0xC0000135 -- STATUS_DLL_NOT_FOUND -- before printing anything,
+# so the version check below would report an empty string and the operator
+# would see "the bundled initdb could not run" with no cause.
+#
+# This is not hypothetical: it is what the first real installation on a clean
+# Windows 10 machine hit. CI never caught it because GitHub's runners already
+# have the redistributable, so the same binaries that fail on a customer's PC
+# initialise a cluster perfectly on a runner.
+#
+# The official redistributable is run rather than copying the DLLs next to the
+# executables: app-local copies are never serviced, so a security fix for the
+# runtime would silently never reach an installed machine.
+$vcRedist = Join-Path $InstallDir (Join-Path 'vcredist' 'vc_redist.x64.exe')
+if (Test-Path $vcRedist) {
+  Write-Step 'Installing the Visual C++ runtime (required by PostgreSQL)'
+  $vc = Start-Process -FilePath $vcRedist -ArgumentList '/install', '/quiet', '/norestart' -Wait -PassThru
+  switch ($vc.ExitCode) {
+    0     { Write-Host '    installed' }
+    1638  { Write-Host '    a newer version is already present -- nothing to do' }
+    3010  { Write-Host '    installed; Windows wants a restart, which the ERP does not need right now' }
+    default {
+      throw "The Visual C++ redistributable failed to install (exit $($vc.ExitCode)). PostgreSQL cannot run without it. Nothing has been written to this machine."
+    }
+  }
+} else {
+  # Not fatal on its own: a machine that already has the runtime installs
+  # fine. The binary check below is what actually decides, and it now says
+  # so in terms an operator can act on.
+  Write-Warning "No vcredist/vc_redist.x64.exe in the payload. If this machine does not already have the Visual C++ runtime, PostgreSQL will not start."
+}
+
 # The bundled major must be the one the product is built and tested against:
 # the backup agent's pg_dump has to match the cluster it dumps, and a cluster
 # initialised by one major cannot be read by another.
 $initdbExe = Join-Path $pgBin 'initdb.exe'
 $bundledVersion = (& $initdbExe --version 2>&1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) {
-  throw "The bundled initdb could not run ($initdbExe). It reported: $bundledVersion"
+  # 0xC0000135 as a signed int. It means a DLL the executable needs is
+  # missing, and for these binaries that is almost always the Visual C++
+  # runtime -- which produces NO output at all, so the bare "it reported:"
+  # below would show an empty string and name nothing.
+  if ($LASTEXITCODE -eq -1073741515) {
+    throw @"
+The bundled PostgreSQL cannot start: a required DLL is missing.
+
+$initdbExe exited with 0xC0000135 (STATUS_DLL_NOT_FOUND) without printing
+anything. On a clean Windows machine this is the Visual C++ runtime --
+vcruntime140.dll, vcruntime140_1.dll and msvcp140.dll are not part of
+Windows and PostgreSQL's binaries need all three.
+
+Expected at: $vcRedist
+Present:     $(Test-Path $vcRedist)
+
+If that file is missing, this installer was built without the redistributable
+and cannot install here. Nothing has been written to this machine.
+"@
+  }
+  throw "The bundled initdb could not run ($initdbExe), exit $LASTEXITCODE. It reported: $bundledVersion"
 }
 if ($bundledVersion -notmatch '\s16\.') {
   throw "This installer bundles '$bundledVersion', but the ERP is built for PostgreSQL 16.x. Nothing has been written to this machine."
@@ -166,11 +223,69 @@ $databaseUrl = "postgresql://erp:$($secrets.dbPassword)@127.0.0.1:$PgPort/erp?sc
 Write-Step 'Restricting install directory permissions'
 $acl = Get-Acl $InstallDir
 $acl.SetAccessRuleProtection($true, $false)   # stop inheriting Users
-foreach ($identity in @('NT AUTHORITY\SYSTEM', 'BUILTIN\Administrators')) {
+
+# Well-known SIDs, NOT names. 'NT AUTHORITY\SYSTEM' and 'BUILTIN\Administrators'
+# are the ENGLISH names of these accounts; on a Spanish Windows they are
+# 'NT AUTHORITY\SISTEMA' and 'BUILTIN\Administradores', and AddAccessRule
+# throws IdentityNotMappedException. Every customer of this product runs a
+# localised Windows, so the name form fails on all of them -- while passing on
+# an English CI runner and an English developer machine.
+#
+# A SID is the same everywhere: S-1-5-18 is SYSTEM and S-1-5-32-544 is the
+# Administrators group, in every language and on every machine.
+$identities = @(
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
+)
+foreach ($identity in $identities) {
   $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
         $identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
 }
+
+# Users get read+execute on the tree, and this is NOT a relaxation of the
+# hardening -- it is what makes the bundled database able to run at all.
+#
+# PostgreSQL refuses to execute with administrative privileges: initdb,
+# pg_ctl and postgres call CreateRestrictedToken to DROP the Administrators
+# SID from their own token before doing any real work. With the tree readable
+# only by SYSTEM and Administrators, that restricted process cannot open its
+# own DLLs, and every one of them dies with 0xC0000135 -- silently, printing
+# nothing at all, because it fails inside the loader before main() runs.
+#
+# The secrets are protected below instead, on the directories that actually
+# hold them. What must not be readable is the database password and the JWT
+# signing key, not initdb.exe.
+$usersSid = [System.Security.Principal.SecurityIdentifier]::new(
+  [System.Security.Principal.WellKnownSidType]::BuiltinUsersSid, $null)
+$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+      $usersSid, 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
 Set-Acl -Path $InstallDir -AclObject $acl
+
+# The directories that carry secrets or business data: SYSTEM and
+# Administrators only, inheritance broken so the read+execute rule above does
+# not reach them. `config` holds erp-secrets.json, `services` the rendered
+# WinSW definitions with the database password and the signing key in them,
+# and `backups` the dumps.
+#
+# `data` is deliberately NOT in this list. The cluster directory is created
+# and then written by PostgreSQL under its restricted token -- during an
+# installation that token belongs to the administrator running the installer,
+# not to SYSTEM -- so locking it to SYSTEM and Administrators reintroduces
+# exactly the failure described above. Tightening it properly means granting
+# the account the service actually runs as; see docs/server-installer.md.
+foreach ($name in @('config', 'services', 'backups')) {
+  $dir = Join-Path $InstallDir $name
+  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+  $secretAcl = Get-Acl $dir
+  $secretAcl.SetAccessRuleProtection($true, $false)
+  foreach ($identity in $identities) {
+    $secretAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+          $identity, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+  }
+  Set-Acl -Path $dir -AclObject $secretAcl
+}
 
 # ---------------------------------------------------------------------------
 # PostgreSQL cluster

@@ -49,6 +49,20 @@ env:
   # this artifact. Cross-checking against a vendor-signed digest is still open;
   # see docs/server-installer.md.
   POSTGRES_SHA256: 'ebb3b6af4fa69dea9951b66855bc4d42dc04e56ccb9aa7024ce3c58bd89d6b0c'
+  # The Visual C++ runtime PostgreSQL's binaries link against. Not optional
+  # and not a nicety: a clean Windows install has no vcruntime140.dll, so
+  # without this every PostgreSQL executable exits with 0xC0000135 before
+  # printing anything. The runners already have it, which is exactly why CI
+  # shipped a payload that could not install anywhere.
+  VCREDIST_URL: 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+  # Deliberately NOT pinned the way POSTGRES_SHA256 is. That URL is a rolling
+  # permalink Microsoft republishes as it services the runtime, so a required
+  # pin would fail the build every time they ship a security fix -- and the
+  # thing being fetched is a Microsoft-signed installer whose signature is
+  # checked below, which the PostgreSQL zip has no equivalent of. Set this to
+  # enforce a specific build; leave it empty to record the digest without
+  # enforcing it.
+  VCREDIST_SHA256: ''
   # Dummy/test-only values — never real secrets. Needed because `next build`
   # and `prisma generate` read the environment.
   DATABASE_URL: 'postgresql://erp:erp@localhost:5432/erp_platform_test?schema=public'
@@ -151,9 +165,52 @@ jobs:
 
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### Bundled PostgreSQL`n`n- version: ``$version```n- sha256: ``$actual```n- checksum pinned: $([bool]$expected)" -Encoding utf8
 
+      - name: Stage the Visual C++ redistributable
+        id: vcredist
+        shell: pwsh
+        # Staged on EVERY payload build, for the same reason PostgreSQL is:
+        # discovering a broken download on release day is worse than paying
+        # for it on every run.
+        run: |
+          $url  = "${{ env.VCREDIST_URL }}"
+          $dest = Join-Path $env:RUNNER_TEMP 'vc_redist.x64.exe'
+          Write-Host "Downloading the Visual C++ redistributable from $url"
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+          } catch {
+            Write-Host "::error::Could not download the Visual C++ redistributable from $url -- $($_.Exception.Message). PostgreSQL cannot run without it, so the payload must not be built."
+            exit 1
+          }
+
+          $actual = (Get-FileHash -Path $dest -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "SHA-256: $actual"
+          $expected = "${{ env.VCREDIST_SHA256 }}".Trim().ToLowerInvariant()
+          if ($expected -and $actual -ne $expected) {
+            Write-Host "::error::Visual C++ redistributable checksum mismatch. Expected $expected, got $actual."
+            exit 1
+          }
+
+          # What the rolling permalink gives instead of a pin: the file is
+          # Authenticode-signed by Microsoft, and that IS verifiable here.
+          $sig = Get-AuthenticodeSignature -FilePath $dest
+          Write-Host "Signature: $($sig.Status) / $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') {
+            Write-Host "::error::The downloaded vc_redist.x64.exe is not validly signed ($($sig.Status)). Refusing to bundle it."
+            exit 1
+          }
+          if ($sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+            Write-Host "::error::vc_redist.x64.exe is signed by an unexpected publisher: $($sig.SignerCertificate.Subject)"
+            exit 1
+          }
+
+          $ver = (Get-Item $dest).VersionInfo.ProductVersion
+          Write-Host "Product version: $ver"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "path=$dest" -Encoding utf8
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### Bundled Visual C++ runtime`n`n- version: ``$ver```n- sha256: ``$actual```n- signature: $($sig.Status)" -Encoding utf8
+
       - name: Build payload
         shell: pwsh
-        run: ./infrastructure/windows/build-payload.ps1 -Build -PostgresDir '${{ steps.postgres.outputs.dir }}'
+        run: ./infrastructure/windows/build-payload.ps1 -Build -PostgresDir '${{ steps.postgres.outputs.dir }}' -VcRedistPath '${{ steps.vcredist.outputs.path }}'
 
       - name: Record which PostgreSQL was bundled
         shell: pwsh
@@ -203,7 +260,11 @@ jobs:
             # The smoke test below connects with it; listed so a future
             # pruning change fails here rather than inside that step.
             "$payload/pgsql/bin/psql.exe",
-            "$payload/pgsql/POSTGRES-SOURCE.txt"
+            "$payload/pgsql/POSTGRES-SOURCE.txt",
+            # Without this the payload builds, passes every check here, and
+            # cannot install on any machine that lacks the runtime -- which
+            # is every clean Windows install.
+            "$payload/vcredist/vc_redist.x64.exe"
           )
           $missing = $required | Where-Object { -not (Test-Path $_) }
           if ($missing) {

@@ -1,12 +1,20 @@
 # ERP Server installer (Windows)
 
-**Status: IMPLEMENTED AND IT COMPILES; NOT YET INSTALLED ANYWHERE.** The
-payload build, the provisioning path and — since PR #25 — compiling the `.exe`
-in CI are all verified (see "What is actually verified" at the end). What has
-never happened is an install: no `ERPServerSetup-*.exe` has been run on any
-machine. Producing an installer and installing with it are different claims,
-and only the first one is currently true. Treat the first install on a clean
-Windows box as part of the work, not as a formality.
+**Status: IT HAS NOW BEEN RUN ON A CLEAN MACHINE, AND IT FAILED THREE TIMES
+BEFORE IT WORKED.** The payload build, the provisioning path and — since PR
+#25 — compiling the `.exe` in CI were already verified. On 2026-09-14 the
+installer was finally executed on a clean Windows 10 Home VM and hit three
+consecutive blocking defects, none of which CI could see: no Visual C++
+runtime, English-only identity names in the ACL step, and an ACL hardening
+that locked PostgreSQL out of its own binaries. All three are fixed — see
+"The first real installation, and the three things it found" below.
+
+What is still **not** verified is everything after a successful first
+install: service registration against the real Service Control Manager,
+survival across a reboot, the ACLs against a non-administrator, an upgrade
+over an existing installation, and the uninstall path. The pending list near
+the end of this document is the authority on that; do not read "it installs
+now" as "it is ready for a customer".
 
 This is the second half of Phase 1's remaining work. The first half — scheduled
 backups — is [backups.md](backups.md), and this installer is what registers
@@ -385,6 +393,102 @@ trust-on-first-use, not a vendor-published checksum, because EnterpriseDB
 publishes none next to that artifact. Cross-checking against a vendor-signed
 digest, or building PostgreSQL from source, is worth doing before shipping to
 customers.
+
+## The first real installation, and the three things it found
+
+**2026-09-14.** The installer was run for the first time on a machine that was
+not a developer's and not a CI runner: a clean Windows 10 Home 22H2 VM
+(build 19045.3803, Spanish, stock PowerShell 5.1, no Node, no PostgreSQL, no
+Visual C++ runtime). It failed, three times, for three unrelated reasons.
+
+None of the three could have been caught by CI, and that is the point worth
+keeping: every one of them is invisible on a GitHub runner because the runner
+is not a customer's machine.
+
+### 1. PostgreSQL could not start: no Visual C++ runtime
+
+`initdb.exe` exited with **0xC0000135 (STATUS_DLL_NOT_FOUND)** printing
+nothing at all. PostgreSQL's Windows binaries link against the MSVC runtime —
+`vcruntime140.dll`, `vcruntime140_1.dll`, `msvcp140.dll` — and **Windows does
+not ship it**. The payload did not carry it and the installer did not install
+it, so the bundled database could not run on any clean machine.
+
+CI missed it because GitHub's runners already have the redistributable: the
+smoke test added in PR #39 initialises a cluster, serves a query and takes a
+`pg_dump` there, with the same binaries that cannot load here.
+
+Fixed by staging the official `vc_redist.x64.exe` into the payload and running
+it (`/install /quiet /norestart`) before any PostgreSQL binary is executed.
+`build-payload.ps1` now **refuses** to bundle PostgreSQL without it, because
+the combination that shipped before is a payload that builds, passes every
+check, and installs nowhere. The redistributable is run rather than copying
+the DLLs next to the executables so the runtime keeps being serviced by
+Windows Update.
+
+The error message was also wrong in a way that mattered: it reported "the
+bundled initdb could not run" and showed an empty string, because a process
+that dies in the loader prints nothing. It now names the missing runtime and
+says where the installer expected to find it.
+
+### 2. The ACL step failed on a Spanish Windows
+
+`AddAccessRule` threw **IdentityNotMappedException**. The identities were
+written as names — the ENGLISH names of those accounts. On a Spanish Windows
+the same accounts are `SISTEMA` and `Administradores`, and the lookup fails.
+
+This is not an edge case for this product: every customer runs a localised
+Windows, so the installer would have failed on all of them, while passing on
+an English developer machine and an English CI runner.
+
+Fixed by using well-known SIDs (`S-1-5-18`, `S-1-5-32-544`) through
+`WellKnownSidType`, which are identical in every language.
+
+### 3. The ACL hardening locked PostgreSQL out of its own binaries
+
+With the tree restricted to SYSTEM and Administrators, `initdb` failed with
+0xC0000135 again — after the runtime was installed and after `initdb
+--version` worked.
+
+The cause is a deliberate PostgreSQL behaviour: it **refuses to run with
+administrative privileges**, and calls `CreateRestrictedToken` to drop the
+Administrators SID from its own token before doing real work. The restricted
+process then had no access to the directory holding its DLLs, and died inside
+the loader — silently, before `main()`, which is why neither stdout nor
+stderr carried a single byte.
+
+Fixed by granting the built-in Users group read+execute on the install tree
+and breaking inheritance on the directories that actually hold something worth
+protecting — `config` (the secrets), `services` (the rendered definitions,
+which contain the database password and the signing key) and `backups` (the
+dumps). What must not be readable is the password, not `initdb.exe`.
+
+`data` is deliberately left out of that list: the cluster is written by
+PostgreSQL under the same restricted token, so restricting it reintroduces
+the failure. Granting the account the service actually runs as is follow-up
+work.
+
+### What this says about the CI smoke test
+
+The smoke test from PR #39 is still worth having — it proves the binaries are
+complete and a cluster can be created. But it cannot prove the installer
+works, and this section is the evidence: three consecutive blocking defects
+on the first real machine, with CI green throughout. Treat "the payload
+builds and the smoke test passes" as saying nothing about whether a customer
+can install.
+
+### Two more things the same run established, without executing anything
+
+- **The ports are fixed and the wizard does not expose them.** It asks for
+  company name, tax id, administrator credentials and the backup schedule,
+  and nothing else; 5433/3001/3000/3002 are hard-coded. A machine that
+  already has PostgreSQL on 5433 — likely, for a customer migrating off
+  another system — cannot be resolved from the interface at all.
+- **There is no unattended install.** The values come only from the wizard
+  pages, so `/VERYSILENT` produces empty mandatory parameters. Every store is
+  a manual installation.
+
+Neither is fixed here; both are recorded so they are decided rather than
+rediscovered.
 
 **Not verified, and needing a clean Windows VM:**
 
