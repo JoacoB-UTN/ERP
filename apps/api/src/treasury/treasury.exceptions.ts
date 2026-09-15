@@ -151,3 +151,24 @@ export class TreasuryTransferSameAccountException extends BadRequestException {
     });
   }
 }
+
+/**
+ * A document naming an account it cannot reach. Rejected at write time
+ * rather than at confirmation: a Cobro that can never be confirmed is not
+ * a draft, it is a trap, and the operator should hear about it while the
+ * form is still open.
+ */
+export class TreasuryAccountNotUsableException extends BadRequestException {
+  constructor(reason: 'currency' | 'inactive') {
+    super({
+      message:
+        reason === 'currency'
+          ? 'La cuenta de tesorería es de otra moneda.'
+          : 'La cuenta de tesorería está inactiva.',
+      code:
+        reason === 'currency'
+          ? 'TREASURY_CURRENCY_MISMATCH'
+          : 'TREASURY_ACCOUNT_INACTIVE',
+    });
+  }
+}

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '../generated/prisma/client';
 import type {
   TreasuryAccount,
@@ -11,6 +12,7 @@ import {
   InvalidTreasuryAmountException,
   TreasuryAccountInactiveException,
   TreasuryAccountNotFoundException,
+  TreasuryAccountNotUsableException,
   TreasuryCurrencyMismatchException,
 } from './treasury.exceptions';
 
@@ -101,39 +103,69 @@ export class TreasuryService {
       throw new TreasuryCurrencyMismatchException();
     }
 
-    let movement: TreasuryMovement;
-    try {
-      movement = await tx.treasuryMovement.create({
-        data: {
-          tenantId: ctx.tenantId,
-          companyId: ctx.companyId,
-          // The account's branch wins over the caller's: a cash box sits
-          // where it sits, and a movement posted from another branch's
-          // context did not move the drawer.
-          branchId: account.branchId ?? ctx.branchId,
-          treasuryAccountId: account.id,
-          currencyId: account.currencyId,
-          movementType: params.movementType,
-          amount: params.amount,
-          occurredAt: params.occurredAt,
-          sourceType: params.sourceType,
-          sourceId: params.sourceId,
-          reversalOfId: params.reversalOfId,
-          description: params.description,
-          notes: params.notes,
-          createdBy: ctx.userId,
-        },
-      });
-    } catch (error) {
-      if (isUniqueViolation(error)) return null;
-      throw error;
-    }
+    // ONE lock protocol: every writer to an account holds that account's
+    // advisory lock for the rest of its transaction — this method, the
+    // opening balance, transfers, Cobros, Pagos and the rebuild alike.
+    // Taking it here rather than only in the callers is what makes that
+    // true by construction instead of by everyone remembering.
+    //
+    // Re-entrant: a transfer already holding both locks (in stable order,
+    // to avoid the A->B / B->A deadlock) just takes this one again for
+    // free.
+    await this.lockAccountsInStableOrder(tx, ctx.companyId, [account.id]);
 
-    // Single atomic upsert-increment, never read-modify-write: Postgres
-    // serializes concurrent writers to this row, so two terminals posting
-    // at once cannot both compute their new balance from the same stale
-    // read. The policy below is then checked against the value Postgres
-    // ACTUALLY returned — see docs/inventory.md, which learned this first.
+    // `ON CONFLICT DO NOTHING` and NOT a caught P2002.
+    //
+    // A unique violation aborts the whole PostgreSQL transaction — every
+    // later statement fails with "current transaction is aborted" — and
+    // catching the error in TypeScript does not undo that. Measured: a
+    // caught P2002 followed by another write inside the same transaction
+    // blows up on the write. The earlier version of this method only
+    // looked correct because its test did nothing else in that
+    // transaction, while the real callers (a Cobro's confirm, a
+    // transfer's) all write before and after.
+    //
+    // So the duplicate must never raise in the first place. The insert
+    // returns no row instead, which is the same answer without the
+    // damage.
+    const id = randomUUID();
+    const inserted = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      INSERT INTO treasury_movements (
+        "id", "tenantId", "companyId", "branchId", "treasuryAccountId",
+        "currencyId", "movementType", "amount", "occurredAt",
+        "sourceType", "sourceId", "reversalOfId", "description", "notes",
+        "createdBy"
+      ) VALUES (
+        ${id}::uuid,
+        ${ctx.tenantId}::uuid,
+        ${ctx.companyId}::uuid,
+        ${account.branchId ?? ctx.branchId ?? null}::uuid,
+        ${account.id}::uuid,
+        ${account.currencyId}::uuid,
+        ${params.movementType}::"TreasuryMovementType",
+        ${params.amount}::decimal,
+        ${params.occurredAt}::timestamptz,
+        ${params.sourceType},
+        ${params.sourceId}::uuid,
+        ${params.reversalOfId ?? null}::uuid,
+        ${params.description ?? null},
+        ${params.notes ?? null},
+        ${ctx.userId ?? null}::uuid
+      )
+      ON CONFLICT ("companyId", "sourceType", "sourceId", "movementType")
+      DO NOTHING
+      RETURNING "id"
+    `);
+
+    // No row: the movement was already there. That is a success, not an
+    // error — the ledger already says what the caller wanted it to say —
+    // and the balance was already moved by whoever posted it first.
+    if (inserted.length === 0) return null;
+
+    // Single atomic upsert-increment, never read-modify-write. The
+    // advisory lock above already serialized every other treasury writer
+    // on this account; the increment keeps it correct even against
+    // anything that has not been taught the protocol yet.
     const updated = await tx.treasuryAccountBalance.upsert({
       where: { treasuryAccountId: account.id },
       create: {
@@ -148,7 +180,7 @@ export class TreasuryService {
       throw new InsufficientTreasuryFundsException();
     }
 
-    return movement;
+    return tx.treasuryMovement.findUniqueOrThrow({ where: { id } });
   }
 
   /**
@@ -168,62 +200,55 @@ export class TreasuryService {
   }
 
   /**
-   * Recomputes every balance from the ledger. The documented recovery
+   * Recomputes every balance from the ledger — the documented recovery
    * path for the one failure this design admits: a projection that
-   * drifted from the movements it summarises. It never invents a
-   * movement, so running it can only ever make balances agree with
-   * history — which is why it is safe to run at any time.
+   * drifted from the movements it summarises.
+   *
+   * **It takes the same locks every writer takes, per account, and sums
+   * inside the same transaction that writes.** Summing outside and
+   * writing after would let a Cobro confirmed in between be silently
+   * overwritten by a total computed before it existed — a "repair" that
+   * loses money is worse than the drift it set out to fix.
+   *
+   * Accounts are handled one at a time so a rebuild never holds every
+   * lock in the company at once and stalls the whole treasury.
    *
    * Returns how many account balances it wrote.
    */
   async rebuildTreasuryBalances(companyId?: string): Promise<number> {
-    const where = companyId ? { companyId } : {};
-
-    const sums = await this.prisma.treasuryMovement.groupBy({
-      by: ['companyId', 'treasuryAccountId'],
-      where,
-      _sum: { amount: true },
+    const accounts = await this.prisma.treasuryAccount.findMany({
+      where: companyId ? { companyId } : {},
+      select: { id: true, companyId: true },
+      orderBy: { id: 'asc' },
     });
 
-    const seen = new Set<string>();
     let written = 0;
+    for (const account of accounts) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.lockAccountsInStableOrder(tx, account.companyId, [
+          account.id,
+        ]);
 
-    await this.prisma.$transaction(async (tx) => {
-      for (const row of sums) {
-        const balance = row._sum.amount ?? new Prisma.Decimal(0);
+        // Read AFTER the lock, so the sum cannot miss a movement that
+        // commits while this is running.
+        const sum = await tx.treasuryMovement.aggregate({
+          where: { treasuryAccountId: account.id },
+          _sum: { amount: true },
+        });
+        const balance = sum._sum.amount ?? new Prisma.Decimal(0);
+
         await tx.treasuryAccountBalance.upsert({
-          where: { treasuryAccountId: row.treasuryAccountId },
+          where: { treasuryAccountId: account.id },
           create: {
-            companyId: row.companyId,
-            treasuryAccountId: row.treasuryAccountId,
+            companyId: account.companyId,
+            treasuryAccountId: account.id,
             balance,
           },
           update: { balance },
         });
-        seen.add(row.treasuryAccountId);
         written += 1;
-      }
-
-      // An account whose movements were all reversed nets to zero and
-      // still has a projection row; one that never had any may have a row
-      // from a create that was later rolled back. Both must read zero
-      // rather than keep a stale number, so the pass also covers accounts
-      // the groupBy could not see.
-      const stale = await tx.treasuryAccountBalance.findMany({
-        where: {
-          ...where,
-          treasuryAccountId: { notIn: [...seen] },
-          balance: { not: 0 },
-        },
       });
-      for (const row of stale) {
-        await tx.treasuryAccountBalance.update({
-          where: { treasuryAccountId: row.treasuryAccountId },
-          data: { balance: 0 },
-        });
-        written += 1;
-      }
-    });
+    }
 
     return written;
   }
@@ -231,32 +256,80 @@ export class TreasuryService {
   /**
    * Takes one advisory lock per account, in a globally stable order.
    *
-   * Two transfers moving money in opposite directions — caja→banco and
-   * banco→caja at the same moment — would otherwise each hold what the
-   * other needs and deadlock. Sorting the keys means every transaction
-   * acquires them in the same sequence, so one simply waits.
+   * Two writers touching the same accounts in opposite orders — a
+   * caja->banco transfer against a banco->caja one — would otherwise each
+   * hold what the other needs and deadlock. Every transaction acquiring
+   * the keys in the same sequence means one simply waits.
+   *
+   * **The order is over the 64-bit keys, not over the strings.** Sorting
+   * the strings and then hashing does not give a consistent order,
+   * because the hash does not preserve it: two transactions locking
+   * {A,B} could still take them in opposite orders and deadlock — the
+   * exact failure the sort exists to prevent. So the keys are computed
+   * first and sorted as numbers.
+   *
+   * `hashtextextended` and not `hashtext`: 64 bits, which is what
+   * `pg_advisory_xact_lock` takes, and a collision space wide enough that
+   * two unrelated accounts blocking each other is not something to think
+   * about. With `hashtext`'s 32 bits it would be, at a few tens of
+   * thousands of accounts.
    *
    * Advisory locks rather than `SELECT ... FOR UPDATE` because the
    * balance row may not exist yet, which is precisely the case of an
-   * account whose first movement is this transfer — the same reasoning
-   * `InventoryService.lockBalancesInStableOrder` records for warehouses.
+   * account whose first movement is the one being written.
    */
   async lockAccountsInStableOrder(
     tx: Prisma.TransactionClient,
     companyId: string,
     accountIds: string[],
   ): Promise<void> {
-    const keys = [
+    const names = [
       ...new Set(accountIds.map((id) => `treasury:${companyId}:${id}`)),
-    ].sort();
+    ];
+    if (names.length === 0) return;
 
-    for (const key of keys) {
+    const rows = await tx.$queryRaw<{ key: bigint }[]>(Prisma.sql`
+      SELECT DISTINCT hashtextextended(name, 0) AS key
+      FROM unnest(${names}::text[]) AS t(name)
+      ORDER BY key
+    `);
+
+    for (const { key } of rows) {
       // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns `void`,
       // which Prisma cannot deserialize as a result column.
-      await tx.$executeRaw(
-        Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`,
-      );
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${key})`);
     }
+  }
+
+  /**
+   * Validates that a document may name this account, BEFORE persisting
+   * it: same company, same currency, still active.
+   *
+   * The company check is the one that matters most — `findFirst` scoped
+   * by `companyId` means an account belonging to another company is
+   * simply not found, so a Cobro can never reach across the tenant
+   * boundary even if the id is guessed. See
+   * docs/multi-company-architecture.md.
+   *
+   * Shared by Cobros and Pagos so the rule cannot drift between them.
+   */
+  async assertAccountUsable(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    treasuryAccountId: string,
+    currencyId: string,
+  ): Promise<TreasuryAccount> {
+    const account = await this.findAccountScopedOrThrow(
+      tx,
+      companyId,
+      treasuryAccountId,
+    );
+    if (!account.active)
+      throw new TreasuryAccountNotUsableException('inactive');
+    if (account.currencyId !== currencyId) {
+      throw new TreasuryAccountNotUsableException('currency');
+    }
+    return account;
   }
 
   /**
@@ -274,12 +347,4 @@ export class TreasuryService {
     if (!account) throw new TreasuryAccountNotFoundException();
     return account;
   }
-}
-
-/** P2002 — the movement is already in the ledger. */
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === 'P2002'
-  );
 }

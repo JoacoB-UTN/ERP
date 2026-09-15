@@ -484,6 +484,58 @@ describe('Treasury (e2e)', () => {
       expect(await storedBalance(account.id)).toBe('1300.00');
     });
 
+    it('a duplicate post leaves the transaction usable for the writes around it', async () => {
+      // The defect this pins down: a unique violation ABORTS the whole
+      // PostgreSQL transaction, and catching the P2002 in TypeScript does
+      // not undo that — every later statement fails with "current
+      // transaction is aborted".
+      //
+      // The earlier idempotency test missed it because the duplicate was
+      // the only thing in its transaction. The real callers all write
+      // before and after: a Cobro's confirm flips the status, posts to
+      // the customer ledger, posts here, then audits. So this test does
+      // the same, and fails loudly if `post` ever goes back to catching
+      // the error instead of avoiding it.
+      const account = await createAccount();
+      const sourceId = crypto.randomUUID();
+      await post(account.id, '500.00', { sourceId });
+
+      await prisma.$transaction(async (tx) => {
+        await tx.treasuryAccount.update({
+          where: { id: account.id },
+          data: { notes: 'antes del duplicado' },
+        });
+
+        const duplicate = await treasury.post(
+          tx,
+          { companyId: companyAId, tenantId },
+          {
+            treasuryAccountId: account.id,
+            movementType: 'COLLECTION',
+            amount: new Prisma.Decimal('500.00'),
+            occurredAt: new Date(),
+            sourceType: 'CustomerCollection',
+            sourceId,
+            currencyId: arsId,
+          },
+        );
+        expect(duplicate).toBeNull();
+
+        // The write that used to explode.
+        await tx.treasuryAccount.update({
+          where: { id: account.id },
+          data: { notes: 'despues del duplicado' },
+        });
+      });
+
+      const after = await prisma.treasuryAccount.findFirstOrThrow({
+        where: { id: account.id },
+      });
+      expect(after.notes).toBe('despues del duplicado');
+      expect(await ledgerSum(account.id)).toBe('500.00');
+      expect(await storedBalance(account.id)).toBe('500.00');
+    });
+
     it('does not double-count a retried post of the same document', async () => {
       const account = await createAccount();
       const sourceId = crypto.randomUUID();
@@ -532,6 +584,55 @@ describe('Treasury (e2e)', () => {
       ).rejects.toMatchObject({
         response: { code: 'TREASURY_CURRENCY_MISMATCH' },
       });
+    });
+
+    it('a rebuild running against a concurrent post does not lose it', async () => {
+      // The rebuild used to sum OUTSIDE its write transaction, so a
+      // movement committed in between was silently overwritten by a total
+      // computed before it existed — a repair that loses money. Now it
+      // locks the account and sums inside the same transaction, so the
+      // two serialize whichever way round they land.
+      const account = await createAccount();
+      await post(account.id, '1000.00');
+
+      const results = await Promise.allSettled([
+        treasury.rebuildTreasuryBalances(companyAId),
+        post(account.id, '250.00'),
+      ]);
+      expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+
+      // The invariant, not a winner: whoever went second, the projection
+      // ends up equal to the ledger.
+      expect(await storedBalance(account.id)).toBe(await ledgerSum(account.id));
+      expect(await ledgerSum(account.id)).toBe('1250.00');
+    });
+
+    it("an opening balance racing the account's first movement cannot land on top of it", async () => {
+      // The emptiness check now happens under the same lock every writer
+      // takes, so "the ledger is empty" cannot go stale between the check
+      // and the insert.
+      const account = await createAccount();
+      const agent = await loginAs(userAdminId);
+
+      const results = await Promise.allSettled([
+        agent
+          .post(`/api/v1/treasury/accounts/${account.id}/opening-balance`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({ amount: '900.00' }),
+        post(account.id, '100.00'),
+      ]);
+      expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+
+      // Either order is fine. What must hold is that the balance equals
+      // the ledger, and that there is at most ONE opening movement.
+      expect(await storedBalance(account.id)).toBe(await ledgerSum(account.id));
+      const openings = await prisma.treasuryMovement.count({
+        where: {
+          treasuryAccountId: account.id,
+          movementType: 'OPENING_BALANCE',
+        },
+      });
+      expect(openings).toBeLessThanOrEqual(1);
     });
 
     it('rebuilds a balance that drifted, from the ledger', async () => {

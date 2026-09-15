@@ -104,6 +104,48 @@ found the ledger already saying what it wanted it to say. The decision is
 delegated to the constraint rather than to a read-then-insert, because
 between the read and the insert is exactly where a second terminal fits.
 
+**The insert is `ON CONFLICT DO NOTHING`, and that detail is not
+cosmetic.** A unique violation **aborts the entire PostgreSQL
+transaction** — every later statement fails with *current transaction is
+aborted* — and catching the error in TypeScript does not undo it. An
+earlier version of this method caught the P2002 and returned `null`; it
+looked right, and its test passed, because that test did nothing else in
+the transaction. Every real caller does: a Cobro's confirm flips the
+status, posts to the customer ledger, posts here, then audits. Measured,
+then fixed. The regression test now writes before and after the duplicate
+on purpose.
+
+## One lock protocol
+
+**Every writer to an account holds that account's advisory lock for the
+rest of its transaction.** `post()` takes it itself, so the rule holds by
+construction rather than by each caller remembering: the opening balance,
+transfers, Cobros, Pagos and the rebuild are all covered by the same key.
+Locks are re-entrant within a transaction, so a transfer that already
+took both (in stable order) pays nothing extra.
+
+Two consequences worth stating:
+
+- **The opening balance checks that the ledger is empty *under* the
+  lock.** Otherwise a transfer or a Cobro could post the account's first
+  movement between the check and the insert, and the "opening" would land
+  on top of it.
+- **The rebuild sums inside the transaction that writes**, one account at
+  a time, holding that account's lock. Summing outside and writing after
+  would let a movement committed in between be overwritten by a total
+  computed before it existed — a repair that loses money is worse than
+  the drift it set out to fix. One account at a time so a rebuild never
+  freezes the whole treasury.
+
+### The lock keys
+
+`hashtextextended(name, 0)` — 64 bits, which is what
+`pg_advisory_xact_lock` takes. And the **sort is over the keys, not over
+the names**: hashing does not preserve string order, so sorting the names
+first and hashing after gives no consistent order at all, and two
+transactions locking the same pair could still take them in opposite
+orders — the exact deadlock the sort exists to prevent.
+
 Every reversal is **its own movement type** (`COLLECTION_REVERSAL`,
 `PAYMENT_REVERSAL`, …) rather than a negative of the original, precisely
 so the idempotency key can tell a cancellation apart from the
@@ -112,7 +154,8 @@ confirmation it undoes.
 ## Corrections are new movements
 
 A confirmed movement is never updated or deleted. A correction is a new,
-reversing movement pointed back at the original via `reversalOfId` — the
+reversing movement pointed back at the original via `reversalOfId` — set,
+not left null, so a statement can say *which* movement a reversal cancels — the
 rule [inventory.md](inventory.md) and
 [current-accounts.md](current-accounts.md) already follow, and the reason
 a cancelled Cobro will not leave its money in the drawer.
