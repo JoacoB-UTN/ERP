@@ -18,7 +18,11 @@
   <description>Takes and verifies scheduled backups of the ERP database.</description>
 
   <executable>%BASE%\..\node\node.exe</executable>
-  <arguments>%BASE%\..\server\apps\server-agent\dist\main.js</arguments>
+  <!-- Entrecomillado, y no es cosmetico: la ruta por defecto es
+       "C:\Program Files\ERP Server". Sin comillas, node recibe "C:\Program"
+       como script y muere con MODULE_NOT_FOUND antes de arrancar, asi que el
+       servicio no levanta en una instalacion con los valores por defecto. -->
+  <arguments>"%BASE%\..\server\apps\server-agent\dist\main.js"</arguments>
   <workingdirectory>%BASE%\..\server</workingdirectory>
 
   <depend>erp-postgres</depend>
