@@ -276,3 +276,39 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Scroll interno del panel lateral.
+ *
+ * Chrome dibuja su barra nativa —pista clara, flechas arriba y abajo— que en
+ * un panel oscuro se ve como un elemento ajeno pegado al costado. Y además
+ * roba ancho SOLO al área que scrollea, así que los ítems de navegación
+ * quedaban unos píxeles más angostos que el botón de cerrar sesión de abajo,
+ * y los bordes izquierdo y derecho dejaban de alinearse.
+ *
+ * Se resuelve con una barra fina y del color del panel. El ancho lo reserva
+ * `scrollbar-gutter: stable`, para que el contenido no se corra cuando la
+ * lista pasa a ser scrolleable: sin eso, mostrar u ocultar la barra desplaza
+ * todo el menú un par de píxeles.
+ */
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sidebar-border) transparent;
+  scrollbar-gutter: stable;
+}
+
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--sidebar-border);
+  border-radius: 3px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}

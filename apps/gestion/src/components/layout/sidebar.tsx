@@ -305,10 +305,18 @@ function SidebarContent({
         )}
       </div>
 
+      {/* El padding horizontal va ADENTRO, no en el elemento que scrollea.
+          Puesto en el <nav>, la barra de scroll se dibuja por dentro de ese
+          padding y le come ancho solo a la navegación: los ítems quedaban unos
+          píxeles más angostos que el botón de cerrar sesión de abajo, que no
+          scrollea, y los dos bordes dejaban de alinearse. Con el padding en un
+          envoltorio interno la barra queda contra el borde del panel y ambos
+          bloques comparten el mismo margen. */}
       <nav
         aria-label="Navegación principal"
-        className={cn('flex-1 overflow-y-auto pb-3', collapsed ? 'px-2' : 'px-2.5')}
+        className="sidebar-scroll flex-1 overflow-y-auto"
       >
+        <div className={cn('pb-3', collapsed ? 'px-2' : 'px-2.5')}>
         {sections.map((section, index) => {
           const items = section.items.filter((item) => item.visible);
           if (items.length === 0) return null;
@@ -339,6 +347,7 @@ function SidebarContent({
             </div>
           );
         })}
+        </div>
       </nav>
 
       {/* Anchored to the bottom, away from the navigation: signing out is not a
