@@ -353,7 +353,7 @@ function SidebarContent({
       {/* Anchored to the bottom, away from the navigation: signing out is not a
           destination, and putting it in the list invites mis-clicks by people
           aiming for the item above it. */}
-      <div className={cn('shrink-0 pb-3', collapsed ? 'px-2' : 'px-2.5')}>
+      <div className={cn('sidebar-gutter shrink-0 pb-3', collapsed ? 'px-2' : 'px-2.5')}>
         <button
           type="button"
           onClick={handleLogout}

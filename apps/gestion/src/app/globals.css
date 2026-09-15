@@ -312,3 +312,26 @@
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
   background-color: var(--muted-foreground);
 }
+
+/* El bloque de abajo del panel —el botón de cerrar sesión— no scrollea, así
+ * que no reserva el canal de la barra y quedaba 10px más ancho que los ítems
+ * de navegación: los bordes derechos no coincidían.
+ *
+ * `scrollbar-gutter: stable` solo aplica a contenedores de scroll, por eso va
+ * junto con `overflow-y: auto`. Como su contenido nunca desborda, la barra no
+ * llega a dibujarse: lo único que hace es reservar exactamente el mismo canal
+ * que reserva la navegación, y así los dos bloques comparten ancho. */
+.sidebar-gutter {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+
+.sidebar-gutter::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-gutter::-webkit-scrollbar-thumb,
+.sidebar-gutter::-webkit-scrollbar-track {
+  background: transparent;
+}
