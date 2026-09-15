@@ -314,7 +314,7 @@ function SidebarContent({
           bloques comparten el mismo margen. */}
       <nav
         aria-label="Navegación principal"
-        className="sidebar-scroll flex-1 overflow-y-auto"
+        className={cn('flex-1 overflow-y-auto', collapsed ? 'sidebar-rail' : 'sidebar-scroll')}
       >
         <div className={cn('pb-3', collapsed ? 'px-2' : 'px-2.5')}>
         {sections.map((section, index) => {
@@ -353,7 +353,7 @@ function SidebarContent({
       {/* Anchored to the bottom, away from the navigation: signing out is not a
           destination, and putting it in the list invites mis-clicks by people
           aiming for the item above it. */}
-      <div className={cn('sidebar-gutter shrink-0 pb-3', collapsed ? 'px-2' : 'px-2.5')}>
+      <div className={cn('shrink-0 pb-3', collapsed ? 'px-2' : 'sidebar-gutter px-2.5')}>
         <button
           type="button"
           onClick={handleLogout}

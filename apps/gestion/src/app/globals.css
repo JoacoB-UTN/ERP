@@ -335,3 +335,21 @@
 .sidebar-gutter::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Riel contraído: sin barra y sin canal reservado.
+ *
+ * Con la barra fina y `scrollbar-gutter: stable`, el riel de 56px reservaba
+ * 10px y los iconos quedaban centrados en x=22,5 cuando el centro real es 28
+ * — corridos cinco píxeles y medio a la izquierda. Medido, no estimado.
+ *
+ * En una columna de iconos la barra no aporta ninguna información: no hay
+ * texto que seguir y el alto es el mismo siempre. Se oculta y el scroll sigue
+ * funcionando con la rueda, que es como se usa. Expandido sí se muestra,
+ * porque ahí la lista es larga y saber dónde estás importa. */
+.sidebar-rail {
+  scrollbar-width: none;
+}
+
+.sidebar-rail::-webkit-scrollbar {
+  display: none;
+}
