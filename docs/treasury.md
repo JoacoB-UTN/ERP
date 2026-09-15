@@ -195,8 +195,21 @@ back.
 - **`treasuryAccountId` is required on new documents.** A Cobro that does
   not say where the money landed is the gap this module exists to close.
   The Gestión forms for Cobro and Pago carry the selector.
+- **The account is validated when the document is written, not when it is
+  confirmed** — same company, same currency, still active, on create
+  *and* on edit. A document naming an account it cannot reach could never
+  be confirmed, so saving it just builds a trap the operator discovers
+  days later. The company scoping is what closes the cross-tenant hole: a
+  lookup filtered by `companyId` simply does not find another company's
+  account, even with the id in hand.
 - **The currencies must match.** A peso Cobro cannot land in a dollar
-  account; it is rejected, never converted.
+  account; it is rejected, never converted. Checked at both ends — the
+  confirmation keeps its own check for a document that got its account
+  some other way.
+- **Reversals carry `reversalOfId`**, pointing at the movement they undo.
+- **The document returns its account** (`treasuryAccount`: id, code,
+  name). The payment method says *how* someone paid; a screen that shows
+  only that cannot answer *where the money went*.
 - **A Pago cannot overdraw a cash box.** The confirmation fails whole —
   the supplier ledger does not move and the document stays DRAFT, rather
   than ending up CONFIRMED with nothing behind it.

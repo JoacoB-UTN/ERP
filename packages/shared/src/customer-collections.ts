@@ -123,6 +123,16 @@ export interface CustomerCollectionSummaryDto {
   appliedAmount: string;
   unappliedAmount: string;
   paymentMethod: PaymentMethod;
+  /**
+   * Where the money went — see docs/treasury.md. Null only on documents
+   * confirmed before Treasury existed; those are deliberately left
+   * without one and stay out of every treasury balance.
+   *
+   * Returned alongside the method because "cómo pagó" and "dónde quedó"
+   * are different questions, and a screen that shows only the first
+   * cannot answer the second.
+   */
+  treasuryAccount: { id: string; code: string; name: string } | null;
   createdBy: { id: string; name: string | null } | null;
 }
 

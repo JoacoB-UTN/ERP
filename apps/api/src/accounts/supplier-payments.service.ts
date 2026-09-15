@@ -24,6 +24,10 @@ import { CurrencyNotFoundException } from '../pricing/pricing.exceptions';
 import { SupplierAccountService } from './supplier-account.service';
 import { TreasuryService } from '../treasury/treasury.service';
 import {
+  TreasuryAccountInactiveException,
+  TreasuryCurrencyMismatchException,
+} from '../treasury/treasury.exceptions';
+import {
   SupplierPaymentNotFoundException,
   SupplierPaymentNotEditableException,
   SupplierPaymentAlreadyConfirmedException,
@@ -37,6 +41,7 @@ import {
 } from './supplier-payments.exceptions';
 
 type PaymentWithRelations = SupplierPayment & {
+  treasuryAccount: { id: string; code: string; name: string } | null;
   supplier: Supplier;
   currency: Currency;
   applications: (SupplierPaymentApplication & {
@@ -50,6 +55,7 @@ interface BuiltApplication {
 }
 
 const PAYMENT_INCLUDE = {
+  treasuryAccount: { select: { id: true, code: true, name: true } },
   supplier: true,
   currency: true,
   applications: { include: { purchaseReceipt: { select: { number: true } } } },
@@ -78,6 +84,7 @@ function toSummary(
     appliedAmount: appliedAmount.toString(),
     unappliedAmount: new Prisma.Decimal(p.amount).sub(appliedAmount).toString(),
     paymentMethod: p.paymentMethod,
+    treasuryAccount: p.treasuryAccount ?? null,
     createdBy: p.createdBy ? { id: p.createdBy, name: createdByName } : null,
   };
 }
@@ -225,6 +232,12 @@ export class SupplierPaymentsService {
     );
 
     const created = await this.prisma.$transaction(async (tx) => {
+      await this.assertTreasuryAccountUsable(
+        tx,
+        ctx,
+        input.treasuryAccountId,
+        currency.id,
+      );
       const number = await this.nextNumber(tx, ctx.companyId);
       const payment = await tx.supplierPayment.create({
         data: {
@@ -313,8 +326,19 @@ export class SupplierPaymentsService {
       if (input.amount !== undefined) data.amount = input.amount;
       if (input.paymentMethod !== undefined)
         data.paymentMethod = input.paymentMethod;
-      if (input.treasuryAccountId !== undefined)
+      if (input.treasuryAccountId !== undefined) {
+        // Re-validated on edit, not only on create: otherwise a draft
+        // created against a valid account could be pointed at another
+        // company's, or at one retired since, and the check at
+        // confirmation would be the first to notice.
+        await this.assertTreasuryAccountUsable(
+          tx,
+          ctx,
+          input.treasuryAccountId,
+          currency.id,
+        );
         data.treasuryAccountId = input.treasuryAccountId;
+      }
       if (input.externalReference !== undefined)
         data.externalReference = input.externalReference || null;
       if (input.notes !== undefined) data.notes = input.notes || null;
@@ -531,6 +555,19 @@ export class SupplierPaymentsService {
       // movement, never by editing history. A retired account still
       // accepts it — see the Cobro's equivalent.
       if (existing.treasuryAccountId) {
+        // Point the reversal at the movement it undoes. Without it the
+        // self-relation is decorative: a statement can see that a
+        // reversal happened but not WHICH movement it cancels.
+        const original = await tx.treasuryMovement.findFirst({
+          where: {
+            companyId: ctx.companyId,
+            sourceType: 'SupplierPayment',
+            sourceId: existing.id,
+            movementType: 'PAYMENT',
+          },
+          select: { id: true },
+        });
+
         await this.treasury.post(
           tx,
           {
@@ -548,6 +585,7 @@ export class SupplierPaymentsService {
             sourceId: existing.id,
             currencyId: existing.currencyId,
             description: `Anulación del pago ${existing.number}`,
+            reversalOfId: original?.id,
             allowInactiveAccount: true,
           },
         );
@@ -675,6 +713,36 @@ export class SupplierPaymentsService {
     return new Map(
       users.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]),
     );
+  }
+
+  /**
+   * The document may only name an account it can actually reach: same
+   * company, same currency, still active.
+   *
+   * Checked at write time, not at confirmation. A Pago pointing at
+   * another company's account can never be confirmed, so letting it be
+   * saved just builds a document that is a trap — and the operator finds
+   * out days later instead of while the form is open.
+   *
+   * The company scoping is what closes the cross-tenant hole:
+   * `findAccountScopedOrThrow` filters by `companyId`, so an account from
+   * another company is simply not found even if its id is known.
+   */
+  private async assertTreasuryAccountUsable(
+    tx: Prisma.TransactionClient,
+    ctx: RequestContext,
+    treasuryAccountId: string,
+    currencyId: string,
+  ): Promise<void> {
+    const account = await this.treasury.findAccountScopedOrThrow(
+      tx,
+      ctx.companyId,
+      treasuryAccountId,
+    );
+    if (!account.active) throw new TreasuryAccountInactiveException();
+    if (account.currencyId !== currencyId) {
+      throw new TreasuryCurrencyMismatchException();
+    }
   }
 
   private async nextNumber(

@@ -887,9 +887,14 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         ]);
       });
 
-      it("refuses an account whose currency is not the document's", async () => {
+      // The currency mismatch now fails at CREATE — see "rejects a
+      // currency mismatch at create time" above. It used to be caught
+      // only at confirmation, which left a saved document that could
+      // never be confirmed. This keeps the confirmation path defended
+      // too, for a document that got its account some other way.
+      it('refuses at confirmation as well, for a document that slipped through', async () => {
         const agent = await loginAs(userAdminId);
-        const res = await agent
+        const created = await agent
           .post('/api/v1/customer-collections')
           .set(COMPANY_ID_HEADER, companyAId)
           .send({
@@ -897,11 +902,17 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
             currencyId: arsId,
             amount: '100',
             paymentMethod: 'CASH',
-            // A dollar account for a peso Cobro.
-            treasuryAccountId: treasuryUsdId,
+            treasuryAccountId: treasuryArsId,
           })
           .expect(201);
-        const id = (res.body as { collection: CollectionBody }).collection.id;
+        const id = (created.body as { collection: CollectionBody }).collection
+          .id;
+        // Bypass the create-time check the way only a bug or a manual
+        // database edit could.
+        await prisma.customerCollection.update({
+          where: { id },
+          data: { treasuryAccountId: treasuryUsdId },
+        });
 
         const confirm = await agent
           .post(`/api/v1/customer-collections/${id}/confirm`)
@@ -911,8 +922,6 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           'TREASURY_CURRENCY_MISMATCH',
         );
 
-        // And the rejection rolled everything back — the document is not
-        // left CONFIRMED with no movement behind it.
         const after = await prisma.customerCollection.findFirstOrThrow({
           where: { id },
         });
@@ -932,6 +941,184 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           });
         expect(res.status).toBe(400);
       });
+
+      it('rejects an account from another company, at create time', async () => {
+        // The cross-tenant hole: a Cobro in company A naming company B's
+        // cash box. Rejected while the form is open, not at confirmation.
+        const other = await prisma.treasuryAccount.create({
+          data: {
+            tenantId,
+            companyId: companyBId,
+            code: `OTHER-${suffix}`,
+            name: 'Caja de otra empresa',
+            type: 'CASH_BOX',
+            currencyId: arsId,
+          },
+        });
+        const agent = await loginAs(userAdminId);
+        const res = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '100',
+            paymentMethod: 'CASH',
+            treasuryAccountId: other.id,
+          });
+        // Not found, not forbidden — the scoping does not confirm it exists.
+        expect(res.status).toBe(404);
+        await prisma.treasuryAccount.delete({ where: { id: other.id } });
+      });
+
+      it('rejects a retired account at create time', async () => {
+        const retired = await prisma.treasuryAccount.create({
+          data: {
+            tenantId,
+            companyId: companyAId,
+            code: `RETIRED-${suffix}`,
+            name: 'Caja cerrada',
+            type: 'CASH_BOX',
+            currencyId: arsId,
+            active: false,
+          },
+        });
+        const agent = await loginAs(userAdminId);
+        const res = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '100',
+            paymentMethod: 'CASH',
+            treasuryAccountId: retired.id,
+          });
+        expect(res.status).toBe(409);
+        expect((res.body as ErrorEnvelope).error.code).toBe(
+          'TREASURY_ACCOUNT_INACTIVE',
+        );
+      });
+
+      it('rejects a currency mismatch at create time, not at confirmation', async () => {
+        const agent = await loginAs(userAdminId);
+        const res = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '100',
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryUsdId,
+          });
+        expect(res.status).toBe(400);
+        expect((res.body as ErrorEnvelope).error.code).toBe(
+          'TREASURY_CURRENCY_MISMATCH',
+        );
+      });
+
+      it('re-validates the account on edit', async () => {
+        const created = await agent0();
+        const retired = await prisma.treasuryAccount.create({
+          data: {
+            tenantId,
+            companyId: companyAId,
+            code: `RETIRED2-${suffix}`,
+            name: 'Caja cerrada 2',
+            type: 'CASH_BOX',
+            currencyId: arsId,
+            active: false,
+          },
+        });
+        const agent = await loginAs(userAdminId);
+        const res = await agent
+          .patch(`/api/v1/customer-collections/${created}`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({ treasuryAccountId: retired.id });
+        expect(res.status).toBe(409);
+      });
+
+      it('links the reversal back to the movement it undoes', async () => {
+        const agent = await loginAs(userAdminId);
+        const created = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '210',
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryArsId,
+          })
+          .expect(201);
+        const id = (created.body as { collection: CollectionBody }).collection
+          .id;
+        await agent
+          .post(`/api/v1/customer-collections/${id}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .expect(200);
+        await agent
+          .post(`/api/v1/customer-collections/${id}/cancel`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .expect(200);
+
+        const movements = await prisma.treasuryMovement.findMany({
+          where: { sourceType: 'CustomerCollection', sourceId: id },
+        });
+        const byType = new Map(movements.map((m) => [m.movementType, m]));
+        expect(byType.get('COLLECTION_REVERSAL')?.reversalOfId).toBe(
+          byType.get('COLLECTION')?.id,
+        );
+        expect(byType.get('COLLECTION')?.reversalOfId).toBeNull();
+      });
+
+      it('returns the treasury account on the document', async () => {
+        const agent = await loginAs(userAdminId);
+        const created = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '55',
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryArsId,
+          })
+          .expect(201);
+        const body = (
+          created.body as {
+            collection: {
+              treasuryAccount: {
+                id: string;
+                code: string;
+                name: string;
+              } | null;
+            };
+          }
+        ).collection;
+        // A screen that only shows the method cannot answer "where did it
+        // land". The document has to say.
+        expect(body.treasuryAccount?.id).toBe(treasuryArsId);
+        expect(body.treasuryAccount?.name).toBe('Caja corriente ARS');
+      });
+
+      /** A confirmed-able draft, for the edit test above. */
+      async function agent0() {
+        const agent = await loginAs(userAdminId);
+        const res = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '77',
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryArsId,
+          })
+          .expect(201);
+        return (res.body as { collection: CollectionBody }).collection.id;
+      }
 
       it('a historical collection without an account still confirms, and stays out of every balance', async () => {
         // The documented rule for rows that predate Treasury (task 019,
