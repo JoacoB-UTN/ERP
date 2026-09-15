@@ -6,6 +6,8 @@ import { AuditModule } from '../audit/audit.module';
 import { TreasuryAccountsController } from './treasury-accounts.controller';
 import { TreasuryAccountsService } from './treasury-accounts.service';
 import { TreasuryService } from './treasury.service';
+import { TreasuryTransfersController } from './treasury-transfers.controller';
+import { TreasuryTransfersService } from './treasury-transfers.service';
 
 /**
  * Treasury — see docs/treasury.md.
@@ -17,8 +19,12 @@ import { TreasuryService } from './treasury.service';
  */
 @Module({
   imports: [AuthModule, CompanyContextModule, AuthorizationModule, AuditModule],
-  controllers: [TreasuryAccountsController],
-  providers: [TreasuryService, TreasuryAccountsService],
+  controllers: [TreasuryAccountsController, TreasuryTransfersController],
+  providers: [
+    TreasuryService,
+    TreasuryAccountsService,
+    TreasuryTransfersService,
+  ],
   exports: [TreasuryService],
 })
 export class TreasuryModule {}

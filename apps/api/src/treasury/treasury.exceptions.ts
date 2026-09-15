@@ -109,3 +109,45 @@ export class CurrencyNotFoundException extends NotFoundException {
     });
   }
 }
+
+export class TreasuryTransferNotFoundException extends NotFoundException {
+  constructor() {
+    super({
+      message: 'La transferencia de tesorería no existe.',
+      code: 'TREASURY_TRANSFER_NOT_FOUND',
+    });
+  }
+}
+
+/**
+ * The guard that makes a confirm, an edit and a cancellation serialize.
+ * A 409 rather than a 404: the document exists, it just is not a draft
+ * any more — most often because another terminal got there first.
+ */
+export class TreasuryTransferNotDraftException extends ConflictException {
+  constructor() {
+    super({
+      message: 'La transferencia ya no está en borrador.',
+      code: 'TREASURY_TRANSFER_NOT_DRAFT',
+    });
+  }
+}
+
+export class TreasuryTransferNotConfirmedException extends ConflictException {
+  constructor() {
+    super({
+      message: 'Solo se puede anular una transferencia confirmada.',
+      code: 'TREASURY_TRANSFER_NOT_CONFIRMED',
+    });
+  }
+}
+
+/** Money that goes nowhere is not a transfer. */
+export class TreasuryTransferSameAccountException extends BadRequestException {
+  constructor() {
+    super({
+      message: 'El origen y el destino tienen que ser cuentas distintas.',
+      code: 'TREASURY_TRANSFER_SAME_ACCOUNT',
+    });
+  }
+}

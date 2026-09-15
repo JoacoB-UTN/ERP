@@ -65,6 +65,7 @@ model Tenant {
   supplierPayments         SupplierPayment[]
   treasuryAccounts         TreasuryAccount[]
   treasuryMovements        TreasuryMovement[]
+  treasuryTransfers        TreasuryTransfer[]
 
   @@map("tenants")
 }
@@ -129,6 +130,8 @@ model Company {
   treasuryAccounts           TreasuryAccount[]
   treasuryMovements          TreasuryMovement[]
   treasuryAccountBalances    TreasuryAccountBalance[]
+  treasuryTransferSequences  TreasuryTransferSequence[]
+  treasuryTransfers          TreasuryTransfer[]
 
   // A given tax id should not be registered twice within the same tenant.
   @@unique([tenantId, taxId])
@@ -166,6 +169,7 @@ model Branch {
   supplierPayments    SupplierPayment[]
   treasuryAccounts    TreasuryAccount[]
   treasuryMovements   TreasuryMovement[]
+  treasuryTransfers   TreasuryTransfer[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -1348,6 +1352,7 @@ model Currency {
   supplierPayments         SupplierPayment[]
   treasuryAccounts         TreasuryAccount[]
   treasuryMovements        TreasuryMovement[]
+  treasuryTransfers        TreasuryTransfer[]
 
   @@map("currencies")
 }
@@ -2481,8 +2486,10 @@ model TreasuryAccount {
   branch   Branch?  @relation(fields: [branchId], references: [id])
   currency Currency @relation(fields: [currencyId], references: [id])
 
-  movements TreasuryMovement[]
-  balance   TreasuryAccountBalance?
+  movements    TreasuryMovement[]
+  balance      TreasuryAccountBalance?
+  transfersOut TreasuryTransfer[]      @relation("TreasuryTransferSource")
+  transfersIn  TreasuryTransfer[]      @relation("TreasuryTransferDestination")
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -2577,4 +2584,79 @@ model TreasuryAccountBalance {
 
   @@id([companyId, treasuryAccountId])
   @@map("treasury_account_balances")
+}
+
+/// Moving money between two of the company's own accounts — the daily
+/// "deposit the till at the bank". See docs/treasury.md.
+///
+/// Same state machine and the same immutability rule as StockTransfer,
+/// deliberately: confirming writes BOTH movements in one transaction
+/// (the OUT first), and cancelling APPENDS the inverted pair instead of
+/// touching what was already written.
+enum TreasuryTransferStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+model TreasuryTransferSequence {
+  companyId String @id @db.Uuid
+  lastValue Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("treasury_transfer_sequences")
+}
+
+model TreasuryTransfer {
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @db.Uuid
+  companyId String  @db.Uuid
+  branchId  String? @db.Uuid
+
+  /// Company-scoped sequence via TreasuryTransferSequence — "TRF-000001".
+  number String
+
+  sourceAccountId      String @db.Uuid
+  destinationAccountId String @db.Uuid
+
+  /// Denormalised from the accounts, which must agree: a transfer never
+  /// converts, so one currency describes both halves.
+  currencyId String @db.Uuid
+
+  /// Always > 0. The direction is in the movement types, not the sign.
+  amount Decimal @db.Decimal(19, 4)
+
+  occurredAt DateTime @db.Timestamptz(6)
+  notes      String?
+
+  status TreasuryTransferStatus @default(DRAFT)
+
+  confirmedAt DateTime? @db.Timestamptz(6)
+  cancelledAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  /// `@updatedAt` is kept for ergonomics, but the guarded status flip in
+  /// TreasuryTransfersService ALSO writes it explicitly — an update whose
+  /// `data` ends up empty takes no row lock, which is exactly what made
+  /// the equivalent guard on StockTransfer decorative until PR #39.
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  createdBy   String? @db.Uuid
+  confirmedBy String? @db.Uuid
+  cancelledBy String? @db.Uuid
+
+  tenant             Tenant          @relation(fields: [tenantId], references: [id])
+  company            Company         @relation(fields: [companyId], references: [id])
+  branch             Branch?         @relation(fields: [branchId], references: [id])
+  sourceAccount      TreasuryAccount @relation("TreasuryTransferSource", fields: [sourceAccountId], references: [id])
+  destinationAccount TreasuryAccount @relation("TreasuryTransferDestination", fields: [destinationAccountId], references: [id])
+  currency           Currency        @relation(fields: [currencyId], references: [id])
+
+  @@unique([companyId, number])
+  @@index([tenantId])
+  @@index([companyId, status])
+  @@index([companyId, sourceAccountId])
+  @@index([companyId, destinationAccountId])
+  @@map("treasury_transfers")
 }

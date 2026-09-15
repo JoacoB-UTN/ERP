@@ -359,8 +359,14 @@ retried or concurrent post idempotent by construction: `post()` returns
 
 What exists on the API: account CRUD, the opening balance (a real
 `OPENING_BALANCE` movement, settable once and only while the ledger is
-empty), and the account statement with a running balance computed from
-the ledger. Permissions are `treasury.accounts.*` and
+empty), the account statement with a running balance computed from the
+ledger, and **transfers between two of the company's own accounts** —
+`TreasuryTransfer`, DRAFT/CONFIRMED/CANCELLED, both movements written in
+one transaction with the OUT first, cancellation by compensating pair,
+and `lockAccountsInStableOrder` so two opposing simultaneous transfers
+cannot deadlock. The status flip is a conditional `updateMany` that
+always writes `updatedAt`, because an update with empty `data` takes no
+row lock — the defect PR #39 had to fix on `StockTransfer`. Permissions are `treasury.accounts.*` and
 `treasury.movements.*` — `treasury.receipts.*`/`treasury.payments.*` were
 already taken by Cobros and Pagos in `src/accounts`. Reading an account
 and reading its ledger are separate codes on purpose.
@@ -371,9 +377,8 @@ Cobro or a Pago still moves no treasury balance, and a POS sale's
 treasury.md's "Deliberately not wired". **A cash box balance is therefore
 wrong for a business running POS**, not merely incomplete, which is why
 the statement endpoint returns `excludesPosSales` for the UI to state
-next to the number. Also absent: transfers between accounts, cheques,
-bank reconciliation, Mercado Pago, exchange rates, arqueo de caja, and
-any Gestión UI.
+next to the number. Also absent: cheques, bank reconciliation, Mercado
+Pago, exchange rates, arqueo de caja, and any Gestión UI.
 
 ### Facturación MVP
 **Status: DONE — MVP scope only, see [facturacion.md](facturacion.md) for

@@ -615,6 +615,44 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     action: 'create',
     description: 'Registrar movimientos de tesorería',
   },
+  {
+    code: 'treasury.transfers.read',
+    module: 'treasury',
+    resource: 'transfers',
+    action: 'read',
+    description: 'Ver transferencias entre cuentas',
+  },
+  {
+    code: 'treasury.transfers.create',
+    module: 'treasury',
+    resource: 'transfers',
+    action: 'create',
+    description: 'Crear transferencias entre cuentas',
+  },
+  {
+    code: 'treasury.transfers.update',
+    module: 'treasury',
+    resource: 'transfers',
+    action: 'update',
+    description: 'Modificar transferencias en borrador',
+  },
+  // Confirming is the only call that moves money, and cancelling is the
+  // only one that writes a compensating pair: both are separate from
+  // `create` so a role can prepare a deposit without executing it.
+  {
+    code: 'treasury.transfers.confirm',
+    module: 'treasury',
+    resource: 'transfers',
+    action: 'confirm',
+    description: 'Confirmar transferencias entre cuentas',
+  },
+  {
+    code: 'treasury.transfers.cancel',
+    module: 'treasury',
+    resource: 'transfers',
+    action: 'cancel',
+    description: 'Anular transferencias entre cuentas',
+  },
 
   // ---- Current accounts (Customer AR, Supplier AP — see
   // docs/current-accounts.md, Prompt #22). `accounts.receivable.read`/

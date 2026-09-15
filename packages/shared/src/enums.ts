@@ -354,3 +354,11 @@ export const TreasuryMovementType = {
   ADJUSTMENT: 'ADJUSTMENT',
 } as const;
 export type TreasuryMovementType = (typeof TreasuryMovementType)[keyof typeof TreasuryMovementType];
+
+/** Same state machine as StockTransfer — see docs/treasury.md. */
+export const TreasuryTransferStatus = {
+  DRAFT: 'DRAFT',
+  CONFIRMED: 'CONFIRMED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type TreasuryTransferStatus = (typeof TreasuryTransferStatus)[keyof typeof TreasuryTransferStatus];
