@@ -1,5 +1,8 @@
 import { Prisma } from '../generated/prisma/client';
-import type { TreasuryAccount } from '../generated/prisma/client';
+import type {
+  TreasuryAccount,
+  TreasuryMovement,
+} from '../generated/prisma/client';
 import { TreasuryService } from './treasury.service';
 import type { PrismaService } from '../database/prisma.service';
 import {
@@ -60,20 +63,32 @@ function account(overrides: Partial<TreasuryAccount> = {}): TreasuryAccount {
 function fakeTx(options: {
   found?: TreasuryAccount | null;
   balanceAfter?: string;
-  /** Typed as Error, not unknown: a database client rejects with errors. */
-  createThrows?: Error;
+  /** Empty array = the insert hit the unique constraint and did nothing. */
+  insertReturns?: { id: string }[];
 }) {
-  const create = jest.fn((args: { data: Record<string, unknown> }) =>
-    options.createThrows
-      ? Promise.reject(options.createThrows)
-      : Promise.resolve({ id: 'movement-1', ...args.data }),
-  );
+  const executeRaw = jest.fn(() => Promise.resolve(1));
+  // Two different raw reads: the lock-key query returns keys, the insert
+  // returns the new id (or nothing, on conflict). Discriminated by shape
+  // so a change to either one is visible here rather than silently
+  // matching the wrong branch.
+  const queryRaw = jest.fn((sql: { strings?: string[]; sql?: string }) => {
+    const text = JSON.stringify(sql);
+    if (text.includes('hashtextextended')) {
+      return Promise.resolve([{ key: 1n }]);
+    }
+    return Promise.resolve(options.insertReturns ?? [{ id: 'movement-1' }]);
+  });
   const upsert = jest.fn(() =>
     Promise.resolve({
       balance: new Prisma.Decimal(options.balanceAfter ?? '0'),
     }),
   );
+  const findUniqueOrThrow = jest.fn(() =>
+    Promise.resolve({ id: 'movement-1' } as unknown as TreasuryMovement),
+  );
   const tx = {
+    $queryRaw: queryRaw,
+    $executeRaw: executeRaw,
     treasuryAccount: {
       findFirst: jest.fn(() =>
         Promise.resolve(
@@ -81,10 +96,22 @@ function fakeTx(options: {
         ),
       ),
     },
-    treasuryMovement: { create },
+    treasuryMovement: { findUniqueOrThrow },
     treasuryAccountBalance: { upsert },
   };
-  return { tx: tx as unknown as Prisma.TransactionClient, create, upsert };
+  return {
+    tx: tx as unknown as Prisma.TransactionClient,
+    queryRaw,
+    executeRaw,
+    upsert,
+  };
+}
+
+/** JSON.stringify, but tolerant of the BigInt lock keys. */
+function sqlText(calls: unknown): string {
+  return JSON.stringify(calls, (_key, value: unknown) =>
+    typeof value === 'bigint' ? value.toString() : value,
+  );
 }
 
 function service() {
@@ -103,11 +130,15 @@ const baseParams = {
 
 describe('TreasuryService.post', () => {
   it('writes the movement and moves the balance', async () => {
-    const { tx, create, upsert } = fakeTx({ balanceAfter: '100.00' });
+    const { tx, queryRaw, upsert } = fakeTx({ balanceAfter: '100.00' });
     const movement = await service().post(tx, ctx, baseParams);
 
     expect(movement).not.toBeNull();
-    expect(create).toHaveBeenCalledTimes(1);
+    // The insert never raises on a duplicate — see the ON CONFLICT note
+    // in the service. A caught P2002 would abort the transaction.
+    const insert = sqlText(queryRaw.mock.calls);
+    expect(insert).toContain('ON CONFLICT');
+    expect(insert).toContain('DO NOTHING');
     // The increment is handed to Postgres, never computed here from a
     // previous read — that is the whole point.
     expect(upsert).toHaveBeenCalledWith(
@@ -118,19 +149,19 @@ describe('TreasuryService.post', () => {
   });
 
   it('rejects a zero amount rather than writing a movement that means nothing', async () => {
-    const { tx, create } = fakeTx({});
+    const { tx, queryRaw } = fakeTx({});
     await expect(
       service().post(tx, ctx, { ...baseParams, amount: new Prisma.Decimal(0) }),
     ).rejects.toBeInstanceOf(InvalidTreasuryAmountException);
-    expect(create).not.toHaveBeenCalled();
+    expect(queryRaw).not.toHaveBeenCalled();
   });
 
   it('refuses a currency that is not the account’s, instead of converting', async () => {
-    const { tx, create } = fakeTx({});
+    const { tx, queryRaw } = fakeTx({});
     await expect(
       service().post(tx, ctx, { ...baseParams, currencyId: USD }),
     ).rejects.toBeInstanceOf(TreasuryCurrencyMismatchException);
-    expect(create).not.toHaveBeenCalled();
+    expect(queryRaw).not.toHaveBeenCalled();
   });
 
   it('does not reveal an account belonging to another company', async () => {
@@ -150,7 +181,7 @@ describe('TreasuryService.post', () => {
   it('lets a reversal reach a retired account', async () => {
     // Money that already left has to be able to come back after the
     // drawer was closed; refusing would strand the balance wrong forever.
-    const { tx, create } = fakeTx({
+    const { tx } = fakeTx({
       found: account({ active: false }),
       balanceAfter: '0.00',
     });
@@ -162,7 +193,6 @@ describe('TreasuryService.post', () => {
         allowInactiveAccount: true,
       }),
     ).resolves.not.toBeNull();
-    expect(create).toHaveBeenCalledTimes(1);
   });
 
   describe('the negative-balance policy', () => {
@@ -222,22 +252,23 @@ describe('TreasuryService.post', () => {
   });
 
   it('treats an already-posted movement as success, not as an error', async () => {
-    // A retried confirm. The ledger already says what the caller wanted
-    // it to say, and the balance was already moved by the first post —
-    // so this must neither throw nor double-count.
-    const duplicate = new Prisma.PrismaClientKnownRequestError(
-      'Unique constraint failed',
-      { code: 'P2002', clientVersion: 'test' },
-    );
-    const { tx, upsert } = fakeTx({ createThrows: duplicate });
+    // A retried confirm. The insert conflicts and returns no row, so the
+    // ledger already says what the caller wanted — and, crucially, the
+    // transaction is still usable for everything the caller does next.
+    const { tx, upsert } = fakeTx({ insertReturns: [] });
 
     await expect(service().post(tx, ctx, baseParams)).resolves.toBeNull();
     expect(upsert).not.toHaveBeenCalled();
   });
 
-  it('propagates a database error that is not a duplicate', async () => {
-    const boom = new Error('connection reset');
-    const { tx } = fakeTx({ createThrows: boom });
-    await expect(service().post(tx, ctx, baseParams)).rejects.toBe(boom);
+  it('locks the account before touching the ledger', async () => {
+    // One protocol: every writer holds the account's lock. `post` takes
+    // it itself so the rule does not depend on each caller remembering.
+    const { tx, queryRaw, executeRaw } = fakeTx({ balanceAfter: '100.00' });
+    await service().post(tx, ctx, baseParams);
+
+    // A BigInt lock key is in there, which plain JSON.stringify refuses.
+    expect(sqlText(queryRaw.mock.calls)).toContain('hashtextextended');
+    expect(sqlText(executeRaw.mock.calls)).toContain('pg_advisory_xact_lock');
   });
 });

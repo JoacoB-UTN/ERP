@@ -359,6 +359,22 @@ export class TreasuryTransfersService {
         allowInactiveAccount: true,
       };
 
+      // Each reversal points back at the movement it undoes, via
+      // `reversalOfId`. Without it the self-relation on TreasuryMovement
+      // is decorative and a statement cannot say WHICH movement a
+      // reversal cancels — only that some reversal happened, which is
+      // the question nobody asks.
+      const original = await tx.treasuryMovement.findMany({
+        where: {
+          companyId: ctx.companyId,
+          sourceType: 'TreasuryTransfer',
+          sourceId: transfer.id,
+          movementType: { in: ['TRANSFER_OUT', 'TRANSFER_IN'] },
+        },
+      });
+      const outId = original.find((m) => m.movementType === 'TRANSFER_OUT')?.id;
+      const inId = original.find((m) => m.movementType === 'TRANSFER_IN')?.id;
+
       // The destination gives it back first, mirroring the confirmation:
       // if the money already left the destination and it cannot cover the
       // reversal, the cancellation fails whole rather than half.
@@ -368,6 +384,7 @@ export class TreasuryTransfersService {
         movementType: 'TRANSFER_IN_REVERSAL',
         amount: transfer.amount.negated(),
         description: `Anulación de la transferencia ${transfer.number}`,
+        reversalOfId: inId,
       });
       await this.treasury.post(tx, movementCtx, {
         ...common,
@@ -375,6 +392,7 @@ export class TreasuryTransfersService {
         movementType: 'TRANSFER_OUT_REVERSAL',
         amount: transfer.amount,
         description: `Anulación de la transferencia ${transfer.number}`,
+        reversalOfId: outId,
       });
 
       await this.auditService.recordFromContext(
