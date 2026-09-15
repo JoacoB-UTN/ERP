@@ -166,7 +166,11 @@ Accounts Payable
   Supplier balances, payment scheduling
 
 Treasury
-  Bank accounts, cash management, checks, payment methods
+  Cash boxes, bank accounts and the movement ledger — PARTIAL, see
+  docs/treasury.md. The ledger, accounts, opening balance and statement
+  exist; nothing posts to them automatically yet (Cobro/Pago wiring and
+  POS are both still open), and transfers, cheques, reconciliation and
+  exchange rates are not started.
 
 Fiscal / ARCA
   Argentine tax authority integration, electronic invoicing

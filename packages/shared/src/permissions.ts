@@ -568,6 +568,54 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
     description: 'Ver tesorería',
   },
 
+  // ---- Treasury accounts and the movement ledger (see docs/treasury.md,
+  // Prompt #19). `treasury.receipts.*` and `treasury.payments.*` above
+  // are Cobros and Pagos, implemented in src/accounts — they were
+  // reserved in this namespace long before a Treasury module existed, so
+  // cash boxes and bank accounts take `accounts`/`movements`/`transfers`
+  // rather than colliding with them. Same discipline as the
+  // `purchases.goods-receipts` note further up.
+  //
+  // Reading an account and reading every peso that passed through it are
+  // deliberately separate codes: knowing a cash box exists and seeing its
+  // ledger are different trust levels, the same split
+  // docs/current-accounts.md makes between a customer and their balance.
+  {
+    code: 'treasury.accounts.read',
+    module: 'treasury',
+    resource: 'accounts',
+    action: 'read',
+    description: 'Ver cajas y cuentas bancarias',
+  },
+  {
+    code: 'treasury.accounts.create',
+    module: 'treasury',
+    resource: 'accounts',
+    action: 'create',
+    description: 'Crear cajas y cuentas bancarias',
+  },
+  {
+    code: 'treasury.accounts.update',
+    module: 'treasury',
+    resource: 'accounts',
+    action: 'update',
+    description: 'Modificar cajas y cuentas bancarias',
+  },
+  {
+    code: 'treasury.movements.read',
+    module: 'treasury',
+    resource: 'movements',
+    action: 'read',
+    description: 'Ver movimientos de tesorería',
+  },
+  {
+    code: 'treasury.movements.create',
+    module: 'treasury',
+    resource: 'movements',
+    action: 'create',
+    description: 'Registrar movimientos de tesorería',
+  },
+
   // ---- Current accounts (Customer AR, Supplier AP — see
   // docs/current-accounts.md, Prompt #22). `accounts.receivable.read`/
   // `accounts.payable.read` gate the account BALANCE/statement read
@@ -767,6 +815,7 @@ export const RESOURCE_LABELS: Record<string, string> = {
   payments: 'Pagos',
   entries: 'Asientos',
   treasury: 'Tesorería',
+  accounts: 'Cajas y bancos',
   accounting: 'Contabilidad',
   reports: 'Reportes',
   configuration: 'Configuración',

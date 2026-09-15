@@ -335,6 +335,46 @@ take a payment against an account; the POS tender path posts
 `TENDER_SETTLEMENT` and stops), credit-limit enforcement, and an aging
 report.
 
+### Treasury (cash boxes, bank accounts, movement ledger)
+**Status: PARTIAL — the ledger and accounts exist; nothing posts to them
+automatically yet.** See [treasury.md](treasury.md).
+
+`apps/api/src/treasury/*` + `TreasuryAccount`, `TreasuryMovement` and
+`TreasuryAccountBalance`. `TreasuryMovement` is the only authoritative
+record of money entering or leaving an account; `TreasuryAccountBalance`
+is a projection `TreasuryService.rebuildTreasuryBalances()` can always
+reconstruct from it — the same contract `InventoryService` has with
+`InventoryBalance`. Balance updates are a single atomic
+upsert-increment and the sign policy is validated against the value
+Postgres returned inside the same transaction, never against a prior
+read.
+
+A `CASH_BOX` can never go below zero; a `BANK_ACCOUNT` can when
+`allowsNegativeBalance` says so, and that flag can never be set on a cash
+box. Accounts are single-currency and a movement in another currency is
+rejected, never converted — no exchange rate exists in this module.
+`@@unique([companyId, sourceType, sourceId, movementType])` makes a
+retried or concurrent post idempotent by construction: `post()` returns
+`null` rather than double-counting.
+
+What exists on the API: account CRUD, the opening balance (a real
+`OPENING_BALANCE` movement, settable once and only while the ledger is
+empty), and the account statement with a running balance computed from
+the ledger. Permissions are `treasury.accounts.*` and
+`treasury.movements.*` — `treasury.receipts.*`/`treasury.payments.*` were
+already taken by Cobros and Pagos in `src/accounts`. Reading an account
+and reading its ledger are separate codes on purpose.
+
+**What this deliberately does NOT do, and it matters:** confirming a
+Cobro or a Pago still moves no treasury balance, and a POS sale's
+`SalesTender` reaches no account at all — see `AGENTS.md`'s invariant and
+treasury.md's "Deliberately not wired". **A cash box balance is therefore
+wrong for a business running POS**, not merely incomplete, which is why
+the statement endpoint returns `excludesPosSales` for the UI to state
+next to the number. Also absent: transfers between accounts, cheques,
+bank reconciliation, Mercado Pago, exchange rates, arqueo de caja, and
+any Gestión UI.
+
 ### Facturación MVP
 **Status: DONE — MVP scope only, see [facturacion.md](facturacion.md) for
 the exact scope.** `apps/facturacion/src/app/(app)/ventas/*` +
@@ -800,10 +840,6 @@ but no `SalesOrder`/`SalesQuote`/fiscal `Invoice`/`CreditNote`/`DebitNote`/
 [roadmap.md](roadmap.md) for what comes next (end-to-end hardening)
 before any of these.
 
-### Treasury
-**Status: NOT IMPLEMENTED.** No payments, bank accounts, checks, or cash
-management.
-
 ### Tax / Fiscal (ARCA)
 **Status: NOT IMPLEMENTED.** `PriceList.includesTax` is stored metadata
 only — no VAT/tax calculation engine exists. No ARCA/AFIP integration of
@@ -886,11 +922,13 @@ handling, and no fiscal-printer integration of any kind exists.
   way to *operate* it from the UI — the panel reports, it does not trigger
   a run, retry a failure or turn the flag off; that is still the API log,
   the `AuditLog` row and the CLI.
-- **`apps/api/src/modules/*` is still 16 README-only folders**
+- **`apps/api/src/modules/*` is still 15 README-only folders**
   (`accounting`, `accounts-payable`, `accounts-receivable`, `audit`,
   `auth`, `core`, `customers`, `integrations`, `inventory`,
-  `organizations`, `pricing`, `products`, `reporting`, `sales`, `tax`,
-  `treasury`) — verified: they contain nothing but `README.md`. Several
+  `organizations`, `pricing`, `products`, `reporting`, `sales`, `tax`)
+  — verified: they contain nothing but `README.md`. `treasury` was
+  deleted when the real `src/treasury` landed, the same way
+  `purchases`/`suppliers` were. Several
   of those domains are now implemented for real at a *different* path
   (`apps/api/src/<module>`), and `accounts-payable`/`accounts-receivable`
   in particular are misleading now that `src/accounts` exists. They
