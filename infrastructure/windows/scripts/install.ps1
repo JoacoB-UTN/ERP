@@ -469,7 +469,12 @@ $replacements = @{
   # runs correctly without it (see apps/api/src/redis/redis.service.ts). The
   # value is still required by the config schema, so it points at a local Redis
   # that may simply never exist.
-  '{{REDIS_URL}}'                  = 'redis://127.0.0.1:6379'
+  # VACIA a proposito. Este instalador no empaqueta Redis (ver
+  # docs/server-installer.md, "Why Redis is not bundled"), y apuntar la API a
+  # un Redis que nunca existe hacia que toda instalacion reportara `degraded`
+  # de forma permanente. Vacia significa "sin cache en este despliegue", que
+  # es una configuracion soportada: los permisos se leen de PostgreSQL.
+  '{{REDIS_URL}}'                  = ''
   '{{CORS_ORIGIN}}'                = $corsOrigin
   '{{AUTH_ACCESS_TOKEN_SECRET}}'   = (ConvertTo-XmlAttribute $secrets.authSecret)
   '{{ERP_BACKUP_DIR}}'             = (ConvertTo-XmlAttribute $backupDir)

@@ -18,7 +18,17 @@ export const envSchema = z
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     API_PORT: z.coerce.number().int().positive().default(3001),
     DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-    REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
+    // OPTIONAL, and empty means "this deployment has no cache" rather than
+    // "the cache is broken". It was required, so the Windows installer had to
+    // invent a value and pointed it at redis://127.0.0.1:6379 -- a Redis the
+    // installer deliberately never ships. Every installation therefore
+    // reported `degraded` forever, which makes the health panel a permanent
+    // yellow light an operator cannot distinguish from a real fault.
+    //
+    // Redis only caches effective permissions, and AuthorizationService
+    // recomputes them from PostgreSQL on any cache error, so running without
+    // it is a supported configuration and not a degradation.
+    REDIS_URL: z.string().default(''),
     // Comma-separated list of allowed browser origins, e.g.
     // "http://localhost:3000,http://localhost:3002" (Gestión, Facturación).
     CORS_ORIGIN: z.string().default('http://localhost:3000,http://localhost:3002'),
