@@ -467,6 +467,80 @@ PostgreSQL under the same restricted token, so restricting it reintroduces
 the failure. Granting the account the service actually runs as is follow-up
 work.
 
+### 4. The cluster was created but nothing could write to it
+
+Two more, both consequences of the ACL work above being half right.
+
+`initdb` could load its DLLs but not CREATE the cluster: read+execute is
+enough for the loader, not for a database. The earlier manual check passed
+only because it wrote to a directory outside the install tree. `data` now
+gets its own ACL, inheritance broken, granting SYSTEM, Administrators, the
+installing user (whose restricted token is what `initdb` actually runs as)
+and the service account. Applied on every run, not only at creation: it lived
+inside the creation branch, so an existing cluster never received the
+permissions.
+
+Then the service would not start, because `services` had been locked to SYSTEM
+and Administrators and **that is where the WinSW wrapper lives**. A service
+whose own binary the account cannot read does not fail inside WinSW; it fails
+in the Service Control Manager, before WinSW runs, with a bare "could not
+start". NetworkService is now granted read+execute on `erp-postgres.exe` and
+`erp-postgres.xml` specifically -- per file, so it still cannot read
+`erp-api.xml`, which carries the database password and the signing key.
+
+### 5. PostgreSQL refuses to run as LocalSystem
+
+The service definitions declared no account, so WinSW used LocalSystem, and
+PostgreSQL exits immediately under any administrative account -- a deliberate
+check, not a missing permission: "execution of PostgreSQL by a user with
+administrative privileges is not permitted". WinSW restarted it in a loop.
+
+`erp-postgres` now runs as `NT AUTHORITY\NetworkService`. Note the element
+names: **WinSW v2 wants `<domain>` and `<user>`**. It accepts a `<username>`
+element without complaining and silently ignores it, leaving the service on
+LocalSystem -- so the fix appears applied while nothing changed.
+
+Registration also changed from `winsw refresh` to uninstall + install.
+`refresh` reloads only what lives inside the definition; the logon account,
+the dependencies and the failure actions live in the SCM's registration and
+are not touched. Every service is already stopped for the upgrade at that
+point, so re-registering costs no additional outage and makes the
+registration always match the file on disk.
+
+### Still open: migrations cannot run on an installed machine
+
+With all of the above fixed the installer reaches **Applying migrations** --
+PostgreSQL starts, `pg_isready` reports it accepting connections, and the
+database is created -- and then fails:
+
+```
+Error: The datasource.url property is required in your Prisma config file
+when using prisma migrate deploy.
+```
+
+`prisma/schema.prisma` declares `datasource db { provider = "postgresql" }`
+with **no url**. The url comes from `apps/api/prisma.config.ts`, which reads
+`process.env.DATABASE_URL` -- and that file is **not in the payload**:
+`build-payload.ps1` never copies it. Setting `DATABASE_URL` in the
+environment, which is what `install.ps1` does, is no longer enough for
+`migrate deploy` at the Prisma version this project uses.
+
+Copying the file as it stands would not be enough either: it opens with
+`import 'dotenv/config'`, and `dotenv` is a devDependency that the payload
+prunes.
+
+Two ways out, and the choice is not the installer's alone to make:
+
+- **`url = env("DATABASE_URL")` in the schema.** Works in development, in CI
+  and on an installed machine with no extra file. Simplest, but it changes
+  how Prisma is configured for the whole repository.
+- **Generate a config into the payload** at build time, without the `dotenv`
+  import and with paths matching the payload layout. Keeps the repository's
+  current arrangement and confines the change to the installer.
+
+Until one is done, the installer cannot finish: everything before migrations
+works, and provisioning never runs.
+
 ### What this says about the CI smoke test
 
 The smoke test from PR #39 is still worth having — it proves the binaries are

@@ -476,16 +476,57 @@ foreach ($id in $serviceIds) {
 function Install-ErpService([string]$id) {
   $exe = Join-Path $servicesDir "$id.exe"
   if (Get-Service -Name $id -ErrorAction SilentlyContinue) {
-    Write-Step "Updating service $id"
-    # `stop` on an already-stopped service exits non-zero, which is not a
-    # failure here — only the outcome of refresh/install decides that.
+    # Re-registered, not refreshed. `winsw refresh` reloads only the settings
+    # Windows keeps inside the service definition; it does NOT change the
+    # logon account, the dependencies or the failure actions, because those
+    # live in the Service Control Manager's own registration.
+    #
+    # That is not a theoretical limitation. When erp-postgres moved from
+    # LocalSystem to NetworkService, `refresh` reported success and left the
+    # service running as LocalSystem -- so PostgreSQL kept refusing to start
+    # for the same reason as before, while the XML on disk said otherwise.
+    #
+    # Uninstalling first costs nothing: every service was already stopped
+    # above for the upgrade, so there is no additional outage. And it makes
+    # the registration always match the file, which is the only version of
+    # this that stays correct as the definitions change.
+    Write-Step "Re-registering service $id"
     & $exe stop | Out-Null
-    & $exe refresh | Out-Null
+    & $exe uninstall | Out-Null
+    # The SCM can hold a service in "marked for deletion" for a moment after
+    # uninstall; installing into that window fails. Wait for it to be gone.
+    foreach ($attempt in 1..20) {
+      if (-not (Get-Service -Name $id -ErrorAction SilentlyContinue)) { break }
+      Start-Sleep -Milliseconds 500
+    }
+    & $exe install | Out-Null
   } else {
     Write-Step "Installing service $id"
     & $exe install | Out-Null
   }
   if ($LASTEXITCODE -ne 0) { throw "WinSW failed for $id (exit $LASTEXITCODE)" }
+}
+
+# erp-postgres runs as NetworkService (see its template for why it cannot be
+# LocalSystem), and the Service Control Manager has to launch the WinSW
+# wrapper AS that account. But `services` was locked to SYSTEM and
+# Administrators above, because the rendered definitions carry secrets -- and
+# a service whose own binary it cannot read does not fail inside WinSW, it
+# fails in the SCM before WinSW ever runs, with a bare "could not start".
+#
+# Granted per FILE, not on the directory: NetworkService gets the wrapper and
+# the PostgreSQL definition, and stays unable to read erp-api.xml, which is
+# the one that contains the database password and the JWT signing key.
+$pgServiceFiles = @(
+  (Join-Path $servicesDir 'erp-postgres.exe'),
+  (Join-Path $servicesDir 'erp-postgres.xml')
+)
+foreach ($file in $pgServiceFiles) {
+  if (-not (Test-Path $file)) { continue }
+  $fileAcl = Get-Acl $file
+  $fileAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $networkServiceSid, 'ReadAndExecute', 'Allow')))
+  Set-Acl -Path $file -AclObject $fileAcl
 }
 
 foreach ($id in $serviceIds) { Install-ErpService $id }
