@@ -397,6 +397,43 @@ port = $PgPort
 # ---------------------------------------------------------------------------
 # Service definitions
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# CORS origins
+# ---------------------------------------------------------------------------
+# This used to be hard-coded to localhost, and that made the product work ONLY
+# when browsed from the server itself. Gestion and the API live on different
+# ports, so every request between them is cross-origin; they carry the session
+# cookie, so the API must name the exact origin (a wildcard is invalid for
+# credentialed requests, which is why main.ts keeps an explicit allow-list).
+#
+# A till opening http://192.168.1.50:3000 therefore sent an Origin the API did
+# not recognise, the preflight came back without Access-Control-Allow-Origin,
+# and the browser blocked the login -- the user saw "No se pudo iniciar
+# sesion" while the API itself accepted those exact credentials over curl. On a
+# LAN product that is every client machine except the server.
+#
+# So the allow-list is built from what this machine actually answers on:
+# loopback, its hostname, and each of its IPv4 addresses.
+#
+# If the server's IP changes -- DHCP renewing a lease, a new network card --
+# the clients break again and the installer must be re-run (it is idempotent).
+# A server should hold a static address or a reserved lease; the deeper fix is
+# for the API to accept any origin whose port is one of the two frontends,
+# which is application code and a separate decision.
+Write-Step 'Building the CORS allow-list'
+$corsHosts = @('localhost', '127.0.0.1', $env:COMPUTERNAME)
+$corsHosts += (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+  Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+  Select-Object -ExpandProperty IPAddress)
+$corsHosts = $corsHosts | Where-Object { $_ } | Select-Object -Unique
+$corsOrigins = @()
+foreach ($h in $corsHosts) {
+  $corsOrigins += "http://${h}:$GestionPort"
+  $corsOrigins += "http://${h}:$FacturacionPort"
+}
+$corsOrigin = $corsOrigins -join ','
+foreach ($h in $corsHosts) { Write-Host "    $h" }
+
 Write-Step 'Rendering service definitions'
 
 # XML attribute values must be escaped; a generated secret, an object-store key
@@ -433,7 +470,7 @@ $replacements = @{
   # value is still required by the config schema, so it points at a local Redis
   # that may simply never exist.
   '{{REDIS_URL}}'                  = 'redis://127.0.0.1:6379'
-  '{{CORS_ORIGIN}}'                = "http://localhost:$GestionPort,http://localhost:$FacturacionPort"
+  '{{CORS_ORIGIN}}'                = $corsOrigin
   '{{AUTH_ACCESS_TOKEN_SECRET}}'   = (ConvertTo-XmlAttribute $secrets.authSecret)
   '{{ERP_BACKUP_DIR}}'             = (ConvertTo-XmlAttribute $backupDir)
   '{{ERP_PG_BIN_DIR}}'             = (ConvertTo-XmlAttribute $pgBin)

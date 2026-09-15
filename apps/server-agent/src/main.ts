@@ -52,10 +52,24 @@ async function main(): Promise<void> {
     logger.info(`Next backup at ${next.toISOString()}.`);
 
     await new Promise<void>((resolve) => {
+      // REF'd on purpose. This timer is the only thing keeping the agent alive
+      // between backups, and it must be.
+      //
+      // Both timers used to be unref'd, with a comment saying the loop
+      // condition would decide when to exit. It could not: when every
+      // remaining handle is unref'd Node has nothing left holding the event
+      // loop open and the process exits immediately -- before the promise
+      // resolves and therefore before the loop condition is ever re-read. The
+      // agent logged "Next backup at ..." and died, the service showed
+      // Stopped, and no scheduled backup ever ran on an installed machine.
+      //
+      // It is invisible in a manual test: a backup triggered by hand works
+      // fine, because only the scheduler was broken.
+      //
+      // Shutdown still works without unref: SIGTERM sets `stopping`, the
+      // one-second poll below sees it, clears both timers and resolves, the
+      // while loop exits and the process ends because nothing is left.
       const timer = setTimeout(resolve, waitMs);
-      // Do not hold the process open purely for the timer; the loop condition
-      // decides when to exit.
-      timer.unref?.();
       const poll = setInterval(() => {
         if (stopping) {
           clearTimeout(timer);
@@ -63,7 +77,6 @@ async function main(): Promise<void> {
           resolve();
         }
       }, 1000);
-      poll.unref?.();
     });
 
     if (stopping) break;
