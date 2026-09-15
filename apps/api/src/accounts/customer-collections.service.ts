@@ -22,6 +22,7 @@ import type { RequestContext } from '../company-context/types';
 import { CustomerNotFoundException } from '../customers/customers.exceptions';
 import { CurrencyNotFoundException } from '../pricing/pricing.exceptions';
 import { CustomerAccountService } from './customer-account.service';
+import { TreasuryService } from '../treasury/treasury.service';
 import {
   CustomerCollectionNotFoundException,
   CustomerCollectionNotEditableException,
@@ -130,6 +131,7 @@ export class CustomerCollectionsService {
     private readonly auditService: AuditService,
     private readonly customerAccountService: CustomerAccountService,
     private readonly realtimePublisher: RealtimePublisher,
+    private readonly treasury: TreasuryService,
   ) {}
 
   async list(
@@ -230,6 +232,7 @@ export class CustomerCollectionsService {
           occurredAt: input.occurredAt ?? new Date(),
           amount: input.amount,
           paymentMethod: input.paymentMethod,
+          treasuryAccountId: input.treasuryAccountId,
           externalReference: input.externalReference || null,
           notes: input.notes || null,
           createdBy: ctx.userId,
@@ -305,6 +308,8 @@ export class CustomerCollectionsService {
       if (input.amount !== undefined) data.amount = input.amount;
       if (input.paymentMethod !== undefined)
         data.paymentMethod = input.paymentMethod;
+      if (input.treasuryAccountId !== undefined)
+        data.treasuryAccountId = input.treasuryAccountId;
       if (input.externalReference !== undefined)
         data.externalReference = input.externalReference || null;
       if (input.notes !== undefined) data.notes = input.notes || null;
@@ -415,6 +420,33 @@ export class CustomerCollectionsService {
         createdBy: ctx.userId,
       });
 
+      // The money physically arrived somewhere, and the same transaction
+      // says where — see docs/treasury.md. `treasuryAccountId` is null
+      // only on Cobros confirmed before Treasury existed; those keep
+      // posting to the customer ledger and stay out of every treasury
+      // balance, which is the documented rule, not an oversight.
+      if (collection.treasuryAccountId) {
+        await this.treasury.post(
+          tx,
+          {
+            companyId: ctx.companyId,
+            tenantId: ctx.tenantId,
+            branchId: ctx.branchId,
+            userId: ctx.userId,
+          },
+          {
+            treasuryAccountId: collection.treasuryAccountId,
+            movementType: 'COLLECTION',
+            amount: collection.amount,
+            occurredAt: collection.occurredAt,
+            sourceType: 'CustomerCollection',
+            sourceId: collection.id,
+            currencyId: collection.currencyId,
+            description: `Cobro ${collection.number}`,
+          },
+        );
+      }
+
       await this.auditService.recordFromContext(
         ctx,
         {
@@ -442,8 +474,11 @@ export class CustomerCollectionsService {
 
   /**
    * DRAFT -> CANCELLED has zero ledger effect (a DRAFT collection never
-   * posted anything). CONFIRMED -> CANCELLED posts a COLLECTION_REVERSAL —
-   * see docs/current-accounts.md and CustomerAccountService.postCollectionReversal.
+   * posted anything). CONFIRMED -> CANCELLED posts a COLLECTION_REVERSAL
+   * on the customer ledger AND, when the Cobro names a treasury account,
+   * a compensating movement that takes the money back out of it —
+   * see docs/current-accounts.md, docs/treasury.md and
+   * CustomerAccountService.postCollectionReversal.
    * Applications are never deleted on either path — see the class doc
    * comment above.
    */
@@ -505,6 +540,34 @@ export class CustomerCollectionsService {
         occurredAt: new Date(),
         createdBy: ctx.userId,
       });
+
+      // The money goes back out of the account it went into. Appended as
+      // its own movement type, never by editing what was written — the
+      // ledger rule. `allowInactiveAccount` because a drawer closed since
+      // the Cobro must still be able to give the money back; refusing
+      // would strand the balance wrong forever.
+      if (existing.treasuryAccountId) {
+        await this.treasury.post(
+          tx,
+          {
+            companyId: ctx.companyId,
+            tenantId: ctx.tenantId,
+            branchId: ctx.branchId,
+            userId: ctx.userId,
+          },
+          {
+            treasuryAccountId: existing.treasuryAccountId,
+            movementType: 'COLLECTION_REVERSAL',
+            amount: existing.amount.negated(),
+            occurredAt: new Date(),
+            sourceType: 'CustomerCollection',
+            sourceId: existing.id,
+            currencyId: existing.currencyId,
+            description: `Anulación del cobro ${existing.number}`,
+            allowInactiveAccount: true,
+          },
+        );
+      }
 
       await this.auditService.recordFromContext(
         ctx,

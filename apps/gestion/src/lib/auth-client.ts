@@ -82,6 +82,7 @@ export const {
   useCreateProductLine,
   useUpdateProductLine,
   useDeactivateProductLine,
+  useTreasuryAccountOptions,
   useCustomerAccounts,
   useCustomerStatement,
   useCustomerOpenSales,

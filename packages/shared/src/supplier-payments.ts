@@ -53,6 +53,13 @@ export const createSupplierPaymentSchema = z
     occurredAt: z.coerce.date().optional(),
     amount: paymentAmountSchema,
     paymentMethod: z.enum(paymentMethodValues),
+    /**
+     * Which account the money left — see docs/treasury.md. Required for
+     * new documents, symmetric to the Cobro's; confirming posts a
+     * PAYMENT movement there. Nullable in the database only for the
+     * documents confirmed before Treasury existed.
+     */
+    treasuryAccountId: z.string().uuid('Elegí la cuenta de tesorería.'),
     externalReference: z.string().trim().max(100).optional(),
     notes: z.string().trim().max(1000).optional(),
     applications: z.array(paymentApplicationInputSchema).default([]),
@@ -68,6 +75,7 @@ export const updateSupplierPaymentSchema = z
     occurredAt: z.coerce.date().optional(),
     amount: paymentAmountSchema.optional(),
     paymentMethod: z.enum(paymentMethodValues).optional(),
+    treasuryAccountId: z.string().uuid().optional(),
     externalReference: z.string().trim().max(100).nullable().optional(),
     notes: z.string().trim().max(1000).nullable().optional(),
     applications: z.array(paymentApplicationInputSchema).optional(),

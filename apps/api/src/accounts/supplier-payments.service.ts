@@ -22,6 +22,7 @@ import type { RequestContext } from '../company-context/types';
 import { SupplierNotFoundException } from '../purchases/suppliers.exceptions';
 import { CurrencyNotFoundException } from '../pricing/pricing.exceptions';
 import { SupplierAccountService } from './supplier-account.service';
+import { TreasuryService } from '../treasury/treasury.service';
 import {
   SupplierPaymentNotFoundException,
   SupplierPaymentNotEditableException,
@@ -135,6 +136,7 @@ export class SupplierPaymentsService {
     private readonly auditService: AuditService,
     private readonly supplierAccountService: SupplierAccountService,
     private readonly realtimePublisher: RealtimePublisher,
+    private readonly treasury: TreasuryService,
   ) {}
 
   async list(
@@ -235,6 +237,7 @@ export class SupplierPaymentsService {
           occurredAt: input.occurredAt ?? new Date(),
           amount: input.amount,
           paymentMethod: input.paymentMethod,
+          treasuryAccountId: input.treasuryAccountId,
           externalReference: input.externalReference || null,
           notes: input.notes || null,
           createdBy: ctx.userId,
@@ -310,6 +313,8 @@ export class SupplierPaymentsService {
       if (input.amount !== undefined) data.amount = input.amount;
       if (input.paymentMethod !== undefined)
         data.paymentMethod = input.paymentMethod;
+      if (input.treasuryAccountId !== undefined)
+        data.treasuryAccountId = input.treasuryAccountId;
       if (input.externalReference !== undefined)
         data.externalReference = input.externalReference || null;
       if (input.notes !== undefined) data.notes = input.notes || null;
@@ -412,6 +417,32 @@ export class SupplierPaymentsService {
         createdBy: ctx.userId,
       });
 
+      // Symmetric to the Cobro's, with the sign flipped: the money leaves
+      // the account. If that would take a cash box below zero the whole
+      // confirmation is rejected — you cannot pay out of a drawer that
+      // does not have it. See docs/treasury.md.
+      if (payment.treasuryAccountId) {
+        await this.treasury.post(
+          tx,
+          {
+            companyId: ctx.companyId,
+            tenantId: ctx.tenantId,
+            branchId: ctx.branchId,
+            userId: ctx.userId,
+          },
+          {
+            treasuryAccountId: payment.treasuryAccountId,
+            movementType: 'PAYMENT',
+            amount: payment.amount.negated(),
+            occurredAt: payment.occurredAt,
+            sourceType: 'SupplierPayment',
+            sourceId: payment.id,
+            currencyId: payment.currencyId,
+            description: `Pago ${payment.number}`,
+          },
+        );
+      }
+
       await this.auditService.recordFromContext(
         ctx,
         {
@@ -495,6 +526,32 @@ export class SupplierPaymentsService {
         occurredAt: new Date(),
         createdBy: ctx.userId,
       });
+
+      // The money comes back into the account it left from, as its own
+      // movement, never by editing history. A retired account still
+      // accepts it — see the Cobro's equivalent.
+      if (existing.treasuryAccountId) {
+        await this.treasury.post(
+          tx,
+          {
+            companyId: ctx.companyId,
+            tenantId: ctx.tenantId,
+            branchId: ctx.branchId,
+            userId: ctx.userId,
+          },
+          {
+            treasuryAccountId: existing.treasuryAccountId,
+            movementType: 'PAYMENT_REVERSAL',
+            amount: existing.amount,
+            occurredAt: new Date(),
+            sourceType: 'SupplierPayment',
+            sourceId: existing.id,
+            currencyId: existing.currencyId,
+            description: `Anulación del pago ${existing.number}`,
+            allowInactiveAccount: true,
+          },
+        );
+      }
 
       await this.auditService.recordFromContext(
         ctx,

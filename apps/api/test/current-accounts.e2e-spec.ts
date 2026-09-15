@@ -86,6 +86,9 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
   let branchAId: string;
 
   let arsId: string;
+  /** Every Cobro/Pago here posts to this one; see docs/treasury.md. */
+  let treasuryArsId: string;
+  let treasuryUsdId: string;
   let usdId: string;
 
   let warehouseId: string;
@@ -174,6 +177,33 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
       },
     });
     usdId = usd.id;
+
+    // Cobros and Pagos now land somewhere real — the account is required
+    // on creation (task 019, criterion 7). One per currency, since a
+    // movement in another currency is rejected rather than converted.
+    const treasuryArs = await prisma.treasuryAccount.create({
+      data: {
+        tenantId,
+        companyId: companyAId,
+        code: `CA-TREAS-ARS-${suffix}`,
+        name: 'Caja corriente ARS',
+        type: 'CASH_BOX',
+        currencyId: arsId,
+      },
+    });
+    const treasuryUsd = await prisma.treasuryAccount.create({
+      data: {
+        tenantId,
+        companyId: companyAId,
+        code: `CA-TREAS-USD-${suffix}`,
+        name: 'Banco USD',
+        type: 'BANK_ACCOUNT',
+        currencyId: usdId,
+        allowsNegativeBalance: true,
+      },
+    });
+    treasuryArsId = treasuryArs.id;
+    treasuryUsdId = treasuryUsd.id;
 
     const unit = await prisma.unitOfMeasure.create({
       data: {
@@ -429,6 +459,14 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
     await prisma.auditLog.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
     });
+    // Treasury first: the movements point at the collections/payments
+    // deleted below, and the balances point at the accounts.
+    await prisma.treasuryMovement.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    await prisma.treasuryAccountBalance.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
     await prisma.customerCollectionApplication.deleteMany({
       where: {
         customerCollection: { companyId: { in: [companyAId, companyBId] } },
@@ -449,6 +487,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
       where: { companyId: { in: [companyAId, companyBId] } },
     });
     await prisma.supplierPaymentSequence.deleteMany({
+      where: { companyId: { in: [companyAId, companyBId] } },
+    });
+    // After the documents that reference them.
+    await prisma.treasuryAccount.deleteMany({
       where: { companyId: { in: [companyAId, companyBId] } },
     });
     await prisma.salesTender.deleteMany({
@@ -762,6 +804,180 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
   // Customer Collections ("Cobros")
   // -----------------------------------------------------------------------
   describe('Customer Collections', () => {
+    /** Reads the projected balance of a treasury account. */
+    async function treasuryBalance(accountId: string) {
+      const row = await prisma.treasuryAccountBalance.findFirst({
+        where: { treasuryAccountId: accountId },
+      });
+      return (row?.balance ?? new Prisma.Decimal(0)).toFixed(2);
+    }
+
+    describe('the treasury effect', () => {
+      it('a confirmed collection puts the money in the account, and a draft does not', async () => {
+        const agent = await loginAs(userAdminId);
+        const before = await treasuryBalance(treasuryArsId);
+
+        const created = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '1500',
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryArsId,
+          })
+          .expect(201);
+        const id = (created.body as { collection: CollectionBody }).collection
+          .id;
+
+        // A draft moves nothing: the money has not been counted yet.
+        expect(await treasuryBalance(treasuryArsId)).toBe(before);
+
+        await agent
+          .post(`/api/v1/customer-collections/${id}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .expect(200);
+
+        expect(await treasuryBalance(treasuryArsId)).toBe(
+          new Prisma.Decimal(before).add('1500').toFixed(2),
+        );
+        const movement = await prisma.treasuryMovement.findFirstOrThrow({
+          where: { sourceType: 'CustomerCollection', sourceId: id },
+        });
+        expect(movement.movementType).toBe('COLLECTION');
+        expect(movement.amount.toFixed(2)).toBe('1500.00');
+      });
+
+      it('cancelling takes it back out, by appending — never by deleting', async () => {
+        const agent = await loginAs(userAdminId);
+        const before = await treasuryBalance(treasuryArsId);
+
+        const created = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '800',
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryArsId,
+          })
+          .expect(201);
+        const id = (created.body as { collection: CollectionBody }).collection
+          .id;
+
+        await agent
+          .post(`/api/v1/customer-collections/${id}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .expect(200);
+        await agent
+          .post(`/api/v1/customer-collections/${id}/cancel`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .expect(200);
+
+        expect(await treasuryBalance(treasuryArsId)).toBe(before);
+        // Two movements, not zero: the history stays.
+        const movements = await prisma.treasuryMovement.findMany({
+          where: { sourceType: 'CustomerCollection', sourceId: id },
+        });
+        expect(movements.map((m) => m.movementType).sort()).toEqual([
+          'COLLECTION',
+          'COLLECTION_REVERSAL',
+        ]);
+      });
+
+      it("refuses an account whose currency is not the document's", async () => {
+        const agent = await loginAs(userAdminId);
+        const res = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '100',
+            paymentMethod: 'CASH',
+            // A dollar account for a peso Cobro.
+            treasuryAccountId: treasuryUsdId,
+          })
+          .expect(201);
+        const id = (res.body as { collection: CollectionBody }).collection.id;
+
+        const confirm = await agent
+          .post(`/api/v1/customer-collections/${id}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId);
+        expect(confirm.status).toBe(400);
+        expect((confirm.body as ErrorEnvelope).error.code).toBe(
+          'TREASURY_CURRENCY_MISMATCH',
+        );
+
+        // And the rejection rolled everything back — the document is not
+        // left CONFIRMED with no movement behind it.
+        const after = await prisma.customerCollection.findFirstOrThrow({
+          where: { id },
+        });
+        expect(after.status).toBe('DRAFT');
+      });
+
+      it('requires the account: a Cobro with nowhere to land is rejected', async () => {
+        const agent = await loginAs(userAdminId);
+        const res = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '100',
+            paymentMethod: 'CASH',
+          });
+        expect(res.status).toBe(400);
+      });
+
+      it('a historical collection without an account still confirms, and stays out of every balance', async () => {
+        // The documented rule for rows that predate Treasury (task 019,
+        // criterion 7): they are not invented an account and not
+        // back-posted into a balance nobody counted.
+        const agent = await loginAs(userAdminId);
+        const created = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '640',
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryArsId,
+          })
+          .expect(201);
+        const id = (created.body as { collection: CollectionBody }).collection
+          .id;
+        // Put it back the way a pre-Treasury row looks.
+        await prisma.customerCollection.update({
+          where: { id },
+          data: { treasuryAccountId: null },
+        });
+
+        const before = await treasuryBalance(treasuryArsId);
+        await agent
+          .post(`/api/v1/customer-collections/${id}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .expect(200);
+
+        // The customer ledger still moved...
+        const customerMovements = await prisma.customerAccountMovement.count({
+          where: { sourceType: 'CustomerCollection', sourceId: id },
+        });
+        expect(customerMovements).toBe(1);
+        // ...and treasury did not.
+        expect(await treasuryBalance(treasuryArsId)).toBe(before);
+        expect(
+          await prisma.treasuryMovement.count({
+            where: { sourceType: 'CustomerCollection', sourceId: id },
+          }),
+        ).toBe(0);
+      });
+    });
+
     it('a partial CONFIRMED collection reduces the sale outstanding and the customer account balance', async () => {
       const agent = await loginAs(userAdminId);
       const sale = await confirmedSale(agent, {
@@ -777,6 +993,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           currencyId: arsId,
           amount: '2000',
           paymentMethod: 'TRANSFER',
+          treasuryAccountId: treasuryArsId,
           applications: [{ salesDocumentId: sale.id, amount: '2000' }],
         });
       expect(created.status).toBe(201);
@@ -829,6 +1046,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           currencyId: arsId,
           amount: '5000',
           paymentMethod: 'TRANSFER',
+          treasuryAccountId: treasuryArsId,
           applications: [{ salesDocumentId: sale.id, amount: '5000' }],
         });
       expect(res.status).toBe(409);
@@ -854,6 +1072,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           currencyId: usdId,
           amount: '10',
           paymentMethod: 'TRANSFER',
+          treasuryAccountId: treasuryUsdId,
           applications: [{ salesDocumentId: sale.id, amount: '10' }],
         });
       expect(res.status).toBe(409);
@@ -877,6 +1096,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           currencyId: arsId,
           amount: '100',
           paymentMethod: 'TRANSFER',
+          treasuryAccountId: treasuryArsId,
           applications: [{ salesDocumentId: sale.id, amount: '100' }],
         });
       // sale actually belongs to `customerId` here, so mutate to prove the
@@ -891,6 +1111,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           currencyId: arsId,
           amount: '100',
           paymentMethod: 'TRANSFER',
+          treasuryAccountId: treasuryArsId,
           applications: [{ salesDocumentId: sale.id, amount: '100' }],
         });
       expect(mismatched.status).toBe(404); // customerBId not found within companyA's scope
@@ -911,6 +1132,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           currencyId: arsId,
           amount: '4000',
           paymentMethod: 'CASH',
+          treasuryAccountId: treasuryArsId,
           applications: [{ salesDocumentId: sale.id, amount: '4000' }],
         });
       const collectionId = (created.body as { collection: CollectionBody })
@@ -963,6 +1185,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           currencyId: arsId,
           amount: '500',
           paymentMethod: 'CASH',
+          treasuryAccountId: treasuryArsId,
           applications: [{ salesDocumentId: sale.id, amount: '500' }],
         });
       expect(created.status).toBe(201);
@@ -992,6 +1215,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
             currencyId: arsId,
             amount: '3000',
             paymentMethod: 'TRANSFER',
+            treasuryAccountId: treasuryArsId,
             applications: [{ salesDocumentId: sale.id, amount: '3000' }],
           });
         const collectionB = await agent
@@ -1002,6 +1226,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
             currencyId: arsId,
             amount: '3000',
             paymentMethod: 'TRANSFER',
+            treasuryAccountId: treasuryArsId,
             applications: [{ salesDocumentId: sale.id, amount: '3000' }],
           });
         expect(collectionA.status).toBe(201);
@@ -1048,6 +1273,108 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
   // Supplier Payments ("Pagos")
   // -----------------------------------------------------------------------
   describe('Supplier Payments', () => {
+    async function treasuryBalance(accountId: string) {
+      const row = await prisma.treasuryAccountBalance.findFirst({
+        where: { treasuryAccountId: accountId },
+      });
+      return (row?.balance ?? new Prisma.Decimal(0)).toFixed(2);
+    }
+
+    describe('the treasury effect', () => {
+      it('a confirmed payment takes the money out of the account', async () => {
+        const agent = await loginAs(userAdminId);
+        // Fund the box first — you cannot pay out of a drawer that is empty.
+        const funding = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '5000',
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryArsId,
+          })
+          .expect(201);
+        await agent
+          .post(
+            `/api/v1/customer-collections/${(funding.body as { collection: CollectionBody }).collection.id}/confirm`,
+          )
+          .set(COMPANY_ID_HEADER, companyAId)
+          .expect(200);
+
+        const before = await treasuryBalance(treasuryArsId);
+
+        const created = await agent
+          .post('/api/v1/supplier-payments')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            supplierId,
+            currencyId: arsId,
+            amount: '1200',
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryArsId,
+          })
+          .expect(201);
+        const id = (created.body as { payment: PaymentBody }).payment.id;
+
+        await agent
+          .post(`/api/v1/supplier-payments/${id}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .expect(200);
+
+        expect(await treasuryBalance(treasuryArsId)).toBe(
+          new Prisma.Decimal(before).sub('1200').toFixed(2),
+        );
+        const movement = await prisma.treasuryMovement.findFirstOrThrow({
+          where: { sourceType: 'SupplierPayment', sourceId: id },
+        });
+        expect(movement.movementType).toBe('PAYMENT');
+        // Signed: money out.
+        expect(movement.amount.toFixed(2)).toBe('-1200.00');
+      });
+
+      it('refuses to pay more than the cash box holds, and writes nothing', async () => {
+        const agent = await loginAs(userAdminId);
+        const balance = await treasuryBalance(treasuryArsId);
+        const tooMuch = new Prisma.Decimal(balance).add('1000000').toFixed(2);
+
+        const created = await agent
+          .post('/api/v1/supplier-payments')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            supplierId,
+            currencyId: arsId,
+            amount: tooMuch,
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryArsId,
+          })
+          .expect(201);
+        const id = (created.body as { payment: PaymentBody }).payment.id;
+
+        const confirm = await agent
+          .post(`/api/v1/supplier-payments/${id}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId);
+        expect(confirm.status).toBe(409);
+        expect((confirm.body as ErrorEnvelope).error.code).toBe(
+          'INSUFFICIENT_TREASURY_FUNDS',
+        );
+
+        // The whole confirmation rolled back: the balance is untouched,
+        // the supplier ledger did not move, and the document is still a
+        // draft rather than CONFIRMED with nothing behind it.
+        expect(await treasuryBalance(treasuryArsId)).toBe(balance);
+        expect(
+          await prisma.supplierAccountMovement.count({
+            where: { sourceType: 'SupplierPayment', sourceId: id },
+          }),
+        ).toBe(0);
+        const after = await prisma.supplierPayment.findFirstOrThrow({
+          where: { id },
+        });
+        expect(after.status).toBe('DRAFT');
+      });
+    });
+
     it('a partial CONFIRMED payment reduces the receipt outstanding', async () => {
       const agent = await loginAs(userAdminId);
       const receipt = await confirmedReceipt(agent, {
@@ -1063,6 +1390,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           currencyId: arsId,
           amount: '400',
           paymentMethod: 'TRANSFER',
+          treasuryAccountId: treasuryArsId,
           applications: [{ purchaseReceiptId: receipt.id, amount: '400' }],
         });
       expect(created.status).toBe(201);
@@ -1093,6 +1421,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           currencyId: arsId,
           amount: '600',
           paymentMethod: 'TRANSFER',
+          treasuryAccountId: treasuryArsId,
           applications: [{ purchaseReceiptId: receipt.id, amount: '600' }],
         });
       const paymentId = (created.body as { payment: PaymentBody }).payment.id;
@@ -1137,6 +1466,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
             currencyId: arsId,
             amount: '1000',
             paymentMethod: 'TRANSFER',
+            treasuryAccountId: treasuryArsId,
             applications: [{ purchaseReceiptId: receipt.id, amount: '1000' }],
           });
         const paymentId = (created.body as { payment: PaymentBody }).payment.id;
@@ -1187,6 +1517,7 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           currencyId: arsId,
           amount: '100',
           paymentMethod: 'TRANSFER',
+          treasuryAccountId: treasuryArsId,
           applications: [],
         });
       expect(res.status).toBe(404);

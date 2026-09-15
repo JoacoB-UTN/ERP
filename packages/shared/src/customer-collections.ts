@@ -56,6 +56,17 @@ export const createCustomerCollectionSchema = z
     occurredAt: z.coerce.date().optional(),
     amount: collectionAmountSchema,
     paymentMethod: z.enum(paymentMethodValues),
+    /**
+     * Where the money landed — see docs/treasury.md. **Required for new
+     * documents**: a Cobro that does not say which cash box or bank
+     * account received the money is the gap Treasury exists to close.
+     * Confirming posts a COLLECTION movement there.
+     *
+     * Documents confirmed before Treasury existed have none, and they
+     * keep it that way — the column is nullable in the database for
+     * exactly that history (task 019, criterion 7).
+     */
+    treasuryAccountId: z.string().uuid('Elegí la cuenta de tesorería.'),
     externalReference: z.string().trim().max(100).optional(),
     notes: z.string().trim().max(1000).optional(),
     applications: z.array(collectionApplicationInputSchema).default([]),
@@ -71,6 +82,7 @@ export const updateCustomerCollectionSchema = z
     occurredAt: z.coerce.date().optional(),
     amount: collectionAmountSchema.optional(),
     paymentMethod: z.enum(paymentMethodValues).optional(),
+    treasuryAccountId: z.string().uuid().optional(),
     externalReference: z.string().trim().max(100).nullable().optional(),
     notes: z.string().trim().max(1000).nullable().optional(),
     applications: z.array(collectionApplicationInputSchema).optional(),
