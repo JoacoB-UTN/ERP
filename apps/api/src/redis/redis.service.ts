@@ -19,9 +19,14 @@ const READY_GRACE_MS = 2000;
  * Nothing in the product requires Redis to be correct: it caches effective
  * permissions (`AuthorizationService`, which recomputes from Postgres on any
  * cache error — "correctness over cache convenience") and nothing else. No
- * queues are implemented yet, see `src/queue/README.md`. `HealthService`
- * already encodes this by reporting a Redis outage as `degraded` rather than
- * `error`.
+ * queues are implemented yet, see `src/queue/README.md`.
+ *
+ * `HealthService` distinguishes three cases, and the distinction matters: a
+ * Redis that was CONFIGURED and is unreachable reports `error` and degrades
+ * the server, while a deployment with no `REDIS_URL` at all reports
+ * `disabled` and stays healthy. Without that split every installed machine
+ * read `degraded` forever, because the installer had to name some Redis and
+ * named one it never ships.
  *
  * Startup used to `await client.connect()` unconditionally, which made that
  * "optional" a fiction: with Redis unreachable the connect never resolved and
@@ -48,8 +53,22 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   /** The startup grace in `isHealthy()` is spent at most once per process. */
   private readyGraceUsed = false;
 
+  /**
+   * Whether this deployment has a Redis at all.
+   *
+   * An empty REDIS_URL means the operator is running without a cache, which
+   * is supported: permissions are recomputed from PostgreSQL. That is a
+   * different fact from "a Redis was configured and cannot be reached", and
+   * conflating them is what made every installed machine report `degraded`
+   * permanently -- the installer had to supply some URL, so it pointed at a
+   * Redis it never installs.
+   */
+  readonly isConfigured: boolean;
+
   constructor(configService: ConfigService<Env, true>) {
-    this.client = new Redis(configService.get('REDIS_URL', { infer: true }), {
+    const url = configService.get('REDIS_URL', { infer: true });
+    this.isConfigured = Boolean(url && url.trim());
+    this.client = new Redis(url || 'redis://127.0.0.1:6379', {
       lazyConnect: true,
       maxRetriesPerRequest: 1,
       // Fail cache commands immediately while disconnected instead of queueing
@@ -79,6 +98,17 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
+    if (!this.isConfigured) {
+      // No URL: never connect, and say so once. The client object still
+      // exists so no call site needs a null check -- with the offline queue
+      // disabled its commands reject immediately, which is exactly what
+      // AuthorizationService already handles by going to PostgreSQL.
+      this.logger.log(
+        'No REDIS_URL configured: running without the permission cache. Permissions are read from PostgreSQL on every check.',
+      );
+      return;
+    }
+
     // Deliberately NOT awaited. ioredis's default retry strategy reconnects
     // forever, so with Redis down `connect()` neither resolves nor rejects —
     // awaiting it hangs application startup indefinitely rather than failing
@@ -95,6 +125,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Three states, because two cannot express this: a deployment with no Redis
+   * is not an unhealthy one. `disabled` must never move the overall health
+   * status; only a Redis that was asked for and is missing should.
+   */
+  async getStatus(): Promise<'ok' | 'error' | 'disabled'> {
+    if (!this.isConfigured) return 'disabled';
+    return (await this.isHealthy()) ? 'ok' : 'error';
+  }
+
+  /**
    * Lightweight liveness check used by HealthService.
    *
    * Because `onModuleInit` deliberately does not await the connection, the very
@@ -107,6 +147,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    * making this endpoint slow: the ERP desktop client polls it.
    */
   async isHealthy(): Promise<boolean> {
+    if (!this.isConfigured) return false;
     if (!this.readyGraceUsed && this.client.status !== 'ready') {
       this.readyGraceUsed = true;
       await this.waitForReady(READY_GRACE_MS);

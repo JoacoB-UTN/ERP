@@ -17,8 +17,16 @@ export class HealthService {
    *
    * - Postgres is a hard dependency: if it's down the API cannot serve any
    *   business request, so overall status is "error".
-   * - Redis is not on the critical path yet (no queues/cache wired up), so
-   *   a Redis outage alone is reported as "degraded", not "error".
+   * - Redis has three states, not two. A Redis that was CONFIGURED and is
+   *   unreachable reports "error" and makes the server "degraded". A
+   *   deployment with no REDIS_URL at all reports "disabled" and stays "ok":
+   *   running without the permission cache is supported, and PostgreSQL
+   *   answers instead.
+   *
+   *   That split exists because it was missing: REDIS_URL was mandatory, so
+   *   the Windows installer pointed it at a Redis it deliberately never
+   *   ships, and every installed machine reported "degraded" forever. A
+   *   health panel that is permanently yellow tells an operator nothing.
    *
    * The Current Accounts backfill state rides along but deliberately does
    * NOT move `status`. `status` is about infrastructure liveness, and a
@@ -27,14 +35,14 @@ export class HealthService {
    * by the readiness gate on the Current Accounts endpoints themselves.
    */
   async check(): Promise<HealthResponse> {
-    const [databaseOk, redisOk] = await Promise.all([
+    const [databaseOk, redis] = await Promise.all([
       this.prisma.isHealthy(),
-      this.redis.isHealthy(),
+      this.redis.getStatus(),
     ]);
 
     const status: HealthResponse['status'] = !databaseOk
       ? 'error'
-      : !redisOk
+      : redis === 'error'
         ? 'degraded'
         : 'ok';
 
@@ -42,7 +50,7 @@ export class HealthService {
       status,
       services: {
         database: databaseOk ? 'ok' : 'error',
-        redis: redisOk ? 'ok' : 'error',
+        redis,
       },
       currentAccountsBackfill: this.currentAccountsBackfill.getState(),
     };

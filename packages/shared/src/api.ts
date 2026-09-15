@@ -28,7 +28,12 @@ export interface HealthResponse {
   status: 'ok' | 'degraded' | 'error';
   services: {
     database: 'ok' | 'error';
-    redis: 'ok' | 'error';
+    /**
+     * `disabled` means no REDIS_URL was configured, which is a supported
+     * deployment and does NOT degrade the server. `error` means a Redis was
+     * configured and cannot be reached.
+     */
+    redis: 'ok' | 'error' | 'disabled';
   };
   currentAccountsBackfill: CurrentAccountsBackfillState;
 }
