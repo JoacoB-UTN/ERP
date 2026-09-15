@@ -36,8 +36,19 @@ const nameSchema = z
   .min(1, 'El nombre es obligatorio.')
   .max(120, 'El nombre no puede superar los 120 caracteres.');
 
+/** Absent or empty both mean "not given" — the right reading on creation. */
 const optionalText = (max: number) =>
   z.string().trim().max(max).optional().or(z.literal('').transform(() => undefined));
+
+/**
+ * Absent means "leave it alone"; empty or null mean "clear it". Without
+ * the distinction an optional field can be set once and never removed.
+ */
+const clearableText = (max: number) =>
+  z
+    .union([z.string().trim().max(max), z.null()])
+    .optional()
+    .transform((v) => (v === '' ? null : v));
 
 export const createTreasuryAccountSchema = z
   .object({
@@ -72,16 +83,21 @@ export type CreateTreasuryAccountInput = z.infer<typeof createTreasuryAccountSch
  * existing movement on the account means. Turning a peso cash box into a
  * dollar bank account would silently reinterpret its whole history.
  * Retire the account and open another one.
+ *
+ * The text fields are `clearableText`, not `optionalText`: on creation an
+ * empty string sensibly means "not given", but on an edit it means "take
+ * what is there away" — and collapsing the two would make a wrong CBU
+ * impossible to remove, only to overwrite.
  */
 export const updateTreasuryAccountSchema = z.object({
   name: nameSchema.optional(),
   branchId: z.string().uuid().nullable().optional(),
   allowsNegativeBalance: z.boolean().optional(),
-  bankName: optionalText(120),
-  accountNumber: optionalText(64),
-  cbu: optionalText(32),
-  alias: optionalText(64),
-  notes: optionalText(500),
+  bankName: clearableText(120),
+  accountNumber: clearableText(64),
+  cbu: clearableText(32),
+  alias: clearableText(64),
+  notes: clearableText(500),
   active: z.boolean().optional(),
 });
 export type UpdateTreasuryAccountInput = z.infer<typeof updateTreasuryAccountSchema>;

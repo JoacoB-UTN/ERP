@@ -107,7 +107,10 @@ export class TreasuryService {
         data: {
           tenantId: ctx.tenantId,
           companyId: ctx.companyId,
-          branchId: ctx.branchId ?? account.branchId,
+          // The account's branch wins over the caller's: a cash box sits
+          // where it sits, and a movement posted from another branch's
+          // context did not move the drawer.
+          branchId: account.branchId ?? ctx.branchId,
           treasuryAccountId: account.id,
           currencyId: account.currencyId,
           movementType: params.movementType,

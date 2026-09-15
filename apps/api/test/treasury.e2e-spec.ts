@@ -369,6 +369,56 @@ describe('Treasury (e2e)', () => {
       expect(res.status).toBe(400);
     });
 
+    it('can clear a field that was set, not only overwrite it', async () => {
+      // A wrong CBU has to be removable. `?? undefined` in the update
+      // would swallow the explicit null and silently keep the old value.
+      const account = await createAccount({
+        code: nextCode('BANCOCBU'),
+        name: 'Banco con CBU',
+        type: 'BANK_ACCOUNT',
+        cbu: '0000003100010000000001',
+      });
+      const agent = await loginAs(userAdminId);
+
+      const stored = await prisma.treasuryAccount.findFirstOrThrow({
+        where: { id: account.id },
+      });
+      expect(stored.cbu).toBe('0000003100010000000001');
+
+      await agent
+        .patch(`/api/v1/treasury/accounts/${account.id}`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ cbu: null })
+        .expect(200);
+
+      const cleared = await prisma.treasuryAccount.findFirstOrThrow({
+        where: { id: account.id },
+      });
+      expect(cleared.cbu).toBeNull();
+    });
+
+    it('leaves a field alone when the edit does not mention it', async () => {
+      const account = await createAccount({
+        code: nextCode('BANCOKEEP'),
+        name: 'Banco',
+        type: 'BANK_ACCOUNT',
+        bankName: 'Banco Nación',
+      });
+      const agent = await loginAs(userAdminId);
+
+      await agent
+        .patch(`/api/v1/treasury/accounts/${account.id}`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ name: 'Banco renombrado' })
+        .expect(200);
+
+      const after = await prisma.treasuryAccount.findFirstOrThrow({
+        where: { id: account.id },
+      });
+      expect(after.name).toBe('Banco renombrado');
+      expect(after.bankName).toBe('Banco Nación');
+    });
+
     it('does not let an edit turn a cash box into one that can go negative', async () => {
       const account = await createAccount();
       const agent = await loginAs(userAdminId);

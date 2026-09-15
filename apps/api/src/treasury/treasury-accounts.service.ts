@@ -204,13 +204,18 @@ export class TreasuryAccountsService {
         where: { id: existing.id },
         data: {
           name: input.name ?? undefined,
+          // `=== undefined` and not `??` for every nullable field: `??`
+          // would swallow an explicit null, which is how the client says
+          // "clear this". A wrong CBU has to be removable, not only
+          // overwritable.
           branchId: input.branchId === undefined ? undefined : input.branchId,
           allowsNegativeBalance: input.allowsNegativeBalance ?? undefined,
-          bankName: input.bankName ?? undefined,
-          accountNumber: input.accountNumber ?? undefined,
-          cbu: input.cbu ?? undefined,
-          alias: input.alias ?? undefined,
-          notes: input.notes ?? undefined,
+          bankName: input.bankName === undefined ? undefined : input.bankName,
+          accountNumber:
+            input.accountNumber === undefined ? undefined : input.accountNumber,
+          cbu: input.cbu === undefined ? undefined : input.cbu,
+          alias: input.alias === undefined ? undefined : input.alias,
+          notes: input.notes === undefined ? undefined : input.notes,
           active: input.active ?? undefined,
         },
       });
