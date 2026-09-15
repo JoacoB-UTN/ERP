@@ -53,6 +53,18 @@ foreach ($id in $serviceIds) {
   }
 }
 
+# The firewall rules the installer created. Removed here because leaving
+# allow-rules behind for ports nothing listens on any more is exactly the kind
+# of residue an uninstall is supposed to clean up -- unlike the data and the
+# backups below, a firewall rule holds nothing of the business's.
+foreach ($name in @('ERP Server - Gestion', 'ERP Server - Facturacion', 'ERP Server - API')) {
+  $rule = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
+  if ($rule) {
+    Write-Host "Removing firewall rule: $name"
+    $rule | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  }
+}
+
 Write-Host ''
 Write-Host 'Servicios del ERP eliminados.'
 Write-Host "La base de datos y las copias de seguridad NO se borraron:"

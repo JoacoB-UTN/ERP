@@ -296,6 +296,28 @@ foreach ($name in @('config', 'services', 'backups')) {
   Set-Acl -Path $dir -AclObject $secretAcl
 }
 
+# `logs` has to be WRITABLE by the accounts the services run as, and the
+# tree-wide rule above grants only read+execute. WinSW writes its wrapper log
+# there before it does anything else; as NetworkService it silently could not,
+# which is why erp-postgres left no trace of a boot-time start at all while
+# postgres itself was running and serving. A service account that cannot write
+# its own log directory produces failures with no evidence anywhere.
+#
+# Modify, not FullControl: these accounts write and roll log files, they do not
+# need to change the directory's permissions.
+$logIdentities = @(
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::NetworkServiceSid, $null)
+)
+$logsAcl = Get-Acl $logsDir
+foreach ($identity in $logIdentities) {
+  $logsAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $identity, 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+}
+Set-Acl -Path $logsDir -AclObject $logsAcl
+
 # ---------------------------------------------------------------------------
 # PostgreSQL cluster
 # ---------------------------------------------------------------------------
@@ -530,6 +552,37 @@ foreach ($file in $pgServiceFiles) {
 }
 
 foreach ($id in $serviceIds) { Install-ErpService $id }
+
+# ---------------------------------------------------------------------------
+# Windows Firewall
+# ---------------------------------------------------------------------------
+# Without this the product does not work in the deployment it is designed for.
+# Every other PC on the premises is supposed to reach this machine over the
+# LAN (see docs/desktop-lan-architecture.md), but Windows blocks unsolicited
+# inbound connections by default, and a service has no interactive session in
+# which the "allow this app?" prompt could ever appear. So nothing asks and
+# nothing is allowed: the ports listen on 0.0.0.0 and every other machine
+# times out. Verified on a clean install -- Gestion answered 200 on the server
+# itself and timed out from another machine until these rules existed.
+#
+# Gestion, Facturacion and the API only. PostgreSQL is deliberately absent:
+# it binds 127.0.0.1 and LAN clients must reach the API, never the database
+# directly -- the invariant from AGENTS.md.
+Write-Step 'Opening the firewall for LAN clients'
+foreach ($rule in @(
+    @{ Name = 'ERP Server - Gestion';     Port = $GestionPort },
+    @{ Name = 'ERP Server - Facturacion'; Port = $FacturacionPort },
+    @{ Name = 'ERP Server - API';         Port = $ApiPort }
+  )) {
+  # Idempotent: a re-run must not stack duplicate rules.
+  Get-NetFirewallRule -DisplayName $rule.Name -ErrorAction SilentlyContinue |
+    Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  New-NetFirewallRule -DisplayName $rule.Name `
+    -Direction Inbound -Protocol TCP -LocalPort $rule.Port -Action Allow `
+    -Profile Any `
+    -Description 'ERP Server. Created by the ERP installer; removed on uninstall.' | Out-Null
+  Write-Host "    $($rule.Name) -> TCP $($rule.Port)"
+}
 
 Write-Step 'Starting PostgreSQL'
 Start-Service -Name 'erp-postgres'
