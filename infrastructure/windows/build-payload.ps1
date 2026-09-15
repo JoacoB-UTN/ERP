@@ -234,6 +234,33 @@ try {
   }
 
   # ---- Provisioning script ------------------------------------------------
+  # ---- Prisma config for the installed tree --------------------------------
+  # Emitted here rather than copied from apps/api/prisma.config.ts, which
+  # cannot work on an installed machine for two independent reasons: it opens
+  # with `import 'dotenv/config'` and dotenv is a devDependency this payload
+  # prunes, and its paths are relative to apps/api rather than to the payload's
+  # server root.
+  #
+  # It is not optional. Prisma 7 removed `url` from the schema -- the schema
+  # here declares `datasource db { provider = "postgresql" }` and nothing more
+  # -- so the connection URL for Migrate can ONLY come from a config file.
+  # Without this, `prisma migrate deploy` on a customer's machine fails with
+  # "The datasource.url property is required in your Prisma config file" even
+  # though install.ps1 sets DATABASE_URL correctly. That is exactly what the
+  # first real installation hit; see docs/server-installer.md.
+  #
+  # `.cjs` on purpose: no TypeScript loader and no ESM ambiguity in a tree that
+  # carries no build tooling.
+  Write-Step "Writing prisma.config.cjs for the installed tree"
+  $prismaConfig = @(
+    'module.exports = {'
+    "  schema: 'apps/api/prisma/schema.prisma',"
+    "  migrations: { path: 'apps/api/prisma/migrations' },"
+    '  datasource: { url: process.env.DATABASE_URL },'
+    '};'
+  )
+  Set-Content -Path (Join-Path $serverDir 'prisma.config.cjs') -Value $prismaConfig -Encoding utf8
+
   # `nest build` excludes prisma/ (apps/api/tsconfig.build.json), so
   # provision.ts has no compiled counterpart in apps/api/dist and cannot simply
   # be copied. Bundle it here instead, emitted NEXT TO schema.prisma so its

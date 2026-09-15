@@ -264,7 +264,11 @@ jobs:
             # Without this the payload builds, passes every check here, and
             # cannot install on any machine that lacks the runtime -- which
             # is every clean Windows install.
-            "$payload/vcredist/vc_redist.x64.exe"
+            "$payload/vcredist/vc_redist.x64.exe",
+            # Prisma 7 takes the connection URL only from a config file, so
+            # without this `migrate deploy` fails on every installed machine
+            # while DATABASE_URL is set correctly.
+            "$payload/server/prisma.config.cjs"
           )
           $missing = $required | Where-Object { -not (Test-Path $_) }
           if ($missing) {
