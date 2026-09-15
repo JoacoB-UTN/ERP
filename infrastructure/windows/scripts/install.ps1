@@ -261,6 +261,15 @@ $usersSid = [System.Security.Principal.SecurityIdentifier]::new(
   [System.Security.Principal.WellKnownSidType]::BuiltinUsersSid, $null)
 $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
       $usersSid, 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+
+# And NetworkService explicitly: it is the account erp-postgres runs as (see
+# services/erp-postgres.xml.template for why it cannot be LocalSystem) and it
+# is NOT a member of the Users group, so the rule above does not cover it. It
+# needs to read the binaries it executes.
+$networkServiceSid = [System.Security.Principal.SecurityIdentifier]::new(
+  [System.Security.Principal.WellKnownSidType]::NetworkServiceSid, $null)
+$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+      $networkServiceSid, 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
 Set-Acl -Path $InstallDir -AclObject $acl
 
 # The directories that carry secrets or business data: SYSTEM and
@@ -293,11 +302,52 @@ foreach ($name in @('config', 'services', 'backups')) {
 # $initdbExe was resolved and version-checked by the payload validation at the
 # top of this script, before anything was written to this machine.
 
+New-Item -ItemType Directory -Path $pgData -Force | Out-Null
+# Applied on EVERY run, not only when the cluster is created. A re-run --
+# an upgrade, or a repair after an interrupted install -- must re-assert
+# these permissions; leaving it inside the creation branch means an existing
+# cluster never gets them and the service cannot read its own database.
+#
+# The cluster directory needs its own ACL, and getting this wrong fails in a
+# way that looks like the DLL problem above: 0xC0000135, no output at all.
+#
+# PostgreSQL drops the Administrators SID from its own token before doing
+# real work, so the process that writes this directory is neither an
+# administrator nor SYSTEM during an installation -- it is the plain user
+# account that launched the installer. Read+execute from the tree above is
+# not enough: initdb has to CREATE the cluster here.
+#
+# So: SYSTEM (the account the service runs as afterwards), Administrators
+# (support, backups, uninstall) and the installing user (initdb, right
+# now). Inheritance is broken so the tree-wide read+execute for Users does
+# NOT reach the database files -- a cluster readable by every local account
+# would hand over the whole business's data.
+$dataAcl = Get-Acl $pgData
+$dataAcl.SetAccessRuleProtection($true, $false)
+$dataPrincipals = @(
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
+  [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+  # The account the service runs as from here on: it has to read AND write
+  # the cluster, not just reach it.
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::NetworkServiceSid, $null)
+)
+foreach ($principal in $dataPrincipals) {
+  $dataAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $principal, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+}
+Set-Acl -Path $pgData -AclObject $dataAcl
+
 if (Test-Path (Join-Path $pgData 'PG_VERSION')) {
   Write-Step 'PostgreSQL data directory already initialised'
 } else {
   Write-Step 'Initialising PostgreSQL data directory'
   New-Item -ItemType Directory -Path $pgData -Force | Out-Null
+
+
 
   # The superuser password goes through a file, never argv: command lines are
   # readable by any process on the machine.
