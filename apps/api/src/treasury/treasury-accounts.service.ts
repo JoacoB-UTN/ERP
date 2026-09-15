@@ -7,7 +7,6 @@ import type {
   TreasuryAccountsQuery,
   TreasuryStatementQuery,
   TreasuryStatementResponse,
-  TreasuryStatementRowDto,
 } from '@erp/shared';
 import { TreasuryAccountType } from '@erp/shared';
 import { Prisma } from '../generated/prisma/client';
@@ -15,6 +14,7 @@ import type {
   Branch,
   Currency,
   TreasuryAccount,
+  TreasuryMovementType,
 } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -23,6 +23,7 @@ import { BranchAccessInvalidException } from '../company-context/company-context
 import { TreasuryService } from './treasury.service';
 import {
   CashBoxCannotAllowNegativeException,
+  NegativeOpeningBalanceException,
   CurrencyNotFoundException,
   TreasuryAccountCodeAlreadyExistsException,
   TreasuryAccountNotFoundException,
@@ -40,17 +41,6 @@ const ACCOUNT_INCLUDE = {
   currency: true,
   balance: true,
 } satisfies Prisma.TreasuryAccountInclude;
-
-/**
- * Oldest first, and fully deterministic: `occurredAt` alone ties whenever
- * two movements share a business date, and a tie makes a running balance
- * non-reproducible between two reads of the same page.
- */
-const STATEMENT_ORDER = [
-  { occurredAt: 'asc' },
-  { createdAt: 'asc' },
-  { id: 'asc' },
-] satisfies Prisma.TreasuryMovementOrderByWithRelationInput[];
 
 function toDto(a: AccountWithRelations): TreasuryAccountDto {
   return {
@@ -73,7 +63,10 @@ function toDto(a: AccountWithRelations): TreasuryAccountDto {
     // Zero, not null, when the projection row does not exist yet: an
     // account nobody has put anything into holds nothing, and that is a
     // real answer rather than a missing one.
-    balance: (a.balance?.balance ?? new Prisma.Decimal(0)).toFixed(2),
+    // `toString`, not `toFixed(2)`: the column is NUMERIC(19,4) and each
+    // currency declares its own precision, so forcing two places here
+    // would quietly round a real amount. Formatting is the UI's job.
+    balance: (a.balance?.balance ?? new Prisma.Decimal(0)).toString(),
   };
 }
 
@@ -133,7 +126,36 @@ export class TreasuryAccountsService {
       await this.assertBranchInCompany(ctx.companyId, input.branchId);
     await this.assertCodeIsFree(ctx.companyId, input.code);
 
-    const created = await this.prisma.$transaction(async (tx) => {
+    // The P2002 is translated OUTSIDE the transaction, deliberately.
+    // Catching it inside would be the same mistake the ledger's
+    // idempotency had: a unique violation aborts the whole PostgreSQL
+    // transaction, so the audit write after it would fail anyway. By the
+    // time this catch runs the transaction has already rolled back and
+    // there is nothing left to damage — the only thing left to do is give
+    // the race a decent error instead of a 500.
+    //
+    // `assertCodeIsFree` above still does the friendly check; this closes
+    // the window between that check and the insert.
+    const created = await this.createInTransaction(ctx, input).catch(
+      (error: unknown) => {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          throw new TreasuryAccountCodeAlreadyExistsException();
+        }
+        throw error;
+      },
+    );
+
+    return this.getById(ctx.companyId, created.id);
+  }
+
+  private async createInTransaction(
+    ctx: RequestContext,
+    input: CreateTreasuryAccountInput,
+  ): Promise<TreasuryAccount> {
+    return this.prisma.$transaction(async (tx) => {
       const account = await tx.treasuryAccount.create({
         data: {
           tenantId: ctx.tenantId,
@@ -172,8 +194,6 @@ export class TreasuryAccountsService {
       );
       return account;
     });
-
-    return this.getById(ctx.companyId, created.id);
   }
 
   async update(
@@ -275,6 +295,16 @@ export class TreasuryAccountsService {
         account.id,
       ]);
 
+      // Rejected here, with its own message, rather than letting the
+      // sign policy in `post` answer "insufficient funds" — which is not
+      // what happened.
+      if (
+        new Prisma.Decimal(input.amount).lt(0) &&
+        !account.allowsNegativeBalance
+      ) {
+        throw new NegativeOpeningBalanceException();
+      }
+
       const existingMovements = await tx.treasuryMovement.count({
         where: { companyId: ctx.companyId, treasuryAccountId: account.id },
       });
@@ -318,7 +348,7 @@ export class TreasuryAccountsService {
             after: {
               treasuryAccountId: account.id,
               movementType: 'OPENING_BALANCE',
-              amount: movement.amount.toFixed(2),
+              amount: movement.amount.toString(),
             },
           },
           tx,
@@ -346,54 +376,80 @@ export class TreasuryAccountsService {
   ): Promise<TreasuryStatementResponse> {
     const account = await this.getById(companyId, id);
 
-    const where: Prisma.TreasuryMovementWhereInput = {
-      companyId,
-      treasuryAccountId: id,
-      ...(query.movementType ? { movementType: query.movementType } : {}),
-      ...(query.from || query.to
-        ? {
-            occurredAt: {
-              ...(query.from ? { gte: new Date(query.from) } : {}),
-              ...(query.to ? { lte: new Date(query.to) } : {}),
-            },
-          }
-        : {}),
-    };
-
+    // The running balance is a WINDOW over every movement of the account,
+    // computed BEFORE the filters are applied.
+    //
+    // The filters decide which rows are shown; they must not decide where
+    // the running total starts. Summing only the filtered rows made
+    // "movements of type PAYMENT since March" read as though the account
+    // had been empty in February — a number that looks like a balance and
+    // is not one.
+    //
+    // Raw SQL because Prisma has no window functions. The ordering is the
+    // same deterministic one the page uses.
+    const from = query.from ? new Date(query.from) : null;
+    const to = query.to ? new Date(query.to) : null;
+    const movementType = query.movementType ?? null;
     const skip = (query.page - 1) * query.pageSize;
 
-    const [total, movements] = await Promise.all([
-      this.prisma.treasuryMovement.count({ where }),
-      this.prisma.treasuryMovement.findMany({
-        where,
-        orderBy: STATEMENT_ORDER,
-        skip,
-        take: query.pageSize,
-      }),
-    ]);
+    const filter = Prisma.sql`
+      (${movementType}::text IS NULL
+        OR "movementType"::text = ${movementType}::text)
+      AND (${from}::timestamptz IS NULL OR "occurredAt" >= ${from}::timestamptz)
+      AND (${to}::timestamptz IS NULL OR "occurredAt" <= ${to}::timestamptz)
+    `;
 
-    // Everything before this page, so page 2's running balance continues
-    // page 1's instead of restarting at zero. Skipped entirely on page 1
-    // — `take: 0` is not "sum nothing", it is a query with no meaningful
-    // answer, and asking it would be a bug waiting for a reader.
-    let running = new Prisma.Decimal(0);
-    if (skip > 0) {
-      const previous = await this.prisma.treasuryMovement.aggregate({
-        where,
-        _sum: { amount: true },
-        orderBy: STATEMENT_ORDER,
-        take: skip,
-      });
-      running = previous._sum.amount ?? new Prisma.Decimal(0);
-    }
+    const rowsPromise = this.prisma.$queryRaw<
+      {
+        id: string;
+        treasuryAccountId: string;
+        movementType: TreasuryMovementType;
+        amount: Prisma.Decimal;
+        occurredAt: Date;
+        sourceType: string;
+        sourceId: string;
+        description: string | null;
+        notes: string | null;
+        reversalOfId: string | null;
+        createdAt: Date;
+        runningBalance: Prisma.Decimal;
+      }[]
+    >(Prisma.sql`
+      SELECT * FROM (
+        SELECT
+          "id", "treasuryAccountId", "movementType", "amount", "occurredAt",
+          "sourceType", "sourceId", "description", "notes", "reversalOfId",
+          "createdAt",
+          SUM("amount") OVER (
+            ORDER BY "occurredAt", "createdAt", "id"
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS "runningBalance"
+        FROM treasury_movements
+        WHERE "companyId" = ${companyId}::uuid
+          AND "treasuryAccountId" = ${id}::uuid
+      ) all_movements
+      WHERE ${filter}
+      ORDER BY "occurredAt", "createdAt", "id"
+      LIMIT ${query.pageSize} OFFSET ${skip}
+    `);
 
-    const rows: TreasuryStatementRowDto[] = movements.map((m) => {
-      running = running.add(m.amount);
-      return {
+    const totalPromise = this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+      SELECT COUNT(*) AS count
+      FROM treasury_movements
+      WHERE "companyId" = ${companyId}::uuid
+        AND "treasuryAccountId" = ${id}::uuid
+        AND ${filter}
+    `);
+
+    const [rows, totalRows] = await Promise.all([rowsPromise, totalPromise]);
+
+    return {
+      account,
+      rows: rows.map((m) => ({
         id: m.id,
         treasuryAccountId: m.treasuryAccountId,
         movementType: m.movementType,
-        amount: m.amount.toFixed(2),
+        amount: m.amount.toString(),
         occurredAt: m.occurredAt.toISOString(),
         sourceType: m.sourceType,
         sourceId: m.sourceId,
@@ -401,14 +457,13 @@ export class TreasuryAccountsService {
         notes: m.notes,
         reversalOfId: m.reversalOfId,
         createdAt: m.createdAt.toISOString(),
-        runningBalance: running.toFixed(2),
-      };
-    });
-
-    return {
-      account,
-      rows,
-      pagination: { page: query.page, pageSize: query.pageSize, total },
+        runningBalance: m.runningBalance.toString(),
+      })),
+      pagination: {
+        page: query.page,
+        pageSize: query.pageSize,
+        total: Number(totalRows[0]?.count ?? 0),
+      },
       // Always true for now: no POS sale reaches this ledger yet. It is a
       // field rather than a constant so that wiring POS later flips one
       // expression instead of hunting for hardcoded warnings in the UI.
