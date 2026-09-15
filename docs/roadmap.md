@@ -168,9 +168,9 @@ Accounts Payable
 Treasury
   Cash boxes, bank accounts and the movement ledger — PARTIAL, see
   docs/treasury.md. The ledger, accounts, opening balance and statement
-  exist; nothing posts to them automatically yet (Cobro/Pago wiring and
-  POS are both still open), and transfers, cheques, reconciliation and
-  exchange rates are not started.
+  exist, plus transfers between accounts; nothing posts to them
+  automatically yet (Cobro/Pago wiring and POS are both still open), and
+  cheques, reconciliation and exchange rates are not started.
 
 Fiscal / ARCA
   Argentine tax authority integration, electronic invoicing

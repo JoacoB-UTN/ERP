@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { TreasuryAccountType, TreasuryMovementType } from './enums';
+import {
+  TreasuryAccountType,
+  TreasuryMovementType,
+  TreasuryTransferStatus,
+} from './enums';
 import { moneySchema } from './decimal';
 import type { PaginationMeta } from './api';
 
@@ -197,3 +201,100 @@ export const treasuryAccountsQuerySchema = z.object({
   type: z.enum(accountTypeValues).optional(),
 });
 export type TreasuryAccountsQuery = z.infer<typeof treasuryAccountsQuerySchema>;
+
+// ---------------------------------------------------------------------
+// Transfers between two of the company's own accounts
+// ---------------------------------------------------------------------
+
+const transferStatusValues = Object.values(TreasuryTransferStatus) as [
+  TreasuryTransferStatus,
+  ...TreasuryTransferStatus[],
+];
+
+const transferAmountSchema = moneySchema.refine((v) => Number(v) > 0, {
+  message: 'El importe debe ser mayor a 0.',
+});
+
+/**
+ * The direction lives in the two movements the confirmation writes, not
+ * in the sign of this amount — so it is always positive and a negative
+ * transfer is a validation error rather than a backwards one.
+ */
+export const createTreasuryTransferSchema = z
+  .object({
+    sourceAccountId: z.string().uuid('Elegí la cuenta de origen.'),
+    destinationAccountId: z.string().uuid('Elegí la cuenta de destino.'),
+    amount: transferAmountSchema,
+    occurredAt: z.string().datetime({ offset: true }).optional(),
+    notes: optionalText(500),
+  })
+  .superRefine((value, ctx) => {
+    if (value.sourceAccountId === value.destinationAccountId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'El origen y el destino tienen que ser cuentas distintas.',
+        path: ['destinationAccountId'],
+      });
+    }
+  });
+export type CreateTreasuryTransferInput = z.infer<typeof createTreasuryTransferSchema>;
+
+/** Only while DRAFT. A confirmed transfer is history — anular y rehacer. */
+export const updateTreasuryTransferSchema = z
+  .object({
+    sourceAccountId: z.string().uuid().optional(),
+    destinationAccountId: z.string().uuid().optional(),
+    amount: transferAmountSchema.optional(),
+    occurredAt: z.string().datetime({ offset: true }).optional(),
+    notes: clearableText(500),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.sourceAccountId &&
+      value.destinationAccountId &&
+      value.sourceAccountId === value.destinationAccountId
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'El origen y el destino tienen que ser cuentas distintas.',
+        path: ['destinationAccountId'],
+      });
+    }
+  });
+export type UpdateTreasuryTransferInput = z.infer<typeof updateTreasuryTransferSchema>;
+
+export interface TreasuryTransferDto {
+  id: string;
+  number: string;
+  status: TreasuryTransferStatus;
+  sourceAccountId: string;
+  sourceAccountName: string;
+  destinationAccountId: string;
+  destinationAccountName: string;
+  currencyId: string;
+  currencyCode: string;
+  /** Decimal string, always positive. */
+  amount: string;
+  occurredAt: string;
+  notes: string | null;
+  confirmedAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+}
+
+export interface TreasuryTransfersResponse {
+  transfers: TreasuryTransferDto[];
+  pagination: PaginationMeta;
+}
+
+export interface TreasuryTransferDetailResponse {
+  transfer: TreasuryTransferDto;
+}
+
+export const treasuryTransfersQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).optional().default(50),
+  status: z.enum(transferStatusValues).optional(),
+  accountId: z.string().uuid().optional(),
+});
+export type TreasuryTransfersQuery = z.infer<typeof treasuryTransfersQuerySchema>;

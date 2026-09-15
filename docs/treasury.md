@@ -130,6 +130,56 @@ use an adjustment. The endpoint is gated by `treasury.movements.create`,
 not `treasury.accounts.update`: declaring what is in a drawer is a
 treasury operation, not master-data maintenance.
 
+## Transfers between accounts
+
+The daily "deposit the till at the bank". One document
+(`TreasuryTransfer`, numbered `TRF-000001`), DRAFT → CONFIRMED →
+CANCELLED, with the same rules as `StockTransfer` — because it is the
+same problem with money instead of goods.
+
+- **A draft moves nothing.** The ledger is untouched until `confirm()`.
+- **Confirming writes BOTH movements in one transaction, the OUT
+  first.** The source is debited before the destination is credited, so
+  an insufficient-funds rejection rolls the whole thing back rather than
+  leaving money that arrived from nowhere.
+- **Cancelling appends the inverted pair** (`TRANSFER_OUT_REVERSAL` +
+  `TRANSFER_IN_REVERSAL`), never edits or deletes. A cancelled transfer
+  leaves four movements in the ledger and both balances where they
+  started.
+- **Source and destination must differ, share a currency, belong to the
+  same company, and both be active.** A transfer never converts.
+- **Confirming and cancelling are their own permissions**, so a role can
+  prepare a deposit without executing it.
+
+### The two defects this inherited, deliberately
+
+`StockTransfersService` had to learn both the hard way (PR #39), and
+this module copies the fixes rather than the original code:
+
+1. **The status flip is a conditional `updateMany ... WHERE status =
+   'DRAFT'`, done FIRST.** A concurrent or retried confirm gets zero rows
+   and stops before any movement is written.
+2. **That update always writes `updatedAt` explicitly.** An update whose
+   `data` ends up empty takes **no row lock at all**, which is exactly
+   what made the equivalent guard decorative until somebody measured it.
+   `@updatedAt` alone is not enough.
+
+And the document is re-read *inside* the transaction after the guard, so
+the movements describe the version that was actually confirmed rather
+than a snapshot a concurrent edit may have replaced.
+
+### Deadlock
+
+Two transfers moving money in opposite directions at the same moment —
+caja→banco and banco→caja — would each hold what the other needs.
+`TreasuryService.lockAccountsInStableOrder` takes one advisory lock per
+account in a globally sorted order, so one simply waits.
+
+Advisory locks rather than `SELECT ... FOR UPDATE` because the balance
+row **may not exist yet** — precisely the case of an account whose first
+movement is this transfer. Same reasoning as
+`InventoryService.lockBalancesInStableOrder`.
+
 ## Deliberately not wired: POS
 
 `AGENTS.md` states, as a permanent invariant, that `SalesTender` is an
@@ -229,10 +279,6 @@ it.
   yet. This is the seam the module was built for and it is next after
   (or alongside) POS — it carries an open decision about the confirmed
   Cobros and Pagos that already exist without an account.
-- **Transfers between accounts** (the daily "deposit the till at the
-  bank"). Planned as the `TRANSFER_IN`/`TRANSFER_OUT` movement types
-  already in the enum, with `lockBalancesInStableOrder`'s stable lock
-  ordering to avoid the A→B / B→A deadlock.
 - **Cheques** — de terceros, propios, diferidos, e-cheq. A cheque has its
   own lifecycle and is a subdomain, not a movement type.
 - **Bank reconciliation** — needs statement import and a matching engine.

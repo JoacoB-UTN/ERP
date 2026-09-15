@@ -229,6 +229,37 @@ export class TreasuryService {
   }
 
   /**
+   * Takes one advisory lock per account, in a globally stable order.
+   *
+   * Two transfers moving money in opposite directions — caja→banco and
+   * banco→caja at the same moment — would otherwise each hold what the
+   * other needs and deadlock. Sorting the keys means every transaction
+   * acquires them in the same sequence, so one simply waits.
+   *
+   * Advisory locks rather than `SELECT ... FOR UPDATE` because the
+   * balance row may not exist yet, which is precisely the case of an
+   * account whose first movement is this transfer — the same reasoning
+   * `InventoryService.lockBalancesInStableOrder` records for warehouses.
+   */
+  async lockAccountsInStableOrder(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    accountIds: string[],
+  ): Promise<void> {
+    const keys = [
+      ...new Set(accountIds.map((id) => `treasury:${companyId}:${id}`)),
+    ].sort();
+
+    for (const key of keys) {
+      // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns `void`,
+      // which Prisma cannot deserialize as a result column.
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`,
+      );
+    }
+  }
+
+  /**
    * Company-scoped lookup. `findFirst` with the companyId, never
    * `findUnique({ where: { id } })` — see AGENTS.md.
    */
