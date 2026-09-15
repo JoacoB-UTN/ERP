@@ -19,6 +19,7 @@ export * from './accounts-receivable';
 export * from './accounts-payable';
 export * from './customer-collections';
 export * from './supplier-payments';
+export * from './treasury';
 export * from './dashboard';
 export * from './realtime';
 export * from './backups';

@@ -21,6 +21,7 @@ import { PricingModule } from './pricing/pricing.module';
 import { SalesModule } from './sales/sales.module';
 import { PurchasesModule } from './purchases/purchases.module';
 import { AccountsModule } from './accounts/accounts.module';
+import { TreasuryModule } from './treasury/treasury.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { SystemModule } from './system/system.module';
@@ -73,6 +74,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
     SalesModule,
     PurchasesModule,
     AccountsModule,
+    TreasuryModule,
     DashboardModule,
     RealtimeModule,
     SystemModule,

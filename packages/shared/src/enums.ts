@@ -322,3 +322,35 @@ export const SupplierPaymentStatus = {
   CANCELLED: 'CANCELLED',
 } as const;
 export type SupplierPaymentStatus = (typeof SupplierPaymentStatus)[keyof typeof SupplierPaymentStatus];
+
+/**
+ * A cash box holds physical money at a location; a bank account does
+ * not. The distinction is not cosmetic — see docs/treasury.md: a
+ * CASH_BOX can never go negative, because a drawer holding minus five
+ * thousand pesos does not exist, while a bank overdraft does.
+ */
+export const TreasuryAccountType = {
+  CASH_BOX: 'CASH_BOX',
+  BANK_ACCOUNT: 'BANK_ACCOUNT',
+} as const;
+export type TreasuryAccountType = (typeof TreasuryAccountType)[keyof typeof TreasuryAccountType];
+
+/**
+ * Why a treasury movement exists — see docs/treasury.md. Every reversal
+ * is its own type rather than a negative of the original, because the
+ * ledger's idempotency constraint is keyed on the movement type and a
+ * cancellation has to be distinguishable from the confirmation it undoes.
+ */
+export const TreasuryMovementType = {
+  OPENING_BALANCE: 'OPENING_BALANCE',
+  COLLECTION: 'COLLECTION',
+  COLLECTION_REVERSAL: 'COLLECTION_REVERSAL',
+  PAYMENT: 'PAYMENT',
+  PAYMENT_REVERSAL: 'PAYMENT_REVERSAL',
+  TRANSFER_IN: 'TRANSFER_IN',
+  TRANSFER_OUT: 'TRANSFER_OUT',
+  TRANSFER_IN_REVERSAL: 'TRANSFER_IN_REVERSAL',
+  TRANSFER_OUT_REVERSAL: 'TRANSFER_OUT_REVERSAL',
+  ADJUSTMENT: 'ADJUSTMENT',
+} as const;
+export type TreasuryMovementType = (typeof TreasuryMovementType)[keyof typeof TreasuryMovementType];

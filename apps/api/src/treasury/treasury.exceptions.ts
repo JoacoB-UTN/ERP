@@ -1,0 +1,111 @@
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+
+/**
+ * Not found and not-yours are the same answer on purpose — see
+ * docs/multi-company-architecture.md. Distinguishing them would confirm
+ * that another company's account exists.
+ */
+export class TreasuryAccountNotFoundException extends NotFoundException {
+  constructor() {
+    super({
+      message: 'La cuenta de tesorería no existe.',
+      code: 'TREASURY_ACCOUNT_NOT_FOUND',
+    });
+  }
+}
+
+export class TreasuryAccountCodeAlreadyExistsException extends ConflictException {
+  constructor() {
+    super({
+      message: 'Ya existe una cuenta de tesorería con ese código.',
+      code: 'TREASURY_ACCOUNT_CODE_ALREADY_EXISTS',
+    });
+  }
+}
+
+/**
+ * A drawer holding minus five thousand pesos does not exist. A bank
+ * account may go negative when `allowsNegativeBalance` says so — an
+ * overdraft is a real thing, an impossible cash box is not.
+ */
+export class InsufficientTreasuryFundsException extends ConflictException {
+  constructor() {
+    super({
+      message:
+        'La cuenta no tiene saldo suficiente para registrar este movimiento.',
+      code: 'INSUFFICIENT_TREASURY_FUNDS',
+    });
+  }
+}
+
+/**
+ * No exchange rates exist in this module. A document in one currency
+ * cannot land in an account of another, and the answer is a rejection
+ * rather than a conversion nobody asked for.
+ */
+export class TreasuryCurrencyMismatchException extends BadRequestException {
+  constructor() {
+    super({
+      message:
+        'La moneda del movimiento no coincide con la moneda de la cuenta de tesorería.',
+      code: 'TREASURY_CURRENCY_MISMATCH',
+    });
+  }
+}
+
+/** A cash box is physical money; it cannot be configured to go negative. */
+export class CashBoxCannotAllowNegativeException extends BadRequestException {
+  constructor() {
+    super({
+      message: 'Una caja no puede quedar en negativo.',
+      code: 'CASH_BOX_CANNOT_ALLOW_NEGATIVE',
+    });
+  }
+}
+
+/** Posting to a retired account would silently reopen it. */
+export class TreasuryAccountInactiveException extends ConflictException {
+  constructor() {
+    super({
+      message: 'La cuenta de tesorería está inactiva.',
+      code: 'TREASURY_ACCOUNT_INACTIVE',
+    });
+  }
+}
+
+/**
+ * The opening balance is what was already in the account when it was
+ * first loaded into the system. Once the ledger has started, a
+ * correction is an adjustment — never a second "opening".
+ */
+export class TreasuryOpeningBalanceAlreadySetException extends ConflictException {
+  constructor() {
+    super({
+      message:
+        'Esta cuenta ya tiene movimientos. Para corregir el saldo, registrá un ajuste.',
+      code: 'TREASURY_OPENING_BALANCE_ALREADY_SET',
+    });
+  }
+}
+
+export class InvalidTreasuryAmountException extends BadRequestException {
+  constructor() {
+    super({
+      message: 'El importe debe ser un número válido distinto de cero.',
+      code: 'INVALID_TREASURY_AMOUNT',
+    });
+  }
+}
+
+export class CurrencyNotFoundException extends NotFoundException {
+  constructor() {
+    super({
+      message: 'La moneda indicada no existe.',
+      code: 'CURRENCY_NOT_FOUND',
+    });
+  }
+}

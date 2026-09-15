@@ -63,6 +63,8 @@ model Tenant {
   supplierAccountMovements SupplierAccountMovement[]
   customerCollections      CustomerCollection[]
   supplierPayments         SupplierPayment[]
+  treasuryAccounts         TreasuryAccount[]
+  treasuryMovements        TreasuryMovement[]
 
   @@map("tenants")
 }
@@ -124,6 +126,9 @@ model Company {
   customerCollectionSequence CustomerCollectionSequence?
   supplierPayments           SupplierPayment[]
   supplierPaymentSequence    SupplierPaymentSequence?
+  treasuryAccounts           TreasuryAccount[]
+  treasuryMovements          TreasuryMovement[]
+  treasuryAccountBalances    TreasuryAccountBalance[]
 
   // A given tax id should not be registered twice within the same tenant.
   @@unique([tenantId, taxId])
@@ -159,6 +164,8 @@ model Branch {
   purchaseReceipts    PurchaseReceipt[]
   customerCollections CustomerCollection[]
   supplierPayments    SupplierPayment[]
+  treasuryAccounts    TreasuryAccount[]
+  treasuryMovements   TreasuryMovement[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -1339,6 +1346,8 @@ model Currency {
   supplierAccountMovements SupplierAccountMovement[]
   customerCollections      CustomerCollection[]
   supplierPayments         SupplierPayment[]
+  treasuryAccounts         TreasuryAccount[]
+  treasuryMovements        TreasuryMovement[]
 
   @@map("currencies")
 }
@@ -2382,4 +2391,190 @@ model SupplierPaymentApplication {
   @@index([supplierPaymentId])
   @@index([purchaseReceiptId])
   @@map("supplier_payment_applications")
+}
+
+// ---------- Treasury (cash boxes, bank accounts, movement ledger) ----------
+//
+// Where the money actually is. Until this module existed the ERP recorded
+// HOW someone paid — SalesTender.method, CustomerCollection.paymentMethod,
+// SupplierPayment.paymentMethod — and never WHERE the money went, so
+// "how much is in the drawer" had no answer at all. See docs/treasury.md.
+//
+// The shape is inventory's, deliberately: TreasuryMovement is the ledger
+// and the only authoritative record; TreasuryAccountBalance is a
+// projection that can always be rebuilt from it. If the two ever
+// disagree, the ledger wins.
+//
+// NOTE on what does NOT post here yet: a POS sale's SalesTender is still
+// an operational snapshot and reaches no account — see AGENTS.md's
+// invariant and the "Deliberately not wired" section of docs/treasury.md.
+
+enum TreasuryAccountType {
+  /// Physical money in a drawer at a location. Cannot go negative.
+  CASH_BOX
+  /// A bank account. May go negative when `allowsNegativeBalance` is set
+  /// — an overdraft is a real thing, an impossible drawer is not.
+  BANK_ACCOUNT
+}
+
+/// Why a movement exists. Every reversal is its own type rather than a
+/// negative of the original, for the same reason
+/// CustomerAccountMovementType splits COLLECTION/COLLECTION_REVERSAL: the
+/// idempotency constraint below is keyed on movementType, so a
+/// cancellation must be distinguishable from the confirmation it undoes
+/// or the two would collide on one source document.
+enum TreasuryMovementType {
+  /// What the operator declared was already in the account when it was
+  /// opened in the system. Not income — see docs/treasury.md.
+  OPENING_BALANCE
+  COLLECTION
+  COLLECTION_REVERSAL
+  PAYMENT
+  PAYMENT_REVERSAL
+  TRANSFER_IN
+  TRANSFER_OUT
+  TRANSFER_IN_REVERSAL
+  TRANSFER_OUT_REVERSAL
+  ADJUSTMENT
+}
+
+/// A cash box or a bank account. Single-currency by construction: a
+/// business holding pesos and dollars has two accounts, not one bilingual
+/// one, because a mixed balance is not a number anybody can act on.
+model TreasuryAccount {
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @db.Uuid
+  companyId String  @db.Uuid
+  /// A cash box belongs to a location; a bank account usually does not.
+  branchId  String? @db.Uuid
+
+  /// Unique per company, never globally — same rule as Customer.code.
+  code String
+  name String
+
+  type       TreasuryAccountType
+  currencyId String              @db.Uuid
+
+  /// BANK_ACCOUNT only, and only ever a policy flag — the balance itself
+  /// lives in TreasuryAccountBalance. Always false for a CASH_BOX; the
+  /// service rejects a drawer that would go below zero regardless.
+  allowsNegativeBalance Boolean @default(false)
+
+  /// Descriptive metadata for a bank account (bank name, account number,
+  /// CBU, alias). Never used to move money, never parsed — display only.
+  bankName      String?
+  accountNumber String?
+  cbu           String?
+  alias         String?
+
+  notes String?
+
+  /// Retires an account without deleting its history.
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  createdBy String?  @db.Uuid
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  company  Company  @relation(fields: [companyId], references: [id])
+  branch   Branch?  @relation(fields: [branchId], references: [id])
+  currency Currency @relation(fields: [currencyId], references: [id])
+
+  movements TreasuryMovement[]
+  balance   TreasuryAccountBalance?
+
+  @@unique([companyId, code])
+  @@index([tenantId])
+  @@index([companyId, active])
+  @@index([branchId])
+  @@map("treasury_accounts")
+}
+
+/// The treasury ledger — the ONLY authoritative record of money entering
+/// or leaving an account. Immutable: no endpoint updates or deletes a
+/// row; a correction is a new, reversing movement pointed back at the
+/// original via `reversalOfId`. `amount` is signed (positive = money in,
+/// negative = money out), the same convention StockMovement.quantity uses.
+model TreasuryMovement {
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @db.Uuid
+  companyId String  @db.Uuid
+  branchId  String? @db.Uuid
+
+  treasuryAccountId String @db.Uuid
+  /// Denormalised from the account so a statement can be read, and the
+  /// ledger summed, without joining — and so a movement can never be
+  /// silently reinterpreted if an account were ever re-pointed.
+  currencyId        String @db.Uuid
+
+  movementType TreasuryMovementType
+
+  /// Signed. NUMERIC(19,4) — the same precision as every other money
+  /// column in this schema.
+  amount Decimal @db.Decimal(19, 4)
+
+  /// Business date this movement is attributed to — NOT necessarily
+  /// createdAt.
+  occurredAt DateTime @db.Timestamptz(6)
+
+  /// Plain string pointer, not a FK — the same convention
+  /// CustomerAccountMovement uses. Values are Prisma model names:
+  /// "TreasuryAccount" (opening balance), "CustomerCollection",
+  /// "SupplierPayment", "TreasuryTransfer".
+  sourceType String
+  sourceId   String @db.Uuid
+
+  /// The movement THIS one reverses. Null for every non-reversal.
+  reversalOfId String? @db.Uuid
+
+  /// Immutable human-readable snapshot for the statement view — e.g.
+  /// "Cobro COB-000042" — so a statement read years from now does not
+  /// depend on formatting logic that may have changed since.
+  description String?
+
+  notes String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  createdBy String?  @db.Uuid
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id])
+  company         Company         @relation(fields: [companyId], references: [id])
+  branch          Branch?         @relation(fields: [branchId], references: [id])
+  treasuryAccount TreasuryAccount @relation(fields: [treasuryAccountId], references: [id])
+  currency        Currency        @relation(fields: [currencyId], references: [id])
+
+  reversalOf TreasuryMovement?  @relation("TreasuryMovementReversal", fields: [reversalOfId], references: [id])
+  reversals  TreasuryMovement[] @relation("TreasuryMovementReversal")
+
+  /// Idempotency by construction: one confirm of one document can only
+  /// ever post one movement of a given type to this company, so a retried
+  /// or concurrent confirm cannot double-post. Same shape as
+  /// CustomerAccountMovement's.
+  @@unique([companyId, sourceType, sourceId, movementType])
+  @@index([tenantId])
+  @@index([companyId, treasuryAccountId, occurredAt])
+  @@index([companyId, sourceType, sourceId])
+  @@map("treasury_movements")
+}
+
+/// A rebuildable projection of SUM(TreasuryMovement.amount) per account —
+/// never a second source of truth. It exists so a balance read is one
+/// indexed row instead of a full ledger scan, and it is deliberately a
+/// separate table rather than a column on TreasuryAccount so that nobody
+/// can read `account.balance` by accident and so a rebuild never touches
+/// master data. See TreasuryService.rebuildTreasuryBalances().
+model TreasuryAccountBalance {
+  companyId         String @db.Uuid
+  treasuryAccountId String @unique @db.Uuid
+
+  balance Decimal @default(0) @db.Decimal(19, 4)
+
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  company         Company         @relation(fields: [companyId], references: [id])
+  treasuryAccount TreasuryAccount @relation(fields: [treasuryAccountId], references: [id])
+
+  @@id([companyId, treasuryAccountId])
+  @@map("treasury_account_balances")
 }

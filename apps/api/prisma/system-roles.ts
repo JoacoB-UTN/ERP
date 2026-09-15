@@ -75,6 +75,8 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'purchases.orders.read',
       'purchases.goods-receipts.read',
       'treasury.read',
+      'treasury.accounts.read',
+      'treasury.movements.read',
       'accounting.read',
       'reports.read',
       'system.backups.read',
@@ -152,7 +154,7 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
   },
   {
     name: 'Tesorería',
-    description: 'Gestiona cobros y pagos.',
+    description: 'Gestiona cobros, pagos, cajas y cuentas bancarias.',
     permissionCodes: [
       'apps.gestion.access',
       'apps.facturacion.access',
@@ -160,6 +162,14 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'treasury.read',
       'treasury.receipts.create',
       'treasury.payments.create',
+      // Cash boxes and bank accounts — see docs/treasury.md. This role
+      // opens and operates them; it does not get to delete history,
+      // because nothing does.
+      'treasury.accounts.read',
+      'treasury.accounts.create',
+      'treasury.accounts.update',
+      'treasury.movements.read',
+      'treasury.movements.create',
     ],
   },
   {
@@ -196,6 +206,8 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'purchases.orders.read',
       'purchases.goods-receipts.read',
       'treasury.read',
+      'treasury.accounts.read',
+      'treasury.movements.read',
       'accounting.read',
       'reports.read',
     ],
