@@ -4,6 +4,7 @@ import { CompanyContextModule } from '../company-context/company-context.module'
 import { AuthorizationModule } from '../authorization/authorization.module';
 import { AuditModule } from '../audit/audit.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { TreasuryModule } from '../treasury/treasury.module';
 import {
   CustomerAccountController,
   SalesDocumentOutstandingController,
@@ -37,6 +38,10 @@ import { CurrentAccountsReadyGuard } from './current-accounts-ready.guard';
     AuthorizationModule,
     AuditModule,
     RealtimeModule,
+    // Confirming a Cobro or a Pago now moves a treasury balance inside the
+    // same transaction — see docs/treasury.md. TreasuryModule exports
+    // TreasuryService for exactly this.
+    TreasuryModule,
   ],
   controllers: [
     CustomerAccountController,

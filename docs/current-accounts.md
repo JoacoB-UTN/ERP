@@ -13,11 +13,19 @@ It is **two immutable ledgers** — one per customer, one per supplier — plus
 the two documents that post to them: a **Cobro** (money in) and a **Pago**
 (money out).
 
-It is **not** treasury. Nothing here knows about a cash drawer, a bank
-account or a reconciliation; a Cobro records that a customer paid, not where
-the money landed. That is Fase 3 (see [roadmap.md](roadmap.md)), and the
-`PaymentMethod` on a Cobro is a label on the document, never a posting to an
-account of ours.
+It is **not** treasury, but it now **talks to** it. This module answers
+"who owes what"; [treasury.md](treasury.md) answers "where the money is",
+and the two are separate ledgers on purpose.
+
+What changed: a Cobro now carries a `treasuryAccountId`, and confirming it
+posts to that account inside the **same transaction** as the customer-ledger
+movement — symmetric for a Pago, with the sign flipped. The `PaymentMethod`
+is still only a label saying *how* someone paid; the account says *where the
+money landed*, and those are different questions.
+
+Documents confirmed before Treasury existed have no account and are
+deliberately left that way — see treasury.md's "Documents that predate
+Treasury". Reconciliation, cheques and cash counts are still not here.
 
 It is also **not** invoicing. `SalesDocument` is not a fiscal invoice (see
 [sales.md](sales.md)), so what a customer owes here is what our own sales

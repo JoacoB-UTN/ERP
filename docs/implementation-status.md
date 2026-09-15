@@ -371,8 +371,16 @@ row lock — the defect PR #39 had to fix on `StockTransfer`. Permissions are `t
 already taken by Cobros and Pagos in `src/accounts`. Reading an account
 and reading its ledger are separate codes on purpose.
 
-**What this deliberately does NOT do, and it matters:** confirming a
-Cobro or a Pago still moves no treasury balance, and a POS sale's
+**Cobros and Pagos post here.** Confirming a Cobro puts the money into a
+treasury account and confirming a Pago takes it out, inside the same
+transaction as the current-accounts movement; cancelling appends the
+reversal. `treasuryAccountId` is required on new documents and nullable
+for the ones confirmed before Treasury existed — those keep posting to
+the customer/supplier ledger and stay out of every treasury balance,
+which is the documented rule (task 019, criterion 7), not an oversight.
+A Pago cannot overdraw a cash box: the confirmation fails whole.
+
+**What this deliberately does NOT do, and it matters:** a POS sale's
 `SalesTender` reaches no account at all — see `AGENTS.md`'s invariant and
 treasury.md's "Deliberately not wired". **A cash box balance is therefore
 wrong for a business running POS**, not merely incomplete, which is why

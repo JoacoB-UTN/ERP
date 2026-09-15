@@ -180,6 +180,54 @@ row **may not exist yet** — precisely the case of an account whose first
 movement is this transfer. Same reasoning as
 `InventoryService.lockBalancesInStableOrder`.
 
+## Cobros and Pagos post here
+
+Confirming a **Cobro** puts the money into a treasury account
+(`COLLECTION`); confirming a **Pago** takes it out (`PAYMENT`). Both
+happen **inside the same transaction** as the status change and the
+current-accounts movement, so the three either all land or none do.
+
+Cancelling appends the reversal (`COLLECTION_REVERSAL` /
+`PAYMENT_REVERSAL`) rather than editing anything, and it is allowed into
+a retired account — money that already moved has to be able to come
+back.
+
+- **`treasuryAccountId` is required on new documents.** A Cobro that does
+  not say where the money landed is the gap this module exists to close.
+  The Gestión forms for Cobro and Pago carry the selector.
+- **The account is validated when the document is written, not when it is
+  confirmed** — same company, same currency, still active, on create
+  *and* on edit. A document naming an account it cannot reach could never
+  be confirmed, so saving it just builds a trap the operator discovers
+  days later. The company scoping is what closes the cross-tenant hole: a
+  lookup filtered by `companyId` simply does not find another company's
+  account, even with the id in hand.
+- **The currencies must match.** A peso Cobro cannot land in a dollar
+  account; it is rejected, never converted. Checked at both ends — the
+  confirmation keeps its own check for a document that got its account
+  some other way.
+- **Reversals carry `reversalOfId`**, pointing at the movement they undo.
+- **The document returns its account** (`treasuryAccount`: id, code,
+  name). The payment method says *how* someone paid; a screen that shows
+  only that cannot answer *where the money went*.
+- **A Pago cannot overdraw a cash box.** The confirmation fails whole —
+  the supplier ledger does not move and the document stays DRAFT, rather
+  than ending up CONFIRMED with nothing behind it.
+
+### Documents that predate Treasury
+
+The column is **nullable in the database**, and that is deliberate (task
+019, criterion 7). Cobros and Pagos confirmed before this module existed
+have no account. They are **not** invented one and **not** back-posted
+into a balance nobody ever counted.
+
+So they keep posting to the customer/supplier ledger, they stay visible,
+and they stay out of every treasury balance. A cash box opened today
+shows what has moved through it *since* — not the history of a business
+that was running before it existed. That is the honest number, and it is
+the same reasoning behind `excludesPosSales` below: say what a figure
+does not include rather than quietly under-report.
+
 ## Deliberately not wired: POS
 
 `AGENTS.md` states, as a permanent invariant, that `SalesTender` is an
@@ -274,11 +322,6 @@ it.
 - **POS / `SalesTender` integration** — the deliberate decision above.
   The most likely next task, and the one that makes a cash box balance
   trustworthy.
-- **Cobro and Pago posting to Treasury.** The two documents still only
-  record a payment *method*; confirming one moves no treasury balance
-  yet. This is the seam the module was built for and it is next after
-  (or alongside) POS — it carries an open decision about the confirmed
-  Cobros and Pagos that already exist without an account.
 - **Cheques** — de terceros, propios, diferidos, e-cheq. A cheque has its
   own lifecycle and is a subdomain, not a movement type.
 - **Bank reconciliation** — needs statement import and a matching engine.
