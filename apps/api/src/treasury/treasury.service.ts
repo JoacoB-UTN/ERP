@@ -12,7 +12,6 @@ import {
   InvalidTreasuryAmountException,
   TreasuryAccountInactiveException,
   TreasuryAccountNotFoundException,
-  TreasuryAccountNotUsableException,
   TreasuryCurrencyMismatchException,
 } from './treasury.exceptions';
 
@@ -299,37 +298,6 @@ export class TreasuryService {
       // which Prisma cannot deserialize as a result column.
       await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${key})`);
     }
-  }
-
-  /**
-   * Validates that a document may name this account, BEFORE persisting
-   * it: same company, same currency, still active.
-   *
-   * The company check is the one that matters most — `findFirst` scoped
-   * by `companyId` means an account belonging to another company is
-   * simply not found, so a Cobro can never reach across the tenant
-   * boundary even if the id is guessed. See
-   * docs/multi-company-architecture.md.
-   *
-   * Shared by Cobros and Pagos so the rule cannot drift between them.
-   */
-  async assertAccountUsable(
-    tx: Prisma.TransactionClient,
-    companyId: string,
-    treasuryAccountId: string,
-    currencyId: string,
-  ): Promise<TreasuryAccount> {
-    const account = await this.findAccountScopedOrThrow(
-      tx,
-      companyId,
-      treasuryAccountId,
-    );
-    if (!account.active)
-      throw new TreasuryAccountNotUsableException('inactive');
-    if (account.currencyId !== currencyId) {
-      throw new TreasuryAccountNotUsableException('currency');
-    }
-    return account;
   }
 
   /**
