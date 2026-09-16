@@ -1,24 +1,43 @@
 # ERP Server installer (Windows)
 
 **Status: IT INSTALLS, AND ELEVEN BLOCKING DEFECTS HAD TO BE FIXED BEFORE IT
-DID.** The payload build, the provisioning path and — since PR
-#25 — compiling the `.exe` in CI were already verified. On 2026-09-14 the
-installer was finally executed on a clean Windows 10 Home VM and hit three
-consecutive blocking defects, none of which CI could see: no Visual C++
-runtime, English-only identity names in the ACL step, and an ACL hardening
-that locked PostgreSQL out of its own binaries. All three are fixed — see
-"The first real installation, and the three things it found" below.
+DID.** The payload build, the provisioning path and — since PR #25 —
+compiling the `.exe` in CI had all been verified long before. What had never
+happened was an install. On 2026-09-14 the installer was finally run on a
+clean Windows 10 Home VM, in Spanish, and failed eleven times for eleven
+unrelated reasons — none of which CI could see, because a GitHub runner is in
+English, already has the Visual C++ runtime, runs no Windows services and has
+no second machine on its network. Every one is fixed and documented in "The
+first real installation" below.
 
-Verified since: the five services register against the real Service Control
-Manager, survive a cold reboot and come back on their own, PostgreSQL stops
-cleanly without orphans, and the product is reachable and usable from a second
-machine on the LAN.
+**Verified on a pristine machine, installed from the compiled `.exe`:** the
+payload carries its PostgreSQL and the Visual C++ runtime; the installer
+installs that runtime, creates the cluster, provisions the company, registers
+the five services against the real Service Control Manager and opens the
+firewall. All five survive a cold reboot and come back on their own.
+PostgreSQL stops cleanly with no orphaned processes. Gestión, Facturación and
+the API answer over the LAN from a second machine, and a login there returns
+the session cookie with the right `Access-Control-Allow-Origin`. Health reports
+`ok`. Against a real standard (non-administrator) account, the secrets, the
+rendered service definitions, the cluster and the backups are unreadable while
+the PostgreSQL binaries stay executable.
 
-Still **not** verified: the ACLs against a real non-administrator account, an
-upgrade over an existing installation, the uninstall path, backup and restore
-on this machine, and what SmartScreen does with the unsigned `.exe`. The
-pending list near the end of this document is the authority; do not read "it
-installs now" as "it is ready for a customer".
+**Backup and restore work on the installed machine.** `erp-backup now` wrote
+and verified a dump; `erp-backup list` reported it `success`/`verified`;
+`erp-backup restore <archive> --into erp_restaurada` verified the checksum,
+created the target database and restored into it. The restored database
+matches the live one exactly — 91 permissions, 8 roles, 1 company, 1 user, 60
+tables in both.
+
+Still **not** verified: an upgrade over an existing installation, the uninstall
+path, and what SmartScreen does with the unsigned `.exe`. The pending list near the end of this document is the
+authority; do not read "it installs now" as "it is ready for a customer".
+
+One operational note worth knowing before a customer calls: after a reboot the
+stack takes a minute or two to be usable. PostgreSQL was not yet accepting
+connections around fifty seconds in, and the API answered locally before it
+answered over the LAN. Nothing is wrong when a till cannot log in immediately
+after the server restarts.
 
 This is the second half of Phase 1's remaining work. The first half — scheduled
 backups — is [backups.md](backups.md), and this installer is what registers
@@ -466,10 +485,18 @@ protecting — `config` (the secrets), `services` (the rendered definitions,
 which contain the database password and the signing key) and `backups` (the
 dumps). What must not be readable is the password, not `initdb.exe`.
 
-`data` is deliberately left out of that list: the cluster is written by
-PostgreSQL under the same restricted token, so restricting it reintroduces
-the failure. Granting the account the service actually runs as is follow-up
-work.
+`data` is left out of that loop but is **not** left open: it gets its own ACL
+a few steps later, once `initdb` has a directory to create. It has to, and the
+list of who needs it is longer than it looks — SYSTEM, Administrators, the
+account running the installer (whose restricted token is what `initdb`
+actually runs as) and NetworkService (the account the service runs as
+afterwards). Restricting it with the same rule as `config` would lock out the
+process that has to write it.
+
+Verified against a real standard (non-administrator) account on the installed
+machine: `config`, `services`, `data` and `backups` grant it nothing, while
+`pgsql` grants read+execute — the binaries run, the database password, the
+signing key and the business's data do not open.
 
 ### 4. The cluster was created but nothing could write to it
 
