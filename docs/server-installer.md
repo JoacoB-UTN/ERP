@@ -1,7 +1,7 @@
 # ERP Server installer (Windows)
 
-**Status: IT HAS NOW BEEN RUN ON A CLEAN MACHINE, AND IT FAILED THREE TIMES
-BEFORE IT WORKED.** The payload build, the provisioning path and — since PR
+**Status: IT INSTALLS, AND ELEVEN BLOCKING DEFECTS HAD TO BE FIXED BEFORE IT
+DID.** The payload build, the provisioning path and — since PR
 #25 — compiling the `.exe` in CI were already verified. On 2026-09-14 the
 installer was finally executed on a clean Windows 10 Home VM and hit three
 consecutive blocking defects, none of which CI could see: no Visual C++
@@ -9,12 +9,16 @@ runtime, English-only identity names in the ACL step, and an ACL hardening
 that locked PostgreSQL out of its own binaries. All three are fixed — see
 "The first real installation, and the three things it found" below.
 
-What is still **not** verified is everything after a successful first
-install: service registration against the real Service Control Manager,
-survival across a reboot, the ACLs against a non-administrator, an upgrade
-over an existing installation, and the uninstall path. The pending list near
-the end of this document is the authority on that; do not read "it installs
-now" as "it is ready for a customer".
+Verified since: the five services register against the real Service Control
+Manager, survive a cold reboot and come back on their own, PostgreSQL stops
+cleanly without orphans, and the product is reachable and usable from a second
+machine on the LAN.
+
+Still **not** verified: the ACLs against a real non-administrator account, an
+upgrade over an existing installation, the uninstall path, backup and restore
+on this machine, and what SmartScreen does with the unsigned `.exe`. The
+pending list near the end of this document is the authority; do not read "it
+installs now" as "it is ready for a customer".
 
 This is the second half of Phase 1's remaining work. The first half — scheduled
 backups — is [backups.md](backups.md), and this installer is what registers
@@ -507,39 +511,135 @@ are not touched. Every service is already stopped for the upgrade at that
 point, so re-registering costs no additional outage and makes the
 registration always match the file on disk.
 
-### Still open: migrations cannot run on an installed machine
+### 6. Migrations could not run: the payload had no Prisma config
 
-With all of the above fixed the installer reaches **Applying migrations** --
-PostgreSQL starts, `pg_isready` reports it accepting connections, and the
-database is created -- and then fails:
+`prisma migrate deploy` failed with "The datasource.url property is required
+in your Prisma config file", with `DATABASE_URL` correctly set in the
+environment. `schema.prisma` declares `datasource db { provider =
+"postgresql" }` and no url, because **Prisma 7 removed `url` from schema
+files** — it says so when you try: "no longer supported in schema files. Move
+connection URLs for Migrate to prisma.config.ts". So the url can only come
+from a config file, and the payload carried none: `apps/api/prisma.config.ts`
+exists only in the development tree.
 
-```
-Error: The datasource.url property is required in your Prisma config file
-when using prisma migrate deploy.
-```
+Copying that file would not have worked either. It opens with `import
+'dotenv/config'`, and `dotenv` is a devDependency the payload prunes, and its
+paths are relative to `apps/api` rather than to the payload's server root.
 
-`prisma/schema.prisma` declares `datasource db { provider = "postgresql" }`
-with **no url**. The url comes from `apps/api/prisma.config.ts`, which reads
-`process.env.DATABASE_URL` -- and that file is **not in the payload**:
-`build-payload.ps1` never copies it. Setting `DATABASE_URL` in the
-environment, which is what `install.ps1` does, is no longer enough for
-`migrate deploy` at the Prisma version this project uses.
+`build-payload.ps1` now emits its own `server/prisma.config.cjs` with the
+installed layout's paths. `.cjs` deliberately: no TypeScript loader and no ESM
+ambiguity in a tree that carries no build tooling. CI's payload check lists
+it, so it cannot go missing again without the build failing.
 
-Copying the file as it stands would not be enough either: it opens with
-`import 'dotenv/config'`, and `dotenv` is a devDependency that the payload
-prunes.
+### 7. The Node services died on the default install path
 
-Two ways out, and the choice is not the installer's alone to make:
+`Cannot find module 'C:\Program'`. The four Node service templates passed the
+script path in `<arguments>` **unquoted**, so Node took `C:\Program` as the
+script and exited before starting. The default install directory is
+`C:\Program Files\ERP Server`, so this broke all four services on a default
+installation, not in some exotic configuration. The PostgreSQL template
+already quoted its `-D` argument; the Node ones did not.
 
-- **`url = env("DATABASE_URL")` in the schema.** Works in development, in CI
-  and on an installed machine with no extra file. Simplest, but it changes
-  how Prisma is configured for the whole repository.
-- **Generate a config into the payload** at build time, without the `dotenv`
-  import and with paths matching the payload layout. Keeps the repository's
-  current arrangement and confines the change to the installer.
+### 8. A service account that could not write its own log directory
 
-Until one is done, the installer cannot finish: everything before migrations
-works, and provisioning never runs.
+This one is worth reading even if you never touch this installer, because of
+how it presented.
+
+`erp-postgres` reported **Stopped** while PostgreSQL was running and serving
+queries. Stopping the service left orphaned `postgres.exe` processes holding
+port 5433, so the next install run could not start the database. It looked
+like WinSW was failing to supervise `postgres.exe` — plausible, since
+PostgreSQL re-executes itself under a restricted token when started by an
+administrator, which would indeed detach it from a wrapper. That diagnosis was
+recorded as an open architectural question.
+
+It was wrong. The tree-wide ACL granted the service accounts read+execute
+only, and WinSW writes its wrapper log **before** it does anything else. As
+NetworkService it silently could not, and the wrapper did not survive it. The
+giveaway was in the evidence that was missing rather than present: after a
+reboot, `erp-postgres.wrapper.log` contained no entry at all for the boot,
+while postgres was demonstrably up.
+
+`logs` now grants Modify to SYSTEM and NetworkService. Modify rather than
+FullControl: these accounts write and roll log files, they do not need to
+change permissions on the directory.
+
+Verified afterwards, on the installed machine:
+
+- the service stays `Running` and does not restart in a loop;
+- `Stop-Service` leaves **zero** `postgres.exe` processes and frees 5433, so
+  the compensating `pg_ctl stop` in the template does its job;
+- it starts again cleanly and `pg_isready` reports accepting connections;
+- after a cold reboot all five services come up `Auto`/`Running` on their own
+  and all four ports listen.
+
+The lesson generalises past this bug: when a component fails with no evidence
+anywhere, check whether it can write where it logs before believing any
+theory about what it is doing.
+
+### 9. Nobody on the LAN could reach the ERP, or log in
+
+Two separate defects, both invisible on the server itself.
+
+**The firewall was never opened.** The whole deployment model is that every
+other PC on the premises reaches this machine over the LAN, but Windows blocks
+unsolicited inbound connections by default and a service has no interactive
+session in which the "allow this app?" prompt could appear. Nothing asked and
+nothing was allowed. Measured: Gestión answered 200 on the server and timed
+out from another machine, with zero ERP firewall rules present; with one
+temporary rule it answered 200 from that machine. `install.ps1` now creates
+three rules — Gestión, Facturación and the API — and `uninstall.ps1` removes
+them. PostgreSQL is deliberately absent from that list: it binds 127.0.0.1 and
+LAN clients reach the API, never the database.
+
+**CORS was pinned to localhost.** `CORS_ORIGIN` was rendered as
+`http://localhost:3000,http://localhost:3002`. Gestión and the API are on
+different ports, so every request between them is cross-origin and carries the
+session cookie, which means the API must name the exact origin — a wildcard is
+invalid for credentialed requests. A till opening `http://192.168.1.50:3000`
+therefore sent an Origin the API did not recognise, the preflight came back
+with no `Access-Control-Allow-Origin`, and the browser blocked the login. The
+symptom was baffling in exactly the way that wastes an afternoon: the user saw
+"No se pudo iniciar sesión" while the API accepted those same credentials over
+curl. The allow-list is now built from what the machine actually answers on —
+loopback, its hostname and each of its IPv4 addresses.
+
+**If the server's IP changes, this breaks again.** DHCP renewing a lease or a
+new network card leaves the allow-list stale and every client fails to log in
+until the installer is re-run. A server should hold a static address or a
+reserved lease. The deeper fix — having the API accept any origin whose port is
+one of the two frontends — is application code and a separate decision.
+
+### 10. Every installation reported itself degraded, forever
+
+`REDIS_URL` was mandatory, so the installer had to name some Redis and named
+`redis://127.0.0.1:6379` — one this installer deliberately never ships. The
+health endpoint read "not responding" as `error` and the overall status fell to
+`degraded` on every installed machine, permanently.
+
+A health panel that is always yellow is not a diagnosis. The operator cannot
+tell normal from broken and learns to ignore it, which is precisely when it
+stops warning about anything.
+
+Redis now has three states rather than two: `disabled` when no `REDIS_URL` is
+configured (a supported deployment — permissions come from PostgreSQL), and
+`error` only when a Redis was configured and cannot be reached. Only the
+second degrades the server. The installer leaves `REDIS_URL` empty. Verified:
+`{"status":"ok","services":{"database":"ok","redis":"disabled"}}`.
+
+### 11. Scheduled backups never ran
+
+The agent logged "Next backup at ..." and exited with code 0. Both timers in
+its scheduling loop were `unref()`'d, with a comment saying the loop condition
+would decide when to exit. It could not: when every remaining handle is
+unref'd, Node has nothing holding the event loop open and the process ends
+immediately — before the promise resolves and therefore before the loop
+condition is read again.
+
+Invisible in a manual test, because a backup triggered by hand works fine:
+only the scheduler was broken. The agent's 38 tests all passed and none of
+them covered it — they test schedule arithmetic and retention, not that the
+process stays alive.
 
 ### What this says about the CI smoke test
 
