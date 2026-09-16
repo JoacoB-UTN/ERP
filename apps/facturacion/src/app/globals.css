@@ -196,40 +196,52 @@
   }
 }
 
-/* Scroll interno del panel lateral.
+/* Barra de scroll, en toda la app.
  *
  * Chrome dibuja su barra nativa —pista clara, flechas arriba y abajo— que en
- * un panel oscuro se ve como un elemento ajeno pegado al costado. Y además
- * roba ancho SOLO al área que scrollea, así que los ítems de navegación
- * quedaban unos píxeles más angostos que el botón de cerrar sesión de abajo,
- * y los bordes izquierdo y derecho dejaban de alinearse.
+ * una interfaz oscura se ve como una pieza ajena pegada al costado. Y no
+ * aparece solo en el panel lateral: cada tabla ancha lleva su envoltorio con
+ * `overflow-x-auto`, el carrito del POS scrollea, los diálogos con listas
+ * largas también. Por eso la regla es global en vez de una clase por
+ * componente: con la clase habría que acordarse de ponerla en cada lugar
+ * nuevo, y el primero que se olvide vuelve a mostrar la barra del sistema.
  *
- * Se resuelve con una barra fina y del color del panel. El ancho lo reserva
- * `scrollbar-gutter: stable`, para que el contenido no se corra cuando la
- * lista pasa a ser scrolleable: sin eso, mostrar u ocultar la barra desplaza
- * todo el menú un par de píxeles.
- */
-.sidebar-scroll {
+ * Fina y del color del panel. No se oculta: saber que algo scrollea, y por
+ * dónde va, es información que el usuario necesita. */
+* {
   scrollbar-width: thin;
   scrollbar-color: var(--sidebar-border) transparent;
-  scrollbar-gutter: stable;
 }
 
-.sidebar-scroll::-webkit-scrollbar {
+*::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
-.sidebar-scroll::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.sidebar-scroll::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   background-color: var(--sidebar-border);
   border-radius: 3px;
 }
 
-.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background-color: var(--muted-foreground);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Reserva del canal en la navegación del panel lateral.
+ *
+ * El color y el grosor ya los pone la regla global; esto solo reserva el
+ * espacio, para que mostrar u ocultar la barra no corra el menú un par de
+ * píxeles cuando la lista pasa a ser scrolleable. */
+.sidebar-scroll {
+  scrollbar-gutter: stable;
 }
 
 /* El bloque de abajo del panel —el botón de cerrar sesión— no scrollea, así
