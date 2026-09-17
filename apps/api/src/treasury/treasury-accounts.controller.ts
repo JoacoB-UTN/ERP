@@ -54,13 +54,17 @@ export class TreasuryAccountsController {
   }
 
   /**
-   * The ledger read surface. Gated by `treasury.movements.read` and not
-   * by `treasury.accounts.read`: knowing that a cash box exists and
-   * reading every peso that passed through it are different trust
-   * levels — the same split `docs/current-accounts.md` makes between
-   * seeing a customer and seeing their balance.
+   * The ledger read surface, and it needs **both** codes.
+   *
+   * `treasury.movements.read` is the ledger itself. But the response also
+   * carries the account — balance, bank name, account number, CBU, alias
+   * — so gating on the ledger code alone handed every one of those to a
+   * caller who was never granted `treasury.accounts.read`. The two codes
+   * are still separate in the other direction, which is the split that
+   * matters: seeing that a cash box exists does not let you read every
+   * peso that passed through it.
    */
-  @RequirePermissions('treasury.movements.read')
+  @RequirePermissions('treasury.movements.read', 'treasury.accounts.read')
   @Get(':id/statement')
   async getStatement(
     @CurrentRequestContext() ctx: RequestContext,

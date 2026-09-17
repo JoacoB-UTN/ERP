@@ -406,20 +406,22 @@ describe('Treasury (e2e)', () => {
       where: { treasuryAccountId: accountId },
       _sum: { amount: true },
     });
-    return (agg._sum.amount ?? new Prisma.Decimal(0)).toFixed(2);
+    // `toString`, not `toFixed(2)` — the helper must not do the rounding
+    // the product is being tested for NOT doing.
+    return (agg._sum.amount ?? new Prisma.Decimal(0)).toString();
   }
 
   async function storedBalance(accountId: string) {
     const row = await prisma.treasuryAccountBalance.findFirst({
       where: { treasuryAccountId: accountId },
     });
-    return (row?.balance ?? new Prisma.Decimal(0)).toFixed(2);
+    return (row?.balance ?? new Prisma.Decimal(0)).toString();
   }
 
   describe('accounts', () => {
     it('creates a cash box and starts it at zero, not at nothing', async () => {
       const account = await createAccount();
-      expect(account.balance).toBe('0.00');
+      expect(account.balance).toBe('0');
       expect(account.active).toBe(true);
     });
 
@@ -532,14 +534,14 @@ describe('Treasury (e2e)', () => {
         .set(COMPANY_ID_HEADER, companyAId)
         .send({ amount: '15000.00' });
       expect(res.status).toBe(201);
-      expect((res.body as AccountBody).account.balance).toBe('15000.00');
+      expect((res.body as AccountBody).account.balance).toBe('15000');
 
       const movements = await prisma.treasuryMovement.findMany({
         where: { treasuryAccountId: account.id },
       });
       expect(movements).toHaveLength(1);
       expect(movements[0].movementType).toBe('OPENING_BALANCE');
-      expect(await ledgerSum(account.id)).toBe('15000.00');
+      expect(await ledgerSum(account.id)).toBe('15000');
     });
 
     it('can only be set once — a second one would be a correction in disguise', async () => {
@@ -559,7 +561,7 @@ describe('Treasury (e2e)', () => {
       expect((res.body as ErrorEnvelope).error.code).toBe(
         'TREASURY_OPENING_BALANCE_ALREADY_SET',
       );
-      expect(await ledgerSum(account.id)).toBe('100.00');
+      expect(await ledgerSum(account.id)).toBe('100');
     });
   });
 
@@ -570,8 +572,8 @@ describe('Treasury (e2e)', () => {
       await post(account.id, '500.50');
       await post(account.id, '-200.50', { movementType: 'PAYMENT' });
 
-      expect(await ledgerSum(account.id)).toBe('1300.00');
-      expect(await storedBalance(account.id)).toBe('1300.00');
+      expect(await ledgerSum(account.id)).toBe('1300');
+      expect(await storedBalance(account.id)).toBe('1300');
     });
 
     it('a duplicate post leaves the transaction usable for the writes around it', async () => {
@@ -622,8 +624,60 @@ describe('Treasury (e2e)', () => {
         where: { id: account.id },
       });
       expect(after.notes).toBe('despues del duplicado');
-      expect(await ledgerSum(account.id)).toBe('500.00');
-      expect(await storedBalance(account.id)).toBe('500.00');
+      expect(await ledgerSum(account.id)).toBe('500');
+      expect(await storedBalance(account.id)).toBe('500');
+    });
+
+    it('a duplicate post leaves the transaction usable for the writes around it', async () => {
+      // The defect this pins down: a unique violation ABORTS the whole
+      // PostgreSQL transaction, and catching the P2002 in TypeScript does
+      // not undo that — every later statement fails with "current
+      // transaction is aborted".
+      //
+      // The earlier idempotency test missed it because the duplicate was
+      // the only thing in its transaction. The real callers all write
+      // before and after: a Cobro's confirm flips the status, posts to
+      // the customer ledger, posts here, then audits. So this test does
+      // the same, and fails loudly if `post` ever goes back to catching
+      // the error instead of avoiding it.
+      const account = await createAccount();
+      const sourceId = crypto.randomUUID();
+      await post(account.id, '500.00', { sourceId });
+
+      await prisma.$transaction(async (tx) => {
+        await tx.treasuryAccount.update({
+          where: { id: account.id },
+          data: { notes: 'antes del duplicado' },
+        });
+
+        const duplicate = await treasury.post(
+          tx,
+          { companyId: companyAId, tenantId },
+          {
+            treasuryAccountId: account.id,
+            movementType: 'COLLECTION',
+            amount: new Prisma.Decimal('500.00'),
+            occurredAt: new Date(),
+            sourceType: 'CustomerCollection',
+            sourceId,
+            currencyId: arsId,
+          },
+        );
+        expect(duplicate).toBeNull();
+
+        // The write that used to explode.
+        await tx.treasuryAccount.update({
+          where: { id: account.id },
+          data: { notes: 'despues del duplicado' },
+        });
+      });
+
+      const after = await prisma.treasuryAccount.findFirstOrThrow({
+        where: { id: account.id },
+      });
+      expect(after.notes).toBe('despues del duplicado');
+      expect(await ledgerSum(account.id)).toBe('500');
+      expect(await storedBalance(account.id)).toBe('500');
     });
 
     it('does not double-count a retried post of the same document', async () => {
@@ -636,8 +690,8 @@ describe('Treasury (e2e)', () => {
       expect(first).not.toBeNull();
       // Null, not an error: the ledger already says what the caller wanted.
       expect(second).toBeNull();
-      expect(await ledgerSum(account.id)).toBe('750.00');
-      expect(await storedBalance(account.id)).toBe('750.00');
+      expect(await ledgerSum(account.id)).toBe('750');
+      expect(await storedBalance(account.id)).toBe('750');
     });
 
     it('refuses to overdraw a cash box, and writes nothing when it refuses', async () => {
@@ -652,8 +706,8 @@ describe('Treasury (e2e)', () => {
 
       // The whole transaction rolled back — the rejected movement must not
       // be sitting in an immutable ledger.
-      expect(await ledgerSum(account.id)).toBe('100.00');
-      expect(await storedBalance(account.id)).toBe('100.00');
+      expect(await ledgerSum(account.id)).toBe('100');
+      expect(await storedBalance(account.id)).toBe('100');
     });
 
     it('lets a bank account with an overdraft go below zero', async () => {
@@ -664,7 +718,7 @@ describe('Treasury (e2e)', () => {
         allowsNegativeBalance: true,
       });
       await post(account.id, '-4200.00', { movementType: 'PAYMENT' });
-      expect(await storedBalance(account.id)).toBe('-4200.00');
+      expect(await storedBalance(account.id)).toBe('-4200');
     });
 
     it('refuses a movement in a currency the account does not hold', async () => {
@@ -768,8 +822,8 @@ describe('Treasury (e2e)', () => {
         await held.tx;
         await rebuild;
 
-        expect(await ledgerSum(account.id)).toBe('1250.00');
-        expect(await storedBalance(account.id)).toBe('1250.00');
+        expect(await ledgerSum(account.id)).toBe('1250');
+        expect(await storedBalance(account.id)).toBe('1250');
       }
     });
 
@@ -821,7 +875,7 @@ describe('Treasury (e2e)', () => {
           },
         }),
       ).toBe(0);
-      expect(await storedBalance(account.id)).toBe('100.00');
+      expect(await storedBalance(account.id)).toBe('100');
       expect(await storedBalance(account.id)).toBe(await ledgerSum(account.id));
     });
 
@@ -853,7 +907,7 @@ describe('Treasury (e2e)', () => {
           },
         }),
       ).toBe(1);
-      expect(await storedBalance(account.id)).toBe('1000.00');
+      expect(await storedBalance(account.id)).toBe('1000');
     });
 
     it('rebuilds a balance that drifted, from the ledger', async () => {
@@ -869,7 +923,7 @@ describe('Treasury (e2e)', () => {
 
       await treasury.rebuildTreasuryBalances(companyAId);
 
-      expect(await storedBalance(account.id)).toBe('900.00');
+      expect(await storedBalance(account.id)).toBe('900');
       expect(await storedBalance(account.id)).toBe(await ledgerSum(account.id));
     });
   });
@@ -890,7 +944,7 @@ describe('Treasury (e2e)', () => {
       expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
 
       expect(await storedBalance(account.id)).toBe(await ledgerSum(account.id));
-      expect(await ledgerSum(account.id)).toBe('9200.00');
+      expect(await ledgerSum(account.id)).toBe('9200');
     });
 
     it('posts one movement when the same document is confirmed twice at once', async () => {
@@ -907,7 +961,7 @@ describe('Treasury (e2e)', () => {
         where: { treasuryAccountId: account.id },
       });
       expect(movements).toBe(1);
-      expect(await storedBalance(account.id)).toBe('333.00');
+      expect(await storedBalance(account.id)).toBe('333');
     });
   });
 
@@ -956,7 +1010,36 @@ describe('Treasury (e2e)', () => {
       const body = res.body as StatementBody;
       expect(body.pagination.total).toBe(3);
       expect(body.rows.at(-1)?.runningBalance).toBe(body.account.balance);
-      expect(body.account.balance).toBe('825.00');
+      expect(body.account.balance).toBe('825');
+    });
+
+    it('keeps the real running balance when the rows are filtered', async () => {
+      // The defect: filtering by type or date used to restart the running
+      // total from the filtered subset, so "payments since March" read as
+      // though the account had been empty in February. The filters decide
+      // which rows are SHOWN; the running balance is still the account's.
+      const account = await createAccount();
+      await post(account.id, '1000.00');
+      await post(account.id, '-300.00', { movementType: 'PAYMENT' });
+      await post(account.id, '500.00');
+      await post(account.id, '-200.00', { movementType: 'PAYMENT' });
+
+      const agent = await loginAs(userAdminId);
+      const res = await agent
+        .get(`/api/v1/treasury/accounts/${account.id}/statement`)
+        .query({ movementType: 'PAYMENT' })
+        .set(COMPANY_ID_HEADER, companyAId)
+        .expect(200);
+
+      const body = res.body as StatementBody;
+      expect(body.pagination.total).toBe(2);
+      // 1000 - 300 = 700 after the first payment, and 1000-300+500-200 =
+      // 1000 after the second — NOT -300 and -500, which is what summing
+      // only the filtered rows would give.
+      expect(body.rows.map((r) => r.runningBalance)).toEqual(['700', '1000']);
+      // And the last one equals the account balance, because the last
+      // payment is also the account's last movement.
+      expect(body.rows.at(-1)?.runningBalance).toBe(body.account.balance);
     });
 
     it('says out loud that a cash box does not include POS sales', async () => {
@@ -968,6 +1051,77 @@ describe('Treasury (e2e)', () => {
         .get(`/api/v1/treasury/accounts/${account.id}/statement`)
         .set(COMPANY_ID_HEADER, companyAId);
       expect((res.body as StatementBody).excludesPosSales).toBe(true);
+    });
+  });
+
+  describe('decimal precision', () => {
+    it('keeps three and four decimals instead of rounding to two', async () => {
+      // The column is NUMERIC(19,4) and each currency declares its own
+      // precision. Serializing everything through toFixed(2) quietly
+      // rounded real amounts.
+      const account = await createAccount();
+      await post(account.id, '10.1234');
+      await post(account.id, '0.005');
+
+      expect(await ledgerSum(account.id)).toBe('10.1284');
+      const agent = await loginAs(userAdminId);
+      const res = await agent
+        .get(`/api/v1/treasury/accounts/${account.id}`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .expect(200);
+      expect((res.body as AccountBody).account.balance).toBe('10.1284');
+    });
+  });
+
+  describe('the opening balance sign', () => {
+    it('lets a bank account with an overdraft open negative', async () => {
+      // A bank can genuinely be overdrawn the day the module is loaded,
+      // and refusing to record that forces the operator to lie about the
+      // starting position.
+      const account = await createAccount({
+        code: nextCode('BANCONEG'),
+        name: 'Banco en descubierto',
+        type: 'BANK_ACCOUNT',
+        allowsNegativeBalance: true,
+      });
+      const agent = await loginAs(userAdminId);
+      const res = await agent
+        .post(`/api/v1/treasury/accounts/${account.id}/opening-balance`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ amount: '-2500.50' });
+      expect(res.status).toBe(201);
+      expect((res.body as AccountBody).account.balance).toBe('-2500.5');
+    });
+
+    it('refuses a negative opening on a cash box, and says why', async () => {
+      const account = await createAccount();
+      const agent = await loginAs(userAdminId);
+      const res = await agent
+        .post(`/api/v1/treasury/accounts/${account.id}/opening-balance`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ amount: '-100' });
+      expect(res.status).toBe(400);
+      // Its own code: "there is not enough money" is not what happened.
+      expect((res.body as ErrorEnvelope).error.code).toBe(
+        'NEGATIVE_OPENING_BALANCE_NOT_ALLOWED',
+      );
+    });
+
+    it('refuses a negative opening on a bank without an overdraft', async () => {
+      const account = await createAccount({
+        code: nextCode('BANCOSIN'),
+        name: 'Banco sin descubierto',
+        type: 'BANK_ACCOUNT',
+      });
+      const agent = await loginAs(userAdminId);
+      const res = await agent
+        .post(`/api/v1/treasury/accounts/${account.id}/opening-balance`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ amount: '-1' });
+      expect(res.status).toBe(400);
+      expect((res.body as ErrorEnvelope).error.code).toBe(
+        'NEGATIVE_OPENING_BALANCE_NOT_ALLOWED',
+      );
     });
   });
 
@@ -992,6 +1146,17 @@ describe('Treasury (e2e)', () => {
           currencyId: arsId,
         });
       expect(res.status).toBe(403);
+    });
+
+    it('refuses the statement to a reader who may not see the account', async () => {
+      // The statement returns the account too — balance, bank, CBU, alias
+      // — so the ledger code alone is not enough for it.
+      const account = await createAccount();
+      const agent = await loginAs(userReadOnlyId);
+      await agent
+        .get(`/api/v1/treasury/accounts/${account.id}/statement`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .expect(200);
     });
 
     it('separates seeing an account from reading its ledger', async () => {

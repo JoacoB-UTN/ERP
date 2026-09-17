@@ -167,6 +167,13 @@ recorded as a real `OPENING_BALANCE` movement rather than a column
 somebody edits — so the ledger explains every peso of the balance
 including the first one.
 
+**It can be negative — but only where a negative balance is possible.** A
+bank account with an overdraft can genuinely be overdrawn the day the
+module is loaded, and refusing to record that forces the operator to lie
+about the starting position. A cash box, and a bank without an overdraft,
+are refused with `NEGATIVE_OPENING_BALANCE_NOT_ALLOWED` — its own code,
+because "there is not enough money" is not what happened.
+
 It can be set **only once, and only while the ledger is empty**. A second
 "opening" after money has moved is a correction wearing the wrong name;
 use an adjustment. The endpoint is gated by `treasury.movements.create`,
@@ -295,10 +302,31 @@ Movements oldest-first with a running balance, ordered by
 `(occurredAt, createdAt, id)` — fully deterministic, because a tie makes
 a running balance non-reproducible between two reads of the same page.
 
-The running balance is computed **from the ledger**, not read from the
-projection, so a statement is internally consistent even if the
-projection had drifted — and so a reader can see the drift instead of
-being reassured by a total that disagrees with the rows above it.
+**The running balance is a window over every movement of the account,
+computed before the filters apply.** Filters decide which rows are
+*shown*; they must not decide where the total starts. Summing only the
+filtered rows made "payments since March" read as though the account had
+been empty in February — a number that looks like a balance and is not
+one.
+
+It is computed **from the ledger**, not read from the projection, so a
+statement is internally consistent even if the projection had drifted —
+and so a reader can see the drift instead of being reassured by a total
+that disagrees with the rows above it.
+
+**Both permissions.** The statement needs `treasury.movements.read` *and*
+`treasury.accounts.read`, because the response carries the account —
+balance, bank name, account number, CBU, alias. Gating on the ledger code
+alone handed all of that to a caller never granted the other. The split
+still matters in the other direction: seeing that a cash box exists does
+not let you read every peso that passed through it.
+
+## Money crosses the wire at stored precision
+
+Amounts are serialized with `toString()`, never `toFixed(2)`. The column
+is `NUMERIC(19,4)` and each currency declares its own `decimalPlaces`, so
+forcing two places rounds real amounts on the way out. Formatting is the
+UI's job; the API's job is not to lose anything.
 
 ## Recovery
 
