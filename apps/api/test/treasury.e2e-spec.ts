@@ -628,6 +628,58 @@ describe('Treasury (e2e)', () => {
       expect(await storedBalance(account.id)).toBe('500');
     });
 
+    it('a duplicate post leaves the transaction usable for the writes around it', async () => {
+      // The defect this pins down: a unique violation ABORTS the whole
+      // PostgreSQL transaction, and catching the P2002 in TypeScript does
+      // not undo that — every later statement fails with "current
+      // transaction is aborted".
+      //
+      // The earlier idempotency test missed it because the duplicate was
+      // the only thing in its transaction. The real callers all write
+      // before and after: a Cobro's confirm flips the status, posts to
+      // the customer ledger, posts here, then audits. So this test does
+      // the same, and fails loudly if `post` ever goes back to catching
+      // the error instead of avoiding it.
+      const account = await createAccount();
+      const sourceId = crypto.randomUUID();
+      await post(account.id, '500.00', { sourceId });
+
+      await prisma.$transaction(async (tx) => {
+        await tx.treasuryAccount.update({
+          where: { id: account.id },
+          data: { notes: 'antes del duplicado' },
+        });
+
+        const duplicate = await treasury.post(
+          tx,
+          { companyId: companyAId, tenantId },
+          {
+            treasuryAccountId: account.id,
+            movementType: 'COLLECTION',
+            amount: new Prisma.Decimal('500.00'),
+            occurredAt: new Date(),
+            sourceType: 'CustomerCollection',
+            sourceId,
+            currencyId: arsId,
+          },
+        );
+        expect(duplicate).toBeNull();
+
+        // The write that used to explode.
+        await tx.treasuryAccount.update({
+          where: { id: account.id },
+          data: { notes: 'despues del duplicado' },
+        });
+      });
+
+      const after = await prisma.treasuryAccount.findFirstOrThrow({
+        where: { id: account.id },
+      });
+      expect(after.notes).toBe('despues del duplicado');
+      expect(await ledgerSum(account.id)).toBe('500');
+      expect(await storedBalance(account.id)).toBe('500');
+    });
+
     it('does not double-count a retried post of the same document', async () => {
       const account = await createAccount();
       const sourceId = crypto.randomUUID();
