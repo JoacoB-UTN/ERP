@@ -151,3 +151,19 @@ export class TreasuryTransferSameAccountException extends BadRequestException {
     });
   }
 }
+
+/**
+ * A negative opening on an account that can never hold a negative
+ * balance. Its own code rather than reusing INSUFFICIENT_TREASURY_FUNDS,
+ * which would read as "there is not enough money" when the real answer is
+ * "this account cannot be overdrawn at all".
+ */
+export class NegativeOpeningBalanceException extends BadRequestException {
+  constructor() {
+    super({
+      message:
+        'Solo una cuenta bancaria con descubierto habilitado puede abrir con saldo negativo.',
+      code: 'NEGATIVE_OPENING_BALANCE_NOT_ALLOWED',
+    });
+  }
+}

@@ -106,9 +106,24 @@ export const updateTreasuryAccountSchema = z.object({
 });
 export type UpdateTreasuryAccountInput = z.infer<typeof updateTreasuryAccountSchema>;
 
-const openingAmountSchema = moneySchema.refine((v) => Number(v) !== 0, {
-  message: 'El saldo de apertura no puede ser cero.',
-});
+/**
+ * Signed, unlike `moneySchema`, which rejects every negative.
+ *
+ * A bank account can genuinely be overdrawn on the day the module is
+ * loaded, and refusing to record that would force the operator to lie
+ * about the starting position. Whether a given account may actually GO
+ * negative is the server's call — a cash box never can — so this only
+ * decides the shape, not the policy.
+ */
+const openingAmountSchema = z
+  .union([z.string(), z.number()])
+  .transform((value) => String(value).trim())
+  .refine((value) => /^-?\d+(\.\d+)?$/.test(value), {
+    message: 'Debe ser un número válido.',
+  })
+  .refine((value) => Number(value) !== 0, {
+    message: 'El saldo de apertura no puede ser cero.',
+  });
 
 /**
  * What was already in the account the day it was loaded into the system.

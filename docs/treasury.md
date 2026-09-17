@@ -104,6 +104,48 @@ found the ledger already saying what it wanted it to say. The decision is
 delegated to the constraint rather than to a read-then-insert, because
 between the read and the insert is exactly where a second terminal fits.
 
+**The insert is `ON CONFLICT DO NOTHING`, and that detail is not
+cosmetic.** A unique violation **aborts the entire PostgreSQL
+transaction** — every later statement fails with *current transaction is
+aborted* — and catching the error in TypeScript does not undo it. An
+earlier version of this method caught the P2002 and returned `null`; it
+looked right, and its test passed, because that test did nothing else in
+the transaction. Every real caller does: a Cobro's confirm flips the
+status, posts to the customer ledger, posts here, then audits. Measured,
+then fixed. The regression test now writes before and after the duplicate
+on purpose.
+
+## One lock protocol
+
+**Every writer to an account holds that account's advisory lock for the
+rest of its transaction.** `post()` takes it itself, so the rule holds by
+construction rather than by each caller remembering: the opening balance,
+transfers, Cobros, Pagos and the rebuild are all covered by the same key.
+Locks are re-entrant within a transaction, so a transfer that already
+took both (in stable order) pays nothing extra.
+
+Two consequences worth stating:
+
+- **The opening balance checks that the ledger is empty *under* the
+  lock.** Otherwise a transfer or a Cobro could post the account's first
+  movement between the check and the insert, and the "opening" would land
+  on top of it.
+- **The rebuild sums inside the transaction that writes**, one account at
+  a time, holding that account's lock. Summing outside and writing after
+  would let a movement committed in between be overwritten by a total
+  computed before it existed — a repair that loses money is worse than
+  the drift it set out to fix. One account at a time so a rebuild never
+  freezes the whole treasury.
+
+### The lock keys
+
+`hashtextextended(name, 0)` — 64 bits, which is what
+`pg_advisory_xact_lock` takes. And the **sort is over the keys, not over
+the names**: hashing does not preserve string order, so sorting the names
+first and hashing after gives no consistent order at all, and two
+transactions locking the same pair could still take them in opposite
+orders — the exact deadlock the sort exists to prevent.
+
 Every reversal is **its own movement type** (`COLLECTION_REVERSAL`,
 `PAYMENT_REVERSAL`, …) rather than a negative of the original, precisely
 so the idempotency key can tell a cancellation apart from the
@@ -112,7 +154,8 @@ confirmation it undoes.
 ## Corrections are new movements
 
 A confirmed movement is never updated or deleted. A correction is a new,
-reversing movement pointed back at the original via `reversalOfId` — the
+reversing movement pointed back at the original via `reversalOfId` — set,
+not left null, so a statement can say *which* movement a reversal cancels — the
 rule [inventory.md](inventory.md) and
 [current-accounts.md](current-accounts.md) already follow, and the reason
 a cancelled Cobro will not leave its money in the drawer.
@@ -123,6 +166,13 @@ What was already in the account the day it was loaded into the system,
 recorded as a real `OPENING_BALANCE` movement rather than a column
 somebody edits — so the ledger explains every peso of the balance
 including the first one.
+
+**It can be negative — but only where a negative balance is possible.** A
+bank account with an overdraft can genuinely be overdrawn the day the
+module is loaded, and refusing to record that forces the operator to lie
+about the starting position. A cash box, and a bank without an overdraft,
+are refused with `NEGATIVE_OPENING_BALANCE_NOT_ALLOWED` — its own code,
+because "there is not enough money" is not what happened.
 
 It can be set **only once, and only while the ledger is empty**. A second
 "opening" after money has moved is a correction wearing the wrong name;
@@ -300,10 +350,31 @@ Movements oldest-first with a running balance, ordered by
 `(occurredAt, createdAt, id)` — fully deterministic, because a tie makes
 a running balance non-reproducible between two reads of the same page.
 
-The running balance is computed **from the ledger**, not read from the
-projection, so a statement is internally consistent even if the
-projection had drifted — and so a reader can see the drift instead of
-being reassured by a total that disagrees with the rows above it.
+**The running balance is a window over every movement of the account,
+computed before the filters apply.** Filters decide which rows are
+*shown*; they must not decide where the total starts. Summing only the
+filtered rows made "payments since March" read as though the account had
+been empty in February — a number that looks like a balance and is not
+one.
+
+It is computed **from the ledger**, not read from the projection, so a
+statement is internally consistent even if the projection had drifted —
+and so a reader can see the drift instead of being reassured by a total
+that disagrees with the rows above it.
+
+**Both permissions.** The statement needs `treasury.movements.read` *and*
+`treasury.accounts.read`, because the response carries the account —
+balance, bank name, account number, CBU, alias. Gating on the ledger code
+alone handed all of that to a caller never granted the other. The split
+still matters in the other direction: seeing that a cash box exists does
+not let you read every peso that passed through it.
+
+## Money crosses the wire at stored precision
+
+Amounts are serialized with `toString()`, never `toFixed(2)`. The column
+is `NUMERIC(19,4)` and each currency declares its own `decimalPlaces`, so
+forcing two places rounds real amounts on the way out. Formatting is the
+UI's job; the API's job is not to lose anything.
 
 ## Recovery
 
