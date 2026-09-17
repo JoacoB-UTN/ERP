@@ -551,6 +551,40 @@ describe('Treasury transfers (e2e)', () => {
       expect(await balance(a)).toBe(await ledgerSum(a));
     });
 
+    it('links each reversal back to the movement it undoes', async () => {
+      // Without `reversalOfId` the self-relation is decorative: a
+      // statement can see that some reversal happened but not WHICH
+      // movement it cancels.
+      const a = await makeAccount('1000.00');
+      const b = await makeAccount('0');
+      const draft = await createDraft(a, b, '300.00');
+      const agent = await loginAs(userAdminId);
+
+      await agent
+        .post(`/api/v1/treasury/transfers/${draft.id}/confirm`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .expect(201);
+      await agent
+        .post(`/api/v1/treasury/transfers/${draft.id}/cancel`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .expect(201);
+
+      const movements = await prisma.treasuryMovement.findMany({
+        where: { sourceType: 'TreasuryTransfer', sourceId: draft.id },
+      });
+      const byType = new Map(movements.map((m) => [m.movementType, m]));
+
+      expect(byType.get('TRANSFER_IN_REVERSAL')?.reversalOfId).toBe(
+        byType.get('TRANSFER_IN')?.id,
+      );
+      expect(byType.get('TRANSFER_OUT_REVERSAL')?.reversalOfId).toBe(
+        byType.get('TRANSFER_OUT')?.id,
+      );
+      // And the originals point at nothing — they undo nothing.
+      expect(byType.get('TRANSFER_IN')?.reversalOfId).toBeNull();
+      expect(byType.get('TRANSFER_OUT')?.reversalOfId).toBeNull();
+    });
+
     it('refuses to cancel a draft', async () => {
       const a = await makeAccount('1000.00');
       const b = await makeAccount('0');

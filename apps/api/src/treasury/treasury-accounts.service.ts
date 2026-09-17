@@ -266,6 +266,15 @@ export class TreasuryAccountsService {
         id,
       );
 
+      // Under the lock BEFORE the count, and the same lock every other
+      // writer takes. Otherwise a transfer, Cobro or Pago could post the
+      // account's first movement between this check and the insert, and
+      // the "opening" balance would land on top of it — an opening that
+      // is not the opening.
+      await this.treasury.lockAccountsInStableOrder(tx, ctx.companyId, [
+        account.id,
+      ]);
+
       const existingMovements = await tx.treasuryMovement.count({
         where: { companyId: ctx.companyId, treasuryAccountId: account.id },
       });

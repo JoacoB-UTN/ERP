@@ -311,6 +311,96 @@ describe('Treasury (e2e)', () => {
     );
   }
 
+  /**
+   * Holds a transaction open at the critical point.
+   *
+   * `Promise.all` over two calls proves nothing about interleaving: the
+   * runtime is free to run them one after the other, so the test passes
+   * whether or not the locking works. This forces the bad ordering
+   * instead — the first writer is left INSIDE its transaction, holding
+   * the account lock and with its work uncommitted, while the second one
+   * starts. Release only once the second is under way.
+   *
+   * Returns the gate to open and the transaction's own promise, which
+   * must be awaited so a failure inside it is not swallowed.
+   */
+  function holdPostOpen(
+    accountId: string,
+    amount: string,
+    companyId = companyAId,
+  ) {
+    let release!: () => void;
+    let reachedBarrier!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const inside = new Promise<void>((r) => {
+      reachedBarrier = r;
+    });
+
+    const tx = prisma.$transaction(
+      async (client) => {
+        await treasury.post(
+          client,
+          { companyId, tenantId },
+          {
+            treasuryAccountId: accountId,
+            movementType: 'COLLECTION',
+            amount: new Prisma.Decimal(amount),
+            occurredAt: new Date(),
+            sourceType: 'CustomerCollection',
+            sourceId: crypto.randomUUID(),
+            currencyId: arsId,
+          },
+        );
+        // Written, lock held, NOT committed.
+        reachedBarrier();
+        await gate;
+      },
+      // Generous: the point is the barrier, not a timeout.
+      { timeout: 20_000, maxWait: 20_000 },
+    );
+
+    return { inside, release, tx };
+  }
+
+  /**
+   * Waits until somebody is actually BLOCKED on this account's advisory
+   * lock, by looking at `pg_locks`.
+   *
+   * This is what makes the race tests deterministic. Starting a promise
+   * and releasing the barrier on the next line proves nothing: the second
+   * operation may not have reached the database yet, and the test then
+   * passes even with the locking removed — measured, that is exactly what
+   * happened. Waiting for the waiter to appear means the collision has
+   * genuinely occurred before anything is released.
+   *
+   * It polls observable database state, not the clock: if the operation
+   * never takes the lock, no waiter ever appears and the test fails
+   * instead of silently proving nothing.
+   */
+  async function waitForLockWaiter(
+    companyId: string,
+    accountId: string,
+  ): Promise<void> {
+    const name = `treasury:${companyId}:${accountId}`;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const rows = await prisma.$queryRaw<{ waiting: number }[]>(Prisma.sql`
+        SELECT count(*)::int AS waiting
+        FROM pg_locks l
+        WHERE l.locktype = 'advisory'
+          AND NOT l.granted
+          AND ((l.classid::bigint << 32) | l.objid::bigint)
+              = hashtextextended(${name}, 0)
+      `);
+      if ((rows[0]?.waiting ?? 0) > 0) return;
+      await new Promise((r) => setImmediate(r));
+    }
+    throw new Error(
+      `Nadie se bloqueó en el lock de ${name}: la operación no lo está tomando.`,
+    );
+  }
+
   async function ledgerSum(accountId: string) {
     const agg = await prisma.treasuryMovement.aggregate({
       where: { treasuryAccountId: accountId },
@@ -484,6 +574,58 @@ describe('Treasury (e2e)', () => {
       expect(await storedBalance(account.id)).toBe('1300.00');
     });
 
+    it('a duplicate post leaves the transaction usable for the writes around it', async () => {
+      // The defect this pins down: a unique violation ABORTS the whole
+      // PostgreSQL transaction, and catching the P2002 in TypeScript does
+      // not undo that — every later statement fails with "current
+      // transaction is aborted".
+      //
+      // The earlier idempotency test missed it because the duplicate was
+      // the only thing in its transaction. The real callers all write
+      // before and after: a Cobro's confirm flips the status, posts to
+      // the customer ledger, posts here, then audits. So this test does
+      // the same, and fails loudly if `post` ever goes back to catching
+      // the error instead of avoiding it.
+      const account = await createAccount();
+      const sourceId = crypto.randomUUID();
+      await post(account.id, '500.00', { sourceId });
+
+      await prisma.$transaction(async (tx) => {
+        await tx.treasuryAccount.update({
+          where: { id: account.id },
+          data: { notes: 'antes del duplicado' },
+        });
+
+        const duplicate = await treasury.post(
+          tx,
+          { companyId: companyAId, tenantId },
+          {
+            treasuryAccountId: account.id,
+            movementType: 'COLLECTION',
+            amount: new Prisma.Decimal('500.00'),
+            occurredAt: new Date(),
+            sourceType: 'CustomerCollection',
+            sourceId,
+            currencyId: arsId,
+          },
+        );
+        expect(duplicate).toBeNull();
+
+        // The write that used to explode.
+        await tx.treasuryAccount.update({
+          where: { id: account.id },
+          data: { notes: 'despues del duplicado' },
+        });
+      });
+
+      const after = await prisma.treasuryAccount.findFirstOrThrow({
+        where: { id: account.id },
+      });
+      expect(after.notes).toBe('despues del duplicado');
+      expect(await ledgerSum(account.id)).toBe('500.00');
+      expect(await storedBalance(account.id)).toBe('500.00');
+    });
+
     it('does not double-count a retried post of the same document', async () => {
       const account = await createAccount();
       const sourceId = crypto.randomUUID();
@@ -532,6 +674,186 @@ describe('Treasury (e2e)', () => {
       ).rejects.toMatchObject({
         response: { code: 'TREASURY_CURRENCY_MISMATCH' },
       });
+    });
+
+    it('a rebuild cannot sum past an uncommitted post — forced, not raced', async () => {
+      // The defect: the rebuild summed the ledger OUTSIDE its write
+      // transaction, so a movement committed in between was overwritten
+      // by a total computed before it existed.
+      //
+      // Two things make this deterministic rather than a hopeful race:
+      //
+      // 1. A barrier. The post is left INSIDE its transaction, holding
+      //    the account lock, uncommitted, while the rebuild starts.
+      // 2. **A company of its own.** Scoped to the shared company the
+      //    rebuild walks dozens of accounts first, so by the time it
+      //    reached this one the post had long committed and the test
+      //    passed with the lock removed — the exact "passes by accident"
+      //    failure this rewrite exists to kill. With one account in the
+      //    company, the collision is forced.
+      //
+      // Verified by deleting the lock from rebuildTreasuryBalances: the
+      // test then fails.
+      const company = await prisma.company.create({
+        data: {
+          tenantId,
+          legalName: 'E2E Treasury Race',
+          taxId: `e2e-treasury-race-${suffix}-${Date.now()}`,
+          countryCode: 'AR',
+          timezone: 'America/Argentina/Buenos_Aires',
+        },
+      });
+      const account = await prisma.treasuryAccount.create({
+        data: {
+          tenantId,
+          companyId: company.id,
+          code: `RACE-${suffix}`,
+          name: 'Caja de la carrera',
+          type: 'CASH_BOX',
+          currencyId: arsId,
+        },
+      });
+
+      await prisma.$transaction((tx) =>
+        treasury.post(
+          tx,
+          { companyId: company.id, tenantId },
+          {
+            treasuryAccountId: account.id,
+            movementType: 'COLLECTION',
+            amount: new Prisma.Decimal('1000.00'),
+            occurredAt: new Date(),
+            sourceType: 'CustomerCollection',
+            sourceId: crypto.randomUUID(),
+            currencyId: arsId,
+          },
+        ),
+      );
+
+      try {
+        await runTheRace();
+      } finally {
+        await prisma.treasuryMovement.deleteMany({
+          where: { companyId: company.id },
+        });
+        await prisma.treasuryAccountBalance.deleteMany({
+          where: { companyId: company.id },
+        });
+        await prisma.treasuryAccount.deleteMany({
+          where: { companyId: company.id },
+        });
+        await prisma.company.delete({ where: { id: company.id } });
+      }
+
+      async function runTheRace() {
+        const held = holdPostOpen(account.id, '250.00', company.id);
+        await held.inside;
+
+        // Starts while the post holds the lock, and this company has
+        // exactly one account, so the rebuild reaches it immediately.
+        const rebuild = treasury.rebuildTreasuryBalances(company.id);
+
+        // `finally` because the barrier must open even when the assertion
+        // below fails: without it, a failing run leaves the held
+        // transaction and the rebuild waiting on each other and the suite
+        // hangs instead of reporting. Measured, with the lock deleted.
+        try {
+          // Do not release until the rebuild is genuinely blocked on the
+          // lock. Releasing on the next line let it commit first, and the
+          // test passed with the lock deleted.
+          await waitForLockWaiter(company.id, account.id);
+        } finally {
+          held.release();
+        }
+        await held.tx;
+        await rebuild;
+
+        expect(await ledgerSum(account.id)).toBe('1250.00');
+        expect(await storedBalance(account.id)).toBe('1250.00');
+      }
+    });
+
+    it('an opening cannot land after the first movement — and says so with a 409', async () => {
+      // Two things the earlier version got wrong, both raised in review:
+      //
+      // 1. `Promise.all` over two calls does not force the interleaving —
+      //    they may simply run one after the other, and the test passes
+      //    even if the emptiness check goes back outside the lock.
+      // 2. It never asserted the HTTP status, so a 500 counted as a
+      //    fulfilled promise and the run stayed green.
+      //
+      // Now the first movement is held uncommitted with the lock taken,
+      // the opening request is fired and observed to BLOCK on that lock,
+      // and only then is the barrier released.
+      const account = await createAccount();
+      const held = holdPostOpen(account.id, '100.00');
+      await held.inside;
+
+      const agent = await loginAs(userAdminId);
+      const openingPromise = agent
+        .post(`/api/v1/treasury/accounts/${account.id}/opening-balance`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ amount: '900.00' })
+        .then((r) => r);
+
+      try {
+        await waitForLockWaiter(companyAId, account.id);
+      } finally {
+        held.release();
+      }
+      await held.tx;
+
+      const res = await openingPromise;
+      // The movement won the lock, so the ledger is no longer empty and
+      // the opening must be refused — with the domain error, not a 500.
+      expect(res.status).toBe(409);
+      expect((res.body as ErrorEnvelope).error.code).toBe(
+        'TREASURY_OPENING_BALANCE_ALREADY_SET',
+      );
+
+      // And nothing was written: no opening at all, and the balance is
+      // exactly the first movement.
+      expect(
+        await prisma.treasuryMovement.count({
+          where: {
+            treasuryAccountId: account.id,
+            movementType: 'OPENING_BALANCE',
+          },
+        }),
+      ).toBe(0);
+      expect(await storedBalance(account.id)).toBe('100.00');
+      expect(await storedBalance(account.id)).toBe(await ledgerSum(account.id));
+    });
+
+    it('when the opening gets there first, it is the only one', async () => {
+      // The other direction, asserted explicitly: 201, exactly one
+      // OPENING_BALANCE, and a later attempt refused.
+      const account = await createAccount();
+      const agent = await loginAs(userAdminId);
+
+      const first = await agent
+        .post(`/api/v1/treasury/accounts/${account.id}/opening-balance`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ amount: '900.00' });
+      expect(first.status).toBe(201);
+
+      await post(account.id, '100.00');
+
+      const second = await agent
+        .post(`/api/v1/treasury/accounts/${account.id}/opening-balance`)
+        .set(COMPANY_ID_HEADER, companyAId)
+        .send({ amount: '50.00' });
+      expect(second.status).toBe(409);
+
+      expect(
+        await prisma.treasuryMovement.count({
+          where: {
+            treasuryAccountId: account.id,
+            movementType: 'OPENING_BALANCE',
+          },
+        }),
+      ).toBe(1);
+      expect(await storedBalance(account.id)).toBe('1000.00');
     });
 
     it('rebuilds a balance that drifted, from the ledger', async () => {
