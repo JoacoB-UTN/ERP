@@ -19,6 +19,7 @@ import type {
   SupplierPaymentListQuery,
   SupplierPaymentListResponse,
   SupplierStatementResponse,
+  TreasuryAccountsResponse,
   UpdateCustomerCollectionInput,
   UpdateSupplierPaymentInput,
 } from '@erp/shared';
@@ -139,6 +140,26 @@ export function createAccountsClient(config: AccountsClientConfig) {
             pageSize: query.pageSize,
           })}`,
         ),
+      enabled: !!companyId,
+      placeholderData: keepPreviousCompanyData(companyId),
+    });
+  }
+
+  /**
+   * The cash boxes and bank accounts a Cobro or a Pago can land in — see
+   * docs/treasury.md. Active ones only: a retired account must not be
+   * offered for a new document, even though the ledger still accepts a
+   * reversal into it.
+   *
+   * It lives here rather than in a treasury-hooks file because its only
+   * consumer today is the Cobro/Pago form; when Treasury grows its own
+   * screens it should move.
+   */
+  function useTreasuryAccountOptions() {
+    const companyId = useActiveCompanyId();
+    return useQuery({
+      queryKey: ['company', companyId, 'treasury-accounts', 'options'],
+      queryFn: () => apiFetch<TreasuryAccountsResponse>('/treasury/accounts'),
       enabled: !!companyId,
       placeholderData: keepPreviousCompanyData(companyId),
     });
@@ -334,6 +355,7 @@ export function createAccountsClient(config: AccountsClientConfig) {
     useCustomerAccounts,
     useCustomerStatement,
     useCustomerOpenSales,
+    useTreasuryAccountOptions,
     useCustomerCollections,
     useCustomerCollection,
     useCreateCustomerCollection,

@@ -2248,9 +2248,19 @@ model CustomerCollection {
   amount     Decimal  @db.Decimal(19, 4)
 
   /// Reuses SalesTenderMethod (see docs/pos.md and docs/current-accounts.md's
-  /// documented naming decision) — purely descriptive, never touches a
-  /// cash/bank balance (Treasury is out of scope for this task).
+  /// documented naming decision). Descriptive only — it says HOW the money
+  /// came in; `treasuryAccountId` below says WHERE it landed.
   paymentMethod SalesTenderMethod
+
+  /// Which cash box or bank account received the money — see
+  /// docs/treasury.md. Confirming posts a COLLECTION movement there.
+  ///
+  /// **Nullable for history, required for new documents.** Cobros
+  /// confirmed before Treasury existed have no account, and inventing one
+  /// would back-post money into a balance nobody counted. They stay
+  /// visible and stay out of every treasury balance, and the module says
+  /// so rather than quietly under-reporting — see task 019, criterion 7.
+  treasuryAccountId String? @db.Uuid
 
   externalReference String?
   notes             String?
@@ -2267,11 +2277,12 @@ model CustomerCollection {
   confirmedBy String? @db.Uuid
   cancelledBy String? @db.Uuid
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id])
-  company  Company  @relation(fields: [companyId], references: [id])
-  branch   Branch?  @relation(fields: [branchId], references: [id])
-  customer Customer @relation(fields: [customerId], references: [id])
-  currency Currency @relation(fields: [currencyId], references: [id])
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  company         Company          @relation(fields: [companyId], references: [id])
+  branch          Branch?          @relation(fields: [branchId], references: [id])
+  customer        Customer         @relation(fields: [customerId], references: [id])
+  currency        Currency         @relation(fields: [currencyId], references: [id])
+  treasuryAccount TreasuryAccount? @relation(fields: [treasuryAccountId], references: [id])
 
   applications CustomerCollectionApplication[]
 
@@ -2347,6 +2358,11 @@ model SupplierPayment {
 
   paymentMethod SalesTenderMethod
 
+  /// Which cash box or bank account the money left — see docs/treasury.md.
+  /// Confirming posts a PAYMENT movement there. Nullable for history and
+  /// required for new documents, symmetric to CustomerCollection's.
+  treasuryAccountId String? @db.Uuid
+
   externalReference String?
   notes             String?
 
@@ -2362,11 +2378,12 @@ model SupplierPayment {
   confirmedBy String? @db.Uuid
   cancelledBy String? @db.Uuid
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id])
-  company  Company  @relation(fields: [companyId], references: [id])
-  branch   Branch?  @relation(fields: [branchId], references: [id])
-  supplier Supplier @relation(fields: [supplierId], references: [id])
-  currency Currency @relation(fields: [currencyId], references: [id])
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  company         Company          @relation(fields: [companyId], references: [id])
+  branch          Branch?          @relation(fields: [branchId], references: [id])
+  supplier        Supplier         @relation(fields: [supplierId], references: [id])
+  currency        Currency         @relation(fields: [currencyId], references: [id])
+  treasuryAccount TreasuryAccount? @relation(fields: [treasuryAccountId], references: [id])
 
   applications SupplierPaymentApplication[]
 
@@ -2486,10 +2503,12 @@ model TreasuryAccount {
   branch   Branch?  @relation(fields: [branchId], references: [id])
   currency Currency @relation(fields: [currencyId], references: [id])
 
-  movements    TreasuryMovement[]
-  balance      TreasuryAccountBalance?
-  transfersOut TreasuryTransfer[]      @relation("TreasuryTransferSource")
-  transfersIn  TreasuryTransfer[]      @relation("TreasuryTransferDestination")
+  movements           TreasuryMovement[]
+  balance             TreasuryAccountBalance?
+  transfersOut        TreasuryTransfer[]      @relation("TreasuryTransferSource")
+  transfersIn         TreasuryTransfer[]      @relation("TreasuryTransferDestination")
+  customerCollections CustomerCollection[]
+  supplierPayments    SupplierPayment[]
 
   @@unique([companyId, code])
   @@index([tenantId])

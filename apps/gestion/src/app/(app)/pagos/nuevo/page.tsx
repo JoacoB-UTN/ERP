@@ -17,6 +17,7 @@ import {
   useSupplierLookup,
   useSupplierOpenReceipts,
   useCreateSupplierPayment,
+  useTreasuryAccountOptions,
 } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,12 +36,14 @@ export default function NuevoPagoPage() {
   const { can, isLoading: permissionsLoading } = usePermissions();
   const currenciesQuery = useCurrencies();
   const createPayment = useCreateSupplierPayment();
+  const treasuryAccountsQuery = useTreasuryAccountOptions();
 
   const [supplierSearch, setSupplierSearch] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [currencyId, setCurrencyId] = useState('');
   const [amount, setAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('CASH');
+  const [treasuryAccountId, setTreasuryAccountId] = useState('');
   const [externalReference, setExternalReference] = useState('');
   const [notes, setNotes] = useState('');
   /** purchaseReceiptId -> amount to apply, as typed. */
@@ -106,6 +109,7 @@ export default function NuevoPagoPage() {
       currencyId: effectiveCurrencyId,
       amount: amount.trim(),
       paymentMethod,
+      treasuryAccountId,
       externalReference: externalReference.trim() || undefined,
       notes: notes.trim() || undefined,
       applications: Object.entries(applications)
@@ -205,6 +209,32 @@ export default function NuevoPagoPage() {
                 </option>
               ))}
             </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {/*
+              Required: the payment method says HOW, this says WHERE the
+              money sale — see docs/treasury.md. Without it the document
+              would move a balance nobody can point at.
+            */}
+            <Label htmlFor="treasuryAccountId">Cuenta de tesorería</Label>
+            <Select
+              id="treasuryAccountId"
+              value={treasuryAccountId}
+              onChange={(e) => setTreasuryAccountId(e.target.value)}
+              required
+            >
+              <option value="">Elegí una caja o cuenta bancaria…</option>
+              {(treasuryAccountsQuery.data?.accounts ?? []).map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name} ({account.currencyCode})
+                </option>
+              ))}
+            </Select>
+            {treasuryAccountsQuery.data?.accounts.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No hay cajas ni cuentas bancarias cargadas todavía.
+              </p>
+            )}
           </div>
         </div>
 
