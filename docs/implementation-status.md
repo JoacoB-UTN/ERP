@@ -694,11 +694,9 @@ tests).
 titled **Servidor y backups**, same route and same `system.backups.read`
 gate — opens with a read-only server-health panel above the backup state:
 overall verdict, API reachable, PostgreSQL, Redis, when the last real
-check completed, and an "Actualizar ahora" button. It is the **first
-visible diagnostic surface in the product, not local diagnostics in any
-complete sense**: it reports only what `GET /health` already returns, and
-deliberately shows no uptime, version, disk, memory or latency, because
-the endpoint does not measure them.
+check completed, and an "Actualizar ahora" button. It reports only what
+`GET /health` already returns; uptime, version, disk and latency live in
+the diagnostics panel below it (see "Local diagnostics" next).
 
 No new endpoint, no new permission, no backend change. It reads the
 existing `useServerHealth` query — the same one behind the top bar's
@@ -714,6 +712,47 @@ the server reporting both services down. The shared `HealthResponse`
 contract is untouched. Covered by 24 tests in `apps/gestion` (11 pure
 mapping tests, 8 panel tests, 5 screen tests) — the first automated tests
 this app has had; the vitest setup mirrors Facturación's.
+
+### Local diagnostics (2026-09-18)
+
+`GET /system/diagnostics`, behind **`system.backups.read`**, and a
+**Diagnóstico del servidor** panel under Estado del sistema on the same
+Servidor y backups screen. Closes the gap the entry above used to name:
+the product could say whether the server answered, but nothing about the
+machine it answered from.
+
+Reports the installed version and Node build, API uptime, **PostgreSQL's
+own uptime**, database round-trip latency, database size, and free space
+on the filesystem holding the backups. Every field maps to a failure the
+Windows VM produced — see [server-installer.md](server-installer.md).
+The one worth naming: comparing PostgreSQL's uptime against the API's is
+what makes **defect 12** visible from the product. WinSW's log rotation
+killed the wrapper and left the postmaster serving unsupervised, so
+Windows showed the service stopped while the database kept answering; a
+database far older than everything around it is that signature, and the
+row turns warning past a day's difference (generous on purpose —
+restarting only the API is routine).
+
+**Deliberately a second endpoint, not more fields on `/health`.**
+`GET /health` is unauthenticated: the desktop client polls it before
+login. A version, an uptime or a disk size there would be readable by
+anyone who can reach the port. It reuses `system.backups.read` rather
+than adding a permission code, so the role catalog, the system roles and
+the provisioning upgrade path stay untouched for a read-only panel.
+
+Read-only, and asserted as such: the API exposes no action here, and
+restarting a service or freeing disk stays the operator's job. A
+measurement that fails returns `null` and renders "No se pudo medir",
+never `0`. The response carries no path, DSN or secret.
+
+**Known limit:** the disk figure is the filesystem the API can see, so
+with PostgreSQL on another host it says nothing about the disk under the
+database. One server per shop is the deployment this targets.
+
+Covered by 9 e2e tests in `system-diagnostics.e2e-spec.ts` (authorization
+including the anonymous case, every reported field, the no-leak
+assertion, and that no write verb is exposed) and 19 in `apps/gestion`
+(14 mapping, 5 panel).
 
 ### ERP Server installer (Windows)
 **Status: PARTIAL — the payload is built and proven, and the `.exe` now

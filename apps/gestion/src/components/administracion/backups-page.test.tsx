@@ -13,6 +13,21 @@ const mocks = vi.hoisted(() => ({
   backupStatus: undefined as unknown,
   backupsLoading: false,
   backupsError: false,
+  diagnostics: {
+    server: {
+      version: '1.2.3',
+      startedAt: new Date().toISOString(),
+      uptimeSeconds: 7_200,
+      nodeVersion: 'v22.0.0',
+    },
+    database: {
+      startedAt: new Date().toISOString(),
+      uptimeSeconds: 9_000,
+      latencyMs: 2.5,
+      sizeBytes: 18_594_839,
+    },
+    disk: { backups: { totalBytes: 100_000_000_000, freeBytes: 50_000_000_000 } },
+  } as unknown,
 }));
 
 vi.mock('@/lib/auth-client', () => ({
@@ -24,6 +39,14 @@ vi.mock('@/lib/auth-client', () => ({
     data: mocks.backupStatus,
     isLoading: mocks.backupsLoading,
     isError: mocks.backupsError,
+  }),
+  // The screen now also carries the diagnostics panel. Its own behaviour is
+  // covered by system-diagnostics-panel.test.tsx; here it only has to render
+  // without pulling the page down.
+  useSystemDiagnostics: () => ({
+    data: mocks.diagnostics,
+    isPending: false,
+    isError: false,
   }),
 }));
 

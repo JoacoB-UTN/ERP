@@ -210,11 +210,11 @@ know that first.
 
 ### Estado del sistema (the panel above)
 
-The **first visible diagnostic surface** in the product — not local
-diagnostics in any complete sense. It shows only what `GET /health` already
-returns: whether the API answered, and what it said about PostgreSQL and
-Redis. No uptime, version, disk, memory or latency, because the endpoint does
-not measure them and inventing them would be worse than omitting them.
+Answers one question — **is the system working right now** — and only from
+what `GET /health` returns: whether the API answered, and what it said about
+PostgreSQL and Redis. It carries no uptime, version, disk or latency, because
+that endpoint does not measure them; those live in the panel below it, for
+the reason given there.
 
 It reads the existing `useServerHealth` query — the same one behind the
 connection dot in the top bar — so there is no second health check and no
@@ -236,6 +236,51 @@ It used to convert a transport failure into a synthetic response with every
 service marked `error`, which made "we could not ask" indistinguishable from
 "the server told us both are broken". The shared `HealthResponse` contract and
 the backend are unchanged; only the client wrapper knows the difference.
+
+### Diagnóstico del servidor (the panel below it)
+
+Answers a different question — **what is this machine** — from
+`GET /system/diagnostics`. Version and Node build, how long the API has been
+up, how long PostgreSQL has been up, database round-trip latency, database
+size, and free space on the filesystem holding the backups.
+
+**Why a second endpoint instead of more fields on `/health`.** `GET /health`
+is unauthenticated: the desktop client polls it before anyone logs in, and
+the top bar's connection dot rides the same query. A version string, an
+uptime or a free-disk figure there would be readable by anyone who can reach
+the port. Liveness is public; the shape of the installation is not. So this
+sits behind `system.backups.read` — the same grant that already opens this
+screen, rather than a new permission code, because both answer the operator's
+one question and a new code would mean touching the permission catalog, the
+system roles and the provisioning upgrade path for a read-only panel.
+
+**Why these fields and not others.** Each one is a question the Windows VM
+actually raised — see [server-installer.md](server-installer.md):
+
+| Field | The failure it makes visible |
+| --- | --- |
+| Version + Node | The first question of any support call, and unanswerable today without a remote session |
+| API uptime | A service that keeps restarting looks "up" on every poll; an uptime that resets is the tell |
+| **PostgreSQL uptime** | **Defect 12.** WinSW's log rotation killed the wrapper and left the postmaster running unsupervised: Windows reported the service stopped while the database kept answering. Nothing in the service list shows that — a database far older than everything around it does |
+| Latency | Tells "slow" apart from "down" |
+| Free disk | A full disk stops backups and then stops PostgreSQL accepting writes; nothing reported it before |
+| Database size | Where that disk is going |
+
+The PostgreSQL-uptime row turns warning when the database predates the API by
+more than a day. The threshold is deliberately generous: restarting only the
+API is an everyday thing, and a panel that cries wolf gets ignored.
+
+**`null` is not zero.** Any measurement that fails comes back `null` and is
+rendered "No se pudo medir", never as `0`. "0 GB libres" and "we could not
+measure it" send an operator to two very different places.
+
+**It reports no path.** Only the numbers cross to the browser; where the
+backups live is not something the product publishes, and an e2e test asserts
+that no path, DSN or secret appears in the response.
+
+**Known limit:** the disk figure is the filesystem the API can see. With
+PostgreSQL on another machine it says nothing about the disk under the
+database. The local install — one server per shop — is the case this is for.
 
 The panel is strictly read-only, like the rest of the screen: no restart, no
 command execution, no restore.

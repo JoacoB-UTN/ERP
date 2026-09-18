@@ -42,6 +42,7 @@ export const {
   useAuditLog,
   useAuditLogDetail,
   useBackupStatus,
+  useSystemDiagnostics,
   useCustomers,
   useCustomer,
   useCustomerHistory,
