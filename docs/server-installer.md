@@ -39,9 +39,11 @@ defect 12 with a clean shutdown. Uninstalling removed the services, the
 firewall rules and the program, and kept the database, the backups and the
 secrets.
 
-Still **not** verified: what SmartScreen does with the unsigned `.exe`,
-reinstalling over kept data through the wizard, and an attended (rather than
-silent) upgrade. "What is still not verified" at the end of this document is
+Reinstalling over the kept data through the wizard also ran as an upgrade and
+kept the secrets, the company and the users.
+
+Still **not** verified: what SmartScreen does with the unsigned `.exe`, and an
+attended (rather than silent) upgrade over a running installation. "What is still not verified" at the end of this document is
 the authority; do not read "it installs now" as "it is ready for a customer".
 
 One operational note worth knowing before a customer calls: after a reboot the
@@ -884,18 +886,35 @@ removed. It is now listed under `[UninstallDelete]`.
 **Silent run with nothing to upgrade**, on that uninstalled machine: refused
 in one second, exit code 1, the reason in the log, nothing installed.
 
+**Reinstalling over the kept data, through the wizard** (double-clicked by a
+person, the `.exe` from run 35294953709): it ran as an upgrade —
+`install.ps1 -Upgrade`, the marker rewritten with `mode: upgrade` — so the
+company and administrator pages were skipped. The secrets file, the company,
+and the hash over every user's email and password hash are the same as
+before the uninstall; the catalog is at 101 permissions; all five services
+Running, the postmaster under `erp-postgres.exe`. The backup schedule came
+back as 03:00 / 30 days, the page's defaults: the 21:30 / 45 days set before
+was in the service definitions the uninstall removed, which is why that page
+is shown in this case. An operator reinstalling over kept data has to
+re-enter the schedule and the offsite-backup settings.
+
+**Uninstalling that reinstall** confirmed the cache was removed — and showed
+that Inno had already tried, and failed, to remove the directories above it
+by then, leaving an empty `server\node_modules`. Two `dirifempty` entries
+after the cache's handle that. With them (the `.exe` from run 35352848078):
+a silent upgrade over the reinstall kept the secrets, the company, the users
+and its 03:00 / 30 days schedule, Restart Manager again found no file in use;
+and uninstalling it left exactly `backups`, `config` and `data` behind —
+nothing else.
+
 ## What is still not verified
 
 - **SmartScreen.** The `.exe` is unsigned. What a customer's Windows shows
   when it is double-clicked has not been observed, and code signing is not
   set up.
-- **Reinstalling over kept data through the wizard.** The machine above is
-  in exactly that state — uninstalled, with `config` and `data` kept — but the
-  wizard path (dir page shown, company and administrator pages skipped, backup
-  page shown) has not been run.
-- **An attended upgrade.** The upgrade above ran with `/SILENT`. Everything
-  after the pages is the same code; the pages being skipped on screen has not
-  been seen.
+- **An attended upgrade over a running installation.** The wizard has been
+  run over kept data (below), where the same pages are skipped by the same
+  condition; over a running installation only `/SILENT` has been run.
 - **Upgrading an installation made before the completion marker existed.**
   It would be treated as a new installation and show every page, which is the
   second-company risk of defect 14 all over again. No such installation
