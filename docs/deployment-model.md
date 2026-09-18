@@ -20,8 +20,11 @@ task 020 (`prompts/planned/020-central-and-branch-sync.md`).
    being able to look up the stock of another shop and of their own.
 5. **Shared data is edited by whoever holds the permission**, not by
    location. Shop users simply do not get those permissions.
-6. **The central lives in the cloud.**
-7. Today they run Tango with its central-and-branches module.
+6. **The central lives in the cloud**, and the shared masters there belong
+   to **Blanco Bahía**, the group's parent legal entity.
+7. **Every shared record goes to every shop** — no per-shop price lists or
+   customers.
+8. Today they run Tango with its central-and-branches module.
 
 ## What that means
 
