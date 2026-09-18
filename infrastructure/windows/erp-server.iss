@@ -94,12 +94,15 @@ begin
 end;
 
 { The rendered service definitions carry the current ports and backup
-  settings. They are gone when the program was uninstalled and the data kept
-  (the uninstaller deletes services\ but never data\ or config\), and then
-  the backup schedule has to be asked for again. }
+  settings, and config\settings.json a copy of them. The definitions are gone
+  when the program was uninstalled and the data kept (the uninstaller deletes
+  services\ but never data\ or config\); the copy survives that. Only with
+  neither -- an installation from before settings.json existed -- is the
+  backup schedule asked for again. }
 function HasRenderedSettings: Boolean;
 begin
-  Result := FileExists(ExpandConstant('{app}\services\erp-agent.xml'));
+  Result := FileExists(ExpandConstant('{app}\services\erp-agent.xml')) or
+    FileExists(ExpandConstant('{app}\config\settings.json'));
 end;
 
 { A silent run cannot answer the company and administrator pages. It used to

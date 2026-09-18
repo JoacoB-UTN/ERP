@@ -19,7 +19,8 @@
   a second company because the operator typed the name slightly differently,
   or rotate the administrator's password as a side effect. Ports, backup
   schedule and offsite-backup settings are read back from the service
-  definitions the previous install rendered, so what the operator configured
+  definitions the previous install rendered -- or, when an uninstall removed
+  those, from config\settings.json -- so what the operator configured
   survives; a parameter passed explicitly still wins.
 
 .NOTES
@@ -73,6 +74,7 @@ $serverDir  = Join-Path $InstallDir 'server'
 $backupDir  = Join-Path $InstallDir 'backups'
 $logsDir    = Join-Path $InstallDir 'logs'
 $secretsFile= Join-Path $InstallDir 'config\erp-secrets.json'
+$settingsFile = Join-Path $InstallDir 'config\settings.json'
 
 # ---------------------------------------------------------------------------
 # New install or upgrade
@@ -85,14 +87,16 @@ if ($Upgrade) {
   }
 
   # The rendered service definitions ARE the running configuration, so they
-  # are what gets carried forward. Reading them back, rather than keeping a
-  # second settings file, leaves one source of truth that cannot drift from
-  # what the services actually run with.
+  # are what gets carried forward whenever they exist: if someone edited one
+  # by hand, that edit is what the services run with, and it wins over the
+  # copy in config\settings.json.
   #
   # They can be missing: the uninstaller deletes services\ but keeps data\ and
-  # config\, so reinstalling over kept data is an upgrade with nothing to read
-  # back. Then the parameters (the installer's backup page, or the defaults)
-  # apply, and the operator is told what could not be carried forward.
+  # config\, so reinstalling over kept data is an upgrade with no service
+  # definitions. Then config\settings.json -- the copy of the same settings
+  # this script writes next to them -- is read instead. With neither (an
+  # installation from before settings.json existed), the parameters apply, and
+  # the operator is told what could not be carried forward.
   function Get-RenderedEnv([string]$id) {
     $file = Join-Path $servicesDir "$id.xml"
     $values = @{}
@@ -108,28 +112,54 @@ if ($Upgrade) {
   $facEnv   = Get-RenderedEnv 'erp-facturacion'
   $agentEnv = Get-RenderedEnv 'erp-agent'
 
-  $carried = [ordered]@{
-    PgPort              = $pgEnv['PGPORT']
-    ApiPort             = $apiEnv['API_PORT']
-    GestionPort         = $gesEnv['PORT']
-    FacturacionPort     = $facEnv['PORT']
-    BackupTimes         = $agentEnv['ERP_BACKUP_TIMES']
-    BackupRetentionDays = $agentEnv['ERP_BACKUP_RETENTION_DAYS']
-    BackupKeepMinimum   = $agentEnv['ERP_BACKUP_KEEP_MINIMUM']
-  }
-  if ($agentEnv['ERP_BACKUP_CLOUD_ENABLED'] -eq 'true') {
-    $carried['CloudBackup']          = [switch]$true
-    $carried['CloudRegion']          = $agentEnv['ERP_BACKUP_CLOUD_REGION']
-    $carried['CloudBucket']          = $agentEnv['ERP_BACKUP_CLOUD_BUCKET']
-    $carried['CloudAccessKeyId']     = $agentEnv['ERP_BACKUP_CLOUD_ACCESS_KEY_ID']
-    $carried['CloudSecretAccessKey'] = $agentEnv['ERP_BACKUP_CLOUD_SECRET_ACCESS_KEY']
-    # Optional: absent means AWS itself.
-    if ($agentEnv.ContainsKey('ERP_BACKUP_CLOUD_ENDPOINT') -and -not $PSBoundParameters.ContainsKey('CloudEndpoint')) {
-      $CloudEndpoint = $agentEnv['ERP_BACKUP_CLOUD_ENDPOINT']
+  if ($agentEnv.Count -gt 0) {
+    $settingsSource = 'the service definitions'
+    $carried = [ordered]@{
+      PgPort              = $pgEnv['PGPORT']
+      ApiPort             = $apiEnv['API_PORT']
+      GestionPort         = $gesEnv['PORT']
+      FacturacionPort     = $facEnv['PORT']
+      BackupTimes         = $agentEnv['ERP_BACKUP_TIMES']
+      BackupRetentionDays = $agentEnv['ERP_BACKUP_RETENTION_DAYS']
+      BackupKeepMinimum   = $agentEnv['ERP_BACKUP_KEEP_MINIMUM']
+    }
+    if ($agentEnv['ERP_BACKUP_CLOUD_ENABLED'] -eq 'true') {
+      $carried['CloudBackup']          = [switch]$true
+      $carried['CloudRegion']          = $agentEnv['ERP_BACKUP_CLOUD_REGION']
+      $carried['CloudBucket']          = $agentEnv['ERP_BACKUP_CLOUD_BUCKET']
+      $carried['CloudAccessKeyId']     = $agentEnv['ERP_BACKUP_CLOUD_ACCESS_KEY_ID']
+      $carried['CloudSecretAccessKey'] = $agentEnv['ERP_BACKUP_CLOUD_SECRET_ACCESS_KEY']
+      # Optional: absent means AWS itself.
+      if ($agentEnv.ContainsKey('ERP_BACKUP_CLOUD_ENDPOINT') -and -not $PSBoundParameters.ContainsKey('CloudEndpoint')) {
+        $CloudEndpoint = $agentEnv['ERP_BACKUP_CLOUD_ENDPOINT']
+      }
+    }
+  } elseif (Test-Path $settingsFile) {
+    $settingsSource = 'config\settings.json'
+    $saved = Get-Content $settingsFile -Raw | ConvertFrom-Json
+    $carried = [ordered]@{}
+    foreach ($name in 'PgPort', 'ApiPort', 'GestionPort', 'FacturacionPort',
+        'BackupTimes', 'BackupRetentionDays', 'BackupKeepMinimum') {
+      $carried[$name] = $saved.$name
+    }
+    if ($saved.CloudBackup) {
+      $carried['CloudBackup'] = [switch]$true
+      foreach ($name in 'CloudRegion', 'CloudBucket', 'CloudAccessKeyId', 'CloudSecretAccessKey') {
+        $carried[$name] = $saved.$name
+      }
+      if ($saved.CloudEndpoint -and -not $PSBoundParameters.ContainsKey('CloudEndpoint')) {
+        $CloudEndpoint = $saved.CloudEndpoint
+      }
+    }
+  } else {
+    $settingsSource = 'nowhere'
+    $carried = [ordered]@{
+      PgPort = $null; ApiPort = $null; GestionPort = $null; FacturacionPort = $null
+      BackupTimes = $null; BackupRetentionDays = $null; BackupKeepMinimum = $null
     }
   }
 
-  Write-Step 'Upgrading an existing installation; carrying its settings forward'
+  Write-Step "Upgrading an existing installation; carrying its settings forward from $settingsSource"
   $notCarried = @()
   foreach ($name in $carried.Keys) {
     if ($PSBoundParameters.ContainsKey($name)) { continue }
@@ -143,7 +173,7 @@ if ($Upgrade) {
     if ($name -ne 'CloudSecretAccessKey') { Write-Host "    $name = $value" }
   }
   if ($notCarried.Count -gt 0) {
-    Write-Warning ("Not found in the previous service definitions, using this run's values instead: " +
+    Write-Warning ("Not found in the previous service definitions or config\settings.json, using this run's values instead: " +
       ($notCarried -join ', ') + '. If offsite backup was configured before, it has to be configured again.')
   }
 } else {
@@ -623,6 +653,27 @@ foreach ($id in $serviceIds) {
     Copy-Item $winswSource $serviceExe -Force
   }
 }
+
+# The same settings, kept where an uninstall does not reach. The uninstaller
+# deletes services\ but keeps config\, so this is what lets a reinstall over
+# kept data carry the operator's backup schedule and offsite-backup settings
+# forward. config\ is SYSTEM and Administrators only (above), like services\,
+# which already holds the object-store secret.
+[pscustomobject]@{
+  PgPort               = $PgPort
+  ApiPort              = $ApiPort
+  GestionPort          = $GestionPort
+  FacturacionPort      = $FacturacionPort
+  BackupTimes          = $BackupTimes
+  BackupRetentionDays  = $BackupRetentionDays
+  BackupKeepMinimum    = $BackupKeepMinimum
+  CloudBackup          = [bool]$CloudBackup
+  CloudEndpoint        = $CloudEndpoint
+  CloudRegion          = $CloudRegion
+  CloudBucket          = $CloudBucket
+  CloudAccessKeyId     = $CloudAccessKeyId
+  CloudSecretAccessKey = $CloudSecretAccessKey
+} | ConvertTo-Json | Set-Content -Path $settingsFile -Encoding utf8
 
 # ---------------------------------------------------------------------------
 # Register and start
