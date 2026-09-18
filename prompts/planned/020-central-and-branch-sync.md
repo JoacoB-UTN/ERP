@@ -109,12 +109,12 @@ useful on its own:
   desktop client assumes fixed ports today (`apps/desktop/src/config.ts`),
   and the shops do not need it for this task.
 
-## Open questions to settle before step 1
+## Settled with the business (2026-09-18)
 
-- **Which records are shared.** The decision doc assumes every product,
-  price list and customer in the central goes to every shop. If some are
-  per shop (a list only one shop uses, a customer only one shop serves),
-  step 1 needs a way to target them.
-- **Which company in the central owns the masters.** Today every master is
-  owned by one company (`companyId`). The central needs a clear owner for
-  records that belong to the group rather than to any one legal entity.
+- **Every shared record goes to every shop.** Each product, price list
+  and customer in the central is replicated to all shops; there is no
+  per-shop targeting to build.
+- **The masters are owned by Blanco Bahía**, the group's parent legal
+  entity. In the central, catalog, price lists and customers belong to
+  Blanco Bahía's company (`companyId`); each shop receives them into its
+  own company as replicated, read-only copies.
