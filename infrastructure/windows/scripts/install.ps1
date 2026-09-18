@@ -14,6 +14,14 @@
   passes them in as parameters, so the same script serves an attended install,
   an unattended one, and a support session.
 
+  -Upgrade is what the installer passes when it finds an existing installation.
+  It takes no company or administrator: an upgrade must not be able to create
+  a second company because the operator typed the name slightly differently,
+  or rotate the administrator's password as a side effect. Ports, backup
+  schedule and offsite-backup settings are read back from the service
+  definitions the previous install rendered, so what the operator configured
+  survives; a parameter passed explicitly still wins.
+
 .NOTES
   Must run elevated: registering services and setting ACLs require it.
 #>
@@ -21,10 +29,14 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)][string]$InstallDir,
-  [Parameter(Mandatory)][string]$CompanyName,
-  [Parameter(Mandatory)][string]$CompanyTaxId,
-  [Parameter(Mandatory)][string]$AdminEmail,
-  [Parameter(Mandatory)][string]$AdminPassword,
+
+  # Required on a new install, ignored with -Upgrade.
+  [string]$CompanyName,
+  [string]$CompanyTaxId,
+  [string]$AdminEmail,
+  [string]$AdminPassword,
+
+  [switch]$Upgrade,
 
   [int]$PgPort = 5433,
   [int]$ApiPort = 3001,
@@ -61,6 +73,86 @@ $serverDir  = Join-Path $InstallDir 'server'
 $backupDir  = Join-Path $InstallDir 'backups'
 $logsDir    = Join-Path $InstallDir 'logs'
 $secretsFile= Join-Path $InstallDir 'config\erp-secrets.json'
+
+# ---------------------------------------------------------------------------
+# New install or upgrade
+# ---------------------------------------------------------------------------
+if ($Upgrade) {
+  # An upgrade with nothing to upgrade would fall through to a fresh install
+  # with no company and no administrator -- a server nobody can log in to.
+  if (-not (Test-Path $secretsFile) -or -not (Test-Path (Join-Path $pgData 'PG_VERSION'))) {
+    throw "-Upgrade was given, but there is no existing installation in $InstallDir (no config\erp-secrets.json or data\PG_VERSION)."
+  }
+
+  # The rendered service definitions ARE the running configuration, so they
+  # are what gets carried forward. Reading them back, rather than keeping a
+  # second settings file, leaves one source of truth that cannot drift from
+  # what the services actually run with.
+  #
+  # They can be missing: the uninstaller deletes services\ but keeps data\ and
+  # config\, so reinstalling over kept data is an upgrade with nothing to read
+  # back. Then the parameters (the installer's backup page, or the defaults)
+  # apply, and the operator is told what could not be carried forward.
+  function Get-RenderedEnv([string]$id) {
+    $file = Join-Path $servicesDir "$id.xml"
+    $values = @{}
+    if (-not (Test-Path $file)) { return $values }
+    foreach ($node in ([xml](Get-Content $file -Raw)).SelectNodes('/service/env')) {
+      $values[$node.GetAttribute('name')] = $node.GetAttribute('value')
+    }
+    $values
+  }
+  $pgEnv    = Get-RenderedEnv 'erp-postgres'
+  $apiEnv   = Get-RenderedEnv 'erp-api'
+  $gesEnv   = Get-RenderedEnv 'erp-gestion'
+  $facEnv   = Get-RenderedEnv 'erp-facturacion'
+  $agentEnv = Get-RenderedEnv 'erp-agent'
+
+  $carried = [ordered]@{
+    PgPort              = $pgEnv['PGPORT']
+    ApiPort             = $apiEnv['API_PORT']
+    GestionPort         = $gesEnv['PORT']
+    FacturacionPort     = $facEnv['PORT']
+    BackupTimes         = $agentEnv['ERP_BACKUP_TIMES']
+    BackupRetentionDays = $agentEnv['ERP_BACKUP_RETENTION_DAYS']
+    BackupKeepMinimum   = $agentEnv['ERP_BACKUP_KEEP_MINIMUM']
+  }
+  if ($agentEnv['ERP_BACKUP_CLOUD_ENABLED'] -eq 'true') {
+    $carried['CloudBackup']          = [switch]$true
+    $carried['CloudRegion']          = $agentEnv['ERP_BACKUP_CLOUD_REGION']
+    $carried['CloudBucket']          = $agentEnv['ERP_BACKUP_CLOUD_BUCKET']
+    $carried['CloudAccessKeyId']     = $agentEnv['ERP_BACKUP_CLOUD_ACCESS_KEY_ID']
+    $carried['CloudSecretAccessKey'] = $agentEnv['ERP_BACKUP_CLOUD_SECRET_ACCESS_KEY']
+    # Optional: absent means AWS itself.
+    if ($agentEnv.ContainsKey('ERP_BACKUP_CLOUD_ENDPOINT') -and -not $PSBoundParameters.ContainsKey('CloudEndpoint')) {
+      $CloudEndpoint = $agentEnv['ERP_BACKUP_CLOUD_ENDPOINT']
+    }
+  }
+
+  Write-Step 'Upgrading an existing installation; carrying its settings forward'
+  $notCarried = @()
+  foreach ($name in $carried.Keys) {
+    if ($PSBoundParameters.ContainsKey($name)) { continue }
+    $value = $carried[$name]
+    if ($null -eq $value -or "$value" -eq '') {
+      $notCarried += $name
+      continue
+    }
+    # Assigning to the typed parameter converts ('5433' -> [int] 5433).
+    Set-Variable -Name $name -Value $value
+    if ($name -ne 'CloudSecretAccessKey') { Write-Host "    $name = $value" }
+  }
+  if ($notCarried.Count -gt 0) {
+    Write-Warning ("Not found in the previous service definitions, using this run's values instead: " +
+      ($notCarried -join ', ') + '. If offsite backup was configured before, it has to be configured again.')
+  }
+} else {
+  foreach ($name in @('CompanyName', 'CompanyTaxId', 'AdminEmail', 'AdminPassword')) {
+    if (-not (Get-Variable -Name $name -ValueOnly)) {
+      throw "-$name is required for a new installation (use -Upgrade on an existing one)."
+    }
+  }
+}
 
 # ---------------------------------------------------------------------------
 # Payload validation -- FIRST, before anything is created on this machine
@@ -465,15 +557,12 @@ $replacements = @{
   '{{GESTION_PORT}}'               = $GestionPort
   '{{FACTURACION_PORT}}'           = $FacturacionPort
   '{{DATABASE_URL}}'               = (ConvertTo-XmlAttribute $databaseUrl)
-  # Redis is optional and not installed by the ERP Server — the API starts and
-  # runs correctly without it (see apps/api/src/redis/redis.service.ts). The
-  # value is still required by the config schema, so it points at a local Redis
-  # that may simply never exist.
-  # VACIA a proposito. Este instalador no empaqueta Redis (ver
-  # docs/server-installer.md, "Why Redis is not bundled"), y apuntar la API a
-  # un Redis que nunca existe hacia que toda instalacion reportara `degraded`
-  # de forma permanente. Vacia significa "sin cache en este despliegue", que
-  # es una configuracion soportada: los permisos se leen de PostgreSQL.
+  # Empty on purpose. The ERP Server does not bundle Redis (see
+  # docs/server-installer.md, "Why Redis is not bundled"), and pointing the API
+  # at a Redis that never exists made every installation report `degraded`
+  # forever. Empty means "no cache in this deployment", a supported
+  # configuration: permissions are read from PostgreSQL
+  # (apps/api/src/redis/redis.service.ts).
   '{{REDIS_URL}}'                  = ''
   '{{CORS_ORIGIN}}'                = $corsOrigin
   '{{AUTH_ACCESS_TOKEN_SECRET}}'   = (ConvertTo-XmlAttribute $secrets.authSecret)
@@ -493,14 +582,15 @@ if (-not (Test-Path $winswSource)) {
 
 $serviceIds = @('erp-postgres', 'erp-api', 'erp-gestion', 'erp-facturacion', 'erp-agent')
 
-# On an upgrade the services are still running, and Windows holds a lock on a
-# running service's executable — replacing erp-<id>.exe below would fail. Stop
-# them first, dependents before their dependencies so Windows never refuses.
-foreach ($id in @('erp-agent', 'erp-facturacion', 'erp-gestion', 'erp-api', 'erp-postgres')) {
-  if (Get-Service -Name $id -ErrorAction SilentlyContinue) {
-    Write-Step "Stopping $id for upgrade"
-    Stop-Service -Name $id -Force -ErrorAction SilentlyContinue
-  }
+# On a re-run the services may still be running, and Windows holds a lock on a
+# running service's executable -- replacing erp-<id>.exe below would fail. The
+# installer already did this before copying files; doing it again covers a
+# re-run by hand during support, and a wrapper that crashed and left its child
+# running (see stop-services.ps1).
+if (Get-Service -Name 'erp-*' -ErrorAction SilentlyContinue) {
+  Write-Step 'Stopping the running services'
+  & (Join-Path $PSScriptRoot 'stop-services.ps1') -InstallDir $InstallDir
+  if ($LASTEXITCODE -ne 0) { throw 'Could not stop everything running from the install directory; see the warnings above.' }
 }
 
 foreach ($id in $serviceIds) {
@@ -660,13 +750,22 @@ try {
     'migrate' 'deploy' '--schema' (Join-Path $serverDir 'apps\api\prisma\schema.prisma')
   if ($LASTEXITCODE -ne 0) { throw 'prisma migrate deploy failed' }
 
-  Write-Step 'Provisioning company and administrator'
   # Real provisioning, NOT the demo seed: a customer must never receive
   # "Distribuidora Horizonte" and ten invented sales. See prisma/provision.ts.
-  $env:ERP_COMPANY_NAME   = $CompanyName
-  $env:ERP_COMPANY_TAX_ID = $CompanyTaxId
-  $env:ERP_ADMIN_EMAIL    = $AdminEmail
-  $env:ERP_ADMIN_PASSWORD = $AdminPassword
+  if ($Upgrade) {
+    # Catalog only: new permission codes, and the system roles that must pick
+    # them up, for every company already in the database. No tenant, company
+    # or user is created or changed.
+    Write-Step 'Updating the permission catalog and system roles'
+    $env:ERP_PROVISION_MODE = 'upgrade'
+  } else {
+    Write-Step 'Provisioning company and administrator'
+    $env:ERP_PROVISION_MODE = 'install'
+    $env:ERP_COMPANY_NAME   = $CompanyName
+    $env:ERP_COMPANY_TAX_ID = $CompanyTaxId
+    $env:ERP_ADMIN_EMAIL    = $AdminEmail
+    $env:ERP_ADMIN_PASSWORD = $AdminPassword
+  }
   # Bundled by build-payload.ps1 next to schema.prisma — NOT under dist/, which
   # excludes prisma/ entirely (see apps/api/tsconfig.build.json).
   & (Join-Path $InstallDir 'node\node.exe') (Join-Path $serverDir 'apps\api\prisma\provision.js')
@@ -689,11 +788,24 @@ $ip = (Get-NetIPAddress -AddressFamily IPv4 |
   Where-Object { $_.PrefixOrigin -ne 'WellKnown' -and $_.IPAddress -ne '127.0.0.1' } |
   Select-Object -First 1 -ExpandProperty IPAddress)
 
+# Written last, and only here: its presence is how the installer tells a
+# finished installation (upgrade it, skip the company and administrator pages)
+# from one that failed halfway (ask again, and provision). See
+# IsExistingInstallation in erp-server.iss.
+[pscustomobject]@{
+  completedAt = (Get-Date).ToString('o')
+  mode        = if ($Upgrade) { 'upgrade' } else { 'install' }
+} | ConvertTo-Json | Set-Content -Path (Join-Path $InstallDir 'config\install-complete.json') -Encoding utf8
+
 Write-Host ''
-Write-Host 'ERP Server instalado.' -ForegroundColor Green
+if ($Upgrade) {
+  Write-Host 'ERP Server actualizado.' -ForegroundColor Green
+} else {
+  Write-Host 'ERP Server instalado.' -ForegroundColor Green
+}
 Write-Host "  Gestión:      http://$ip`:$GestionPort"
 Write-Host "  Facturación:  http://$ip`:$FacturacionPort"
-Write-Host "  Usuario:      $AdminEmail"
+if (-not $Upgrade) { Write-Host "  Usuario:      $AdminEmail" }
 Write-Host "  Backups:      $backupDir (diario $BackupTimes)"
 Write-Host ''
 Write-Host 'Configurá esta dirección en el cliente ERP de cada PC de la red.'

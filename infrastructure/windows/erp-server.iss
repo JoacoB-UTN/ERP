@@ -48,6 +48,10 @@ UninstallDisplayName={#AppName}
 Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
+; Extracted on its own, before anything is installed, so PrepareToInstall can
+; stop a running installation whose files are about to be replaced. The
+; wildcard entry below installs the same script into {app}\scripts as well.
+Source: "{#PayloadDir}\scripts\stop-services.ps1"; Flags: dontcopy
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Dirs]
@@ -62,6 +66,64 @@ var
   CompanyPage: TInputQueryWizardPage;
   AdminPage: TInputQueryWizardPage;
   BackupPage: TInputQueryWizardPage;
+  { Decided once, in PrepareToInstall, before any file is copied: from then on
+    the install directory no longer shows what was there before. }
+  Upgrading: Boolean;
+  HadRenderedSettings: Boolean;
+
+const
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8F3C2A16-7C9E-4C2B-9E4D-6E0F1B2A3C4D}_is1';
+
+{ An installation to upgrade is one that FINISHED: install.ps1 writes
+  config\install-complete.json as its very last step. Secrets and a database
+  cluster are not enough -- a first install that failed halfway has both and
+  no company yet, and treating it as an upgrade would skip the very pages that
+  create the company, leaving no way forward but the command line. The marker
+  lives in config\, which the uninstaller keeps, so reinstalling over kept
+  data counts as an upgrade too. }
+function IsExistingInstallation(const Dir: string): Boolean;
+begin
+  Result := (Dir <> '') and
+    FileExists(AddBackslash(Dir) + 'config\install-complete.json') and
+    FileExists(AddBackslash(Dir) + 'data\PG_VERSION');
+end;
+
+function IsUpgrade: Boolean;
+begin
+  Result := IsExistingInstallation(ExpandConstant('{app}'));
+end;
+
+{ The rendered service definitions carry the current ports and backup
+  settings. They are gone when the program was uninstalled and the data kept
+  (the uninstaller deletes services\ but never data\ or config\), and then
+  the backup schedule has to be asked for again. }
+function HasRenderedSettings: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{app}\services\erp-agent.xml'));
+end;
+
+{ A silent run cannot answer the company and administrator pages. It used to
+  fail the first page's validation, suppress the message box and then wait
+  forever: /SILENT over an existing install hung with no output. So a silent
+  run is accepted only as an upgrade of an installation that already exists,
+  and refused up front otherwise. }
+function InitializeSetup: Boolean;
+var
+  PreviousDir: string;
+begin
+  Result := True;
+  if not WizardSilent then Exit;
+
+  if not RegQueryStringValue(HKLM64, UninstallKey, 'Inno Setup: App Path', PreviousDir) then
+    PreviousDir := '';
+  if not IsExistingInstallation(PreviousDir) then
+  begin
+    Log('Silent mode needs an existing installation to upgrade; none found.');
+    SuppressibleMsgBox('La instalación silenciosa solo sirve para actualizar un ERP Server ya instalado. ' +
+      'Para una instalación nueva ejecutá el instalador sin /SILENT.', mbCriticalError, MB_OK, IDOK);
+    Result := False;
+  end;
+end;
 
 procedure InitializeWizard;
 begin
@@ -88,6 +150,46 @@ begin
   BackupPage.Add('Días a conservar:', False);
   BackupPage.Values[0] := '03:00';
   BackupPage.Values[1] := '30';
+end;
+
+{ On an upgrade the company, the administrator and the backup schedule
+  already exist. Asking again was not harmless: a company name typed slightly
+  differently provisioned a second tenant and a second company, and the
+  password typed here silently replaced the administrator's. install.ps1
+  -Upgrade reads the current settings back instead. }
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  if (PageID = CompanyPage.ID) or (PageID = AdminPage.ID) then
+    Result := IsUpgrade
+  else if PageID = BackupPage.ID then
+    Result := IsUpgrade and HasRenderedSettings
+  else
+    Result := False;
+end;
+
+{ Files are copied BEFORE ssPostInstall runs install.ps1, so on an upgrade the
+  running services still hold node.exe, the PostgreSQL binaries and the WinSW
+  wrappers. Stop them here, before a single file is replaced. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+  Script: string;
+begin
+  Result := '';
+  Upgrading := IsUpgrade;
+  HadRenderedSettings := HasRenderedSettings;
+  if not Upgrading then Exit;
+
+  ExtractTemporaryFile('stop-services.ps1');
+  Script := ExpandConstant('{tmp}\stop-services.ps1');
+  Log('Existing installation found; stopping it before replacing its files.');
+  if not Exec('powershell.exe',
+      '-ExecutionPolicy Bypass -NoProfile -File "' + Script + '" -InstallDir "' + ExpandConstant('{app}') + '"',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Result := 'No se pudo ejecutar el script que detiene los servicios del ERP.'
+  else if ResultCode <> 0 then
+    Result := 'No se pudieron detener todos los procesos del ERP Server (código ' + IntToStr(ResultCode) + '). ' +
+      'Nada fue modificado. Reiniciá la PC y volvé a ejecutar el instalador.';
 end;
 
 function IsValidTime(const Value: string): Boolean;
@@ -178,6 +280,24 @@ var
   Lines: TArrayOfString;
 begin
   Path := ExpandConstant('{tmp}\erp-install-args.psd1');
+  if Upgrading then
+  begin
+    SetArrayLength(Lines, 3);
+    Lines[0] := '@{';
+    Lines[1] := '  InstallDir = ' + PsLiteral(ExpandConstant('{app}'));
+    Lines[2] := '  Upgrade = $true; }';
+    if not HadRenderedSettings then
+    begin
+      { Reinstall over kept data: the operator just answered the backup page. }
+      SetArrayLength(Lines, 5);
+      Lines[2] := '  Upgrade = $true';
+      Lines[3] := '  BackupTimes = ' + PsLiteral(BackupPage.Values[0]);
+      Lines[4] := '  BackupRetentionDays = ' + BackupPage.Values[1] + '; }';
+    end;
+    SaveStringsToFile(Path, Lines, False);
+    Result := Path;
+    Exit;
+  end;
   SetArrayLength(Lines, 8);
   Lines[0] := '@{';
   Lines[1] := '  InstallDir = ' + PsLiteral(ExpandConstant('{app}'));
@@ -197,6 +317,7 @@ var
   ResultCode: Integer;
   ArgsFile: string;
   Command: string;
+  RerunHint: string;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -216,9 +337,13 @@ begin
 
     if ResultCode <> 0 then
     begin
+      if Upgrading then
+        RerunHint := 'scripts\install.ps1 -InstallDir "' + ExpandConstant('{app}') + '" -Upgrade'
+      else
+        RerunHint := 'scripts\install.ps1';
       MsgBox('La configuración inicial falló (código ' + IntToStr(ResultCode) + ').' + #13#10 +
         'Revisá el registro en ' + ExpandConstant('{app}\logs') + ' y volvé a ejecutar ' +
-        'scripts\install.ps1 como administrador.', mbCriticalError, MB_OK);
+        RerunHint + ' como administrador.', mbCriticalError, MB_OK);
       Abort;
     end;
   end;

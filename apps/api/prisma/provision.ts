@@ -28,14 +28,25 @@ import { ALL_PERMISSION_CODES, SYSTEM_ROLES } from './system-roles';
  * enters its own.
  *
  * Idempotent: re-running against an already-provisioned database updates the
- * roles to match the current catalog and leaves business data untouched. That
- * matters for upgrades, where a new release adds permission codes that
- * existing roles must pick up.
+ * roles to match the current catalog and leaves business data untouched.
+ *
+ * Two modes, chosen by ERP_PROVISION_MODE:
+ *
+ *   install (default) -- the above, for a new installation.
+ *
+ *   upgrade -- ONLY the platform catalog: permissions, currencies, and the
+ *     system roles of every company already in the database, so a release
+ *     that adds permission codes reaches existing roles. It creates and
+ *     changes no tenant, company or user. The installer used to re-run the
+ *     install mode on an upgrade with whatever the operator typed again, so a
+ *     company name typed slightly differently created a second tenant and a
+ *     second company, and the administrator's password was silently rotated.
  *
  * Required environment:
- *   DATABASE_URL, ERP_COMPANY_NAME, ERP_COMPANY_TAX_ID,
- *   ERP_ADMIN_EMAIL, ERP_ADMIN_PASSWORD
- * Optional:
+ *   DATABASE_URL
+ *   install mode: ERP_COMPANY_NAME, ERP_COMPANY_TAX_ID,
+ *                 ERP_ADMIN_EMAIL, ERP_ADMIN_PASSWORD
+ * Optional (install mode):
  *   ERP_COMPANY_COUNTRY (default AR), ERP_COMPANY_TIMEZONE
  *   (default America/Argentina/Buenos_Aires)
  */
@@ -143,7 +154,12 @@ async function provisionSystemRoles(
 async function provisionCurrencies(): Promise<void> {
   const currencies = [
     { code: 'ARS', name: 'Peso argentino', symbol: '$', decimalPlaces: 2 },
-    { code: 'USD', name: 'Dólar estadounidense', symbol: 'US$', decimalPlaces: 2 },
+    {
+      code: 'USD',
+      name: 'Dólar estadounidense',
+      symbol: 'US$',
+      decimalPlaces: 2,
+    },
   ];
 
   for (const currency of currencies) {
@@ -155,14 +171,60 @@ async function provisionCurrencies(): Promise<void> {
   }
 }
 
+/** Catalog-only pass for an upgrade: see the header comment. */
+async function upgradeCatalog(): Promise<void> {
+  const companies = await prisma.company.findMany({
+    select: { id: true, tenantId: true, legalName: true },
+  });
+  // Nothing to upgrade means this is not the installation the installer
+  // thinks it is -- say so instead of reporting a successful no-op.
+  if (companies.length === 0) {
+    throw new Error(
+      'ERP_PROVISION_MODE=upgrade, but the database has no company. Run a new installation instead.',
+    );
+  }
+
+  const permissionIdByCode = await provisionPermissions();
+  await provisionCurrencies();
+  for (const company of companies) {
+    await provisionSystemRoles(
+      company.tenantId,
+      company.id,
+      permissionIdByCode,
+    );
+  }
+
+  console.log('');
+  console.log('ERP catalog updated:');
+  console.log(`  Permisos: ${PERMISSION_CATALOG.length}`);
+  console.log(
+    `  Roles:    ${SYSTEM_ROLES.length} roles de sistema en ${companies.length} empresa(s): ${companies
+      .map((company) => company.legalName)
+      .join(', ')}`,
+  );
+  console.log('  Empresas, usuarios y datos del negocio sin cambios.');
+}
+
 async function main(): Promise<void> {
+  const mode = process.env.ERP_PROVISION_MODE?.trim() || 'install';
+  if (mode === 'upgrade') {
+    await upgradeCatalog();
+    return;
+  }
+  if (mode !== 'install') {
+    throw new Error(
+      `Unknown ERP_PROVISION_MODE "${mode}" (expected install or upgrade).`,
+    );
+  }
+
   const companyName = required('ERP_COMPANY_NAME');
   const taxId = required('ERP_COMPANY_TAX_ID');
   const adminEmail = required('ERP_ADMIN_EMAIL').toLowerCase();
   const adminPassword = required('ERP_ADMIN_PASSWORD');
   const countryCode = process.env.ERP_COMPANY_COUNTRY?.trim() || 'AR';
   const timezone =
-    process.env.ERP_COMPANY_TIMEZONE?.trim() || 'America/Argentina/Buenos_Aires';
+    process.env.ERP_COMPANY_TIMEZONE?.trim() ||
+    'America/Argentina/Buenos_Aires';
 
   // The installer collects this from the operator; refusing a weak one here
   // means the very first account on a real system cannot be the weak link.
@@ -205,7 +267,9 @@ async function main(): Promise<void> {
 
   await provisionSystemRoles(tenant.id, company.id, permissionIdByCode);
 
-  const passwordHash = await argon2.hash(adminPassword, { type: argon2.argon2id });
+  const passwordHash = await argon2.hash(adminPassword, {
+    type: argon2.argon2id,
+  });
   const [firstName, ...restOfName] = 'Administrador'.split(' ');
 
   const user = await prisma.user.upsert({
