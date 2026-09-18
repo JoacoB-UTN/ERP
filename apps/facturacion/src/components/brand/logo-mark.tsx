@@ -17,6 +17,12 @@ const DISPLAY_WIDTH = 200;
  *
  * `priority` because this is the largest element above the fold on the login
  * screen; lazy-loading it would show an empty gap on first paint.
+ *
+ * `unoptimized` because the optimizer picks a variant from the `width` prop
+ * (200px here), so the login's 360px logo was a 256px, quality-75 re-encode
+ * stretched up — visibly soft on the script's thin strokes. The source is a
+ * 900px, ~28KB PNG: serving it as-is is sharp at every size it is shown at
+ * and costs less than one of the re-encoded variants did in requests.
  */
 function LogoMark({ className }: { className?: string }) {
   const height = Math.round(DISPLAY_WIDTH / ASPECT_RATIO);
@@ -27,17 +33,14 @@ function LogoMark({ className }: { className?: string }) {
     // override it: an inline style wins over any class and would silently
     // ignore a `w-*` passed in — which is exactly what happened when the
     // sidebar asked for a narrower mark and got a squashed 200px one instead.
-    <span
-      className={cn('inline-block w-[200px] shrink-0', className)}
-      role="img"
-      aria-label="Casablanca"
-    >
+    <span className={cn('inline-block w-[200px] shrink-0', className)} role="img" aria-label="Casablanca">
       <Image
         src="/casablanca-logo-black.png"
         alt=""
         width={DISPLAY_WIDTH}
         height={height}
         priority
+        unoptimized
         className={cn(shared, 'dark:hidden')}
       />
       <Image
@@ -46,6 +49,7 @@ function LogoMark({ className }: { className?: string }) {
         width={DISPLAY_WIDTH}
         height={height}
         priority
+        unoptimized
         className={cn(shared, 'hidden dark:block')}
       />
     </span>
@@ -72,6 +76,7 @@ function LogoMarkCompact({ className }: { className?: string }) {
         width={28}
         height={28}
         priority
+        unoptimized
         className={cn(shared, 'dark:hidden')}
       />
       <Image
@@ -80,6 +85,7 @@ function LogoMarkCompact({ className }: { className?: string }) {
         width={28}
         height={28}
         priority
+        unoptimized
         className={cn(shared, 'hidden dark:block')}
       />
     </span>

@@ -56,52 +56,56 @@
   --radius-4xl: 1.25rem;
 }
 
+/* Light mode is graphite: neutral zinc greys with no hue in the chrome, and
+   navy as the one colour, reserved for the primary action, focus and the
+   data. Same principle as dark mode below — the screen's colour is the
+   content, not the frame. */
 :root {
-  --background: #f5f7fa;
-  --foreground: #182033;
+  --background: #f4f4f5;
+  --foreground: #18181b;
   --card: #ffffff;
-  --card-foreground: #182033;
+  --card-foreground: #18181b;
   --popover: #ffffff;
-  --popover-foreground: #182033;
-  --primary: #2d4aa0;
-  --primary-hover: #243d87;
+  --popover-foreground: #18181b;
+  --primary: #1e3a8a;
+  --primary-hover: #172e6e;
   --primary-foreground: #ffffff;
-  --secondary: #f0f3f7;
-  --secondary-foreground: #182033;
-  --muted: #f0f3f7;
-  --muted-foreground: #5e6a7a;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #52525b;
   /* Chevron del <select>. Va acá y no en el componente porque un data URI no
      puede leer currentColor: el color hay que escribirlo por tema, y este es el
      lugar donde vive --muted-foreground, que es el que debe seguir. */
-  --select-chevron: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235e6a7a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e");
-  --accent: #e9edf8;
-  --accent-foreground: #243d87;
+  --select-chevron: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2352525b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpath d='m6 9 6 6 6-6'/%3e%3c/svg%3e");
+  --accent: #eceef4;
+  --accent-foreground: #1e3a8a;
   --success: #157347;
   --success-muted: #eaf4ef;
   --warning: #945600;
   --warning-muted: #fff4df;
   --destructive: #b42318;
   --destructive-muted: #fbeceb;
-  --border: #d8dee8;
-  --input: #d8dee8;
-  --ring: #5b76d6;
-  --chart-1: #2d4aa0;
-  --chart-2: #5b76d6;
+  --border: #e4e4e7;
+  --input: #d4d4d8;
+  --ring: #4763c4;
+  --chart-1: #1e3a8a;
+  --chart-2: #4763c4;
   --chart-3: #157347;
   --chart-4: #945600;
-  --chart-5: #5e6a7a;
+  --chart-5: #52525b;
   --control-height: 2.25rem;
   --control-height-xs: 1.75rem;
   --control-height-sm: 2rem;
   --control-height-lg: 2.5rem;
   --sidebar: #ffffff;
-  --sidebar-foreground: #182033;
-  --sidebar-primary: #2d4aa0;
+  --sidebar-foreground: #18181b;
+  --sidebar-primary: #1e3a8a;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e9edf8;
-  --sidebar-accent-foreground: #243d87;
-  --sidebar-border: #d8dee8;
-  --sidebar-ring: #5b76d6;
+  --sidebar-accent: #eceef4;
+  --sidebar-accent-foreground: #1e3a8a;
+  --sidebar-border: #e4e4e7;
+  --sidebar-ring: #4763c4;
 }
 
 /* Dark mode is a NEUTRAL near-black, not the blue-tinted navy it was.
@@ -114,9 +118,7 @@
 
    `--primary` is the one deliberate exception: it stays a colour because
    it marks the primary action, and it moves from the old blue to the
-   Untitled UI brand purple so the accent matches the reference too.
-
-   Light mode is untouched. */
+   Untitled UI brand purple so the accent matches the reference too. */
 .dark {
   --background: #0a0a0a;
   --foreground: #fafafa;
