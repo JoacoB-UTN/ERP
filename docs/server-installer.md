@@ -360,8 +360,10 @@ installed is an upgrade, and the installer treats it as one:
 - **It keeps what the operator configured.** `install.ps1 -Upgrade` reads the
   ports, the backup schedule, the retention and the offsite-backup settings
   back from the service definitions the previous install rendered — those
-  _are_ the running configuration, so there is no second settings file to
-  drift from them.
+  _are_ the running configuration, so a hand edit to one wins. Each install
+  also writes the same settings to `config\settings.json` (SYSTEM and
+  Administrators only, like `services\`), which is what gets read when the
+  service definitions are gone.
 - **It brings the permission catalog up to date and nothing else.**
   `provision.ts` runs with `ERP_PROVISION_MODE=upgrade`: it upserts the
   permissions and currencies and resyncs the system roles of every company
@@ -372,9 +374,11 @@ What counts as "already installed" is `config\install-complete.json` plus a
 database cluster. Secrets and a cluster are not enough on their own: a first
 install that failed halfway has both and no company yet, and treating it as an
 upgrade would skip the very pages that create the company. Because `config\`
-survives an uninstall, **reinstalling over kept data is also an upgrade**; the
-service definitions are gone in that case, so the installer asks for the
-backup schedule again and the offsite-backup settings have to be re-entered.
+survives an uninstall, **reinstalling over kept data is also an upgrade**. The
+service definitions are gone in that case, and the settings come from
+`config\settings.json` instead, so nothing is asked again. Only an
+installation made before that file existed has neither: then the installer
+shows the backup page, and offsite-backup settings have to be re-entered.
 
 `/SILENT` and `/VERYSILENT` are accepted **only** as an upgrade. A silent run
 with no existing installation is refused at startup. It used to hang forever:
@@ -399,7 +403,7 @@ any other process still running from the install directory. It never touches
 a process that runs from anywhere else.
 
 It removes **services only**. The PostgreSQL data directory, the backups and
-`config\` (the secrets and the install marker) survive an uninstall, and the
+`config\` (the secrets, the install marker and `settings.json`) survive an uninstall, and the
 script says so on the way out. Uninstalling an application must never be the
 action that destroys a business's accounting data; deleting those folders has
 to be a decision someone makes deliberately.
@@ -897,8 +901,16 @@ before the uninstall; the catalog is at 101 permissions; all five services
 Running, the postmaster under `erp-postgres.exe`. The backup schedule came
 back as 03:00 / 30 days, the page's defaults: the 21:30 / 45 days set before
 was in the service definitions the uninstall removed, which is why that page
-is shown in this case. An operator reinstalling over kept data has to
-re-enter the schedule and the offsite-backup settings.
+was shown. That lost setting is why `config\settings.json` now exists (see
+"Upgrading"). Verified with the `.exe` from run 35367689544, on the same
+data: reinstall (settings.json written, 03:00 / 30), `install.ps1 -Upgrade
+-BackupTimes 21:30 -BackupRetentionDays 45`, uninstall (settings.json kept,
+readable by SYSTEM and Administrators only), reinstall — which came back at
+21:30 / 45 days with nothing asked, and the same secrets, company and users.
+Those two reinstalls ran with `/SILENT`, which only accepts a registered
+installation; the test recreated the uninstall key's path so they would run.
+A silent reinstall over kept data is refused otherwise, by design — through
+the wizard it needs nothing.
 
 **Uninstalling that reinstall** confirmed the cache was removed — and showed
 that Inno had already tried, and failed, to remove the directories above it
