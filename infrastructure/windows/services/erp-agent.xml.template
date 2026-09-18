@@ -31,10 +31,10 @@
   <onfailure action="restart" delay="120 sec"/>
   <onfailure action="restart" delay="300 sec"/>
 
-  <log mode="roll-by-size-time">
+  <!-- roll-by-size, not roll-by-size-time: see erp-postgres.xml.template
+       for why the timed mode crashes the wrapper. Sizes are in KB. -->
+  <log mode="roll-by-size">
     <sizeThreshold>10240</sizeThreshold>
-    <pattern>yyyyMMdd</pattern>
-    <autoRollAtTime>00:00:00</autoRollAtTime>
     <!-- Kept longer than the other services': when someone finally asks "why
          is there no backup from last March", the answer has to still exist. -->
     <keepFiles>90</keepFiles>

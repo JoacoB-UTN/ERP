@@ -248,6 +248,7 @@ jobs:
             "$payload/services/erp-api.xml.template",
             "$payload/scripts/install.ps1",
             "$payload/scripts/uninstall.ps1",
+            "$payload/scripts/stop-services.ps1",
             "$payload/VERSION",
             # Without these the erp-postgres service has nothing to run and
             # the backup agent has no pg_dump — an installer that gets all
@@ -397,6 +398,14 @@ jobs:
 
             if ($c -match '\{\{[A-Z_]+\}\}') {
               Write-Host "::error::$id : unreplaced placeholder $($Matches[0])"
+              $failed = $true; continue
+            }
+
+            # WinSW 2.12's timed rotation crashes the wrapper and orphans the
+            # service's process (see erp-postgres.xml.template). WinSW parses
+            # it happily, so the status check below would not catch it.
+            if ($c -match 'mode="roll-by-size-time"|<autoRollAtTime>') {
+              Write-Host "::error::$id : timed log rotation ($($Matches[0])) crashes WinSW 2.12; use roll-by-size"
               $failed = $true; continue
             }
 
