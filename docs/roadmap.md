@@ -138,10 +138,15 @@ each.
                                  cancellation that ADDS a compensating pair
                                  instead of editing the ledger. Closes the
                                  internal commercial circuit.
-17  Clean Windows VM install — NEXT. Not a feature: install the compiled
-                                 .exe on a clean Windows machine and walk
-                                 installation, start-up, upgrade and
-                                 uninstall. Everything else waits on it.
+17  Clean Windows VM install — DONE (PR #51, docs/server-installer.md).
+                                 Install, upgrade, reinstall over kept data
+                                 and uninstall, on a Spanish Windows 10 Home
+                                 VM, from the compiled .exe.
+20  Central + branch sync     — PLANNED (prompts/planned/020-central-and-branch-sync.md).
+                                 A server in each shop, a central in the
+                                 cloud that owns catalog, price lists and
+                                 customers and collects stock snapshots.
+                                 See docs/deployment-model.md.
 ```
 
 Do not begin any of these from this document — each needs its own task

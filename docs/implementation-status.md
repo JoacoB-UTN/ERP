@@ -796,33 +796,27 @@ No two of them are comparable, and no difference between any of them
 should be claimed — in particular the 116 MB artifact is not "smaller"
 than the 89.3 MB `.exe` in any meaningful sense.
 
-**Still not verified, and needing a clean Windows PC** — this is the gate
-before any customer install. Compiling the `.exe` says nothing about
-whether it installs:
+**Verified on a real machine (PR #51).** The compiled `.exe` was run on a
+Spanish Windows 10 Home VM: a first install, an upgrade over a running
+installation, a reinstall over kept data (through the wizard), and
+uninstalls. That covers what used to be listed here as untested — the
+bundled PostgreSQL under a service account (it runs as NetworkService),
+`initdb`, registration against the Service Control Manager, start order,
+ACLs, upgrade and uninstall — and it found 17 defects, all fixed. The
+detail, and what each test established, is in
+[server-installer.md](server-installer.md).
 
-- **Installation on a clean Windows machine.** The `.exe` has never been
-  run anywhere.
-- **The bundled PostgreSQL under a Windows service account.** That the
-  engine *runs* is no longer assumed: a `Smoke-test the bundled
-  PostgreSQL` step uses the payload's own binaries to `initdb` a cluster,
-  start it, connect and query, take a `pg_dump` and stop it, on every
-  payload build — so the pruning from 822 MB to 120 MB is proven not to
-  have trimmed anything the engine needs. What that does **not** cover is
-  the Windows-specific half: a service account rather than the runner's
-  user, the Service Control Manager, and ACLs on the data directory. That
-  still needs a real machine.
-- **Code signing.** The artifact is unsigned, so Windows SmartScreen
-  will flag it.
-- **Service registration.** WinSW service definitions parse and the
-  executables run — CI checks that on every change — but `install`/
-  `start` against the real Service Control Manager, the start order and
-  the failure/restart behaviour are untested. Note the PostgreSQL service
-  runs `postgres.exe` directly rather than `pg_ctl runservice`, which
-  would register itself with the SCM and collide with WinSW.
-- **`initdb` under a Windows service account** (locale and directory
-  permissions — the most likely place to find the next problem).
-- **ACL hardening** against a real non-administrator user.
-- **Upgrade over an existing installation, and the uninstall path.**
+**Still open:**
+
+- **Code signing.** The artifact is unsigned. A downloaded copy is stopped
+  by SmartScreen until someone clicks "Más información → Ejecutar de todas
+  formas" (observed). Signing is deliberately deferred.
+- **An attended upgrade over a running installation.** The upgrade was run
+  with `/SILENT`; the wizard was run over kept data, where the same pages
+  are skipped by the same condition.
+- **A WinSW wrapper dying for another reason.** v2 does not end its child
+  when it dies; `stop-services.ps1` recovers an orphaned PostgreSQL on an
+  upgrade or uninstall, but nothing notices one at run time.
 
 Redis is deliberately not bundled.
 
@@ -987,19 +981,22 @@ full milestone breakdown.
 
 Since that was written, Purchases, Current accounts, Backups, the Windows
 installer payload, realtime, the Electron client and the Gestión sales
-chart have all landed. The binding constraint is no longer feature
-coverage — it is that **nothing has been installed on a clean Windows
-VM**. The recommended order from here:
+chart have all landed, and the installer has been validated on a real
+Windows machine (PR #51). The deployment model is decided: an ERP Server
+in each shop, a central in the cloud for what the shops share — see
+[deployment-model.md](deployment-model.md). The recommended order from
+here:
 
-1. **Install the ERP Server on a clean Windows VM.** Everything under
-   "ERP Server installer (Windows)" that is marked unverified is the gate
-   before any customer install, and `initdb` under a service account is
-   the most likely place to find the next problem.
+1. ~~**Install the ERP Server on a clean Windows VM.**~~ Done — see "ERP
+   Server installer (Windows)" above.
 2. ~~**Close the backfill-on-upgrade gap.**~~ Done — the API runs the
    backfill on startup (see "Current accounts" above).
-3. **Plan the Tango data migration** — customers, suppliers, products,
+3. **Central and branch sync** — task 020: shared catalog, price lists and
+   customers, and other shops' stock. NOT IMPLEMENTED.
+4. **Plan the Tango data migration** — customers, suppliers, products,
    stock and balances. The price importer is not this.
-4. **Then** the fiscal work (ARCA, IVA), which is what turns an internal
-   management system into one that can invoice.
+5. **Then** the fiscal work (ARCA, IVA), which is what turns an internal
+   management system into one that can invoice — designed around ARCA's
+   CAEA, since shops must invoice without internet.
 
-Accounting, treasury and reporting remain behind all four.
+Accounting, treasury and reporting remain behind these.

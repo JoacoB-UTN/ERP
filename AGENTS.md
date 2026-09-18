@@ -130,6 +130,8 @@ instead:
 - `docs/roadmap.md` — demo-first milestone plan and full ERP roadmap.
 - `docs/development-workflow.md` — real commands for install/dev/test/build.
 - `docs/multi-agent-workflow.md` — how Claude Code and Codex coordinate.
+- `docs/deployment-model.md` — a server in each shop, a central in the
+  cloud; what may and may not cross a shop boundary.
 - `docs/<module>.md` — one per implemented domain module (customers,
   products, inventory, pricing, authorization, audit trail, multi-company).
 
