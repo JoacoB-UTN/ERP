@@ -15,7 +15,11 @@
   <description>Serves the ERP Facturación web application to LAN clients.</description>
 
   <executable>%BASE%\..\node\node.exe</executable>
-  <arguments>%BASE%\..\facturacion\apps\facturacion\server.js</arguments>
+  <!-- Entrecomillado, y no es cosmetico: la ruta por defecto es
+       "C:\Program Files\ERP Server". Sin comillas, node recibe "C:\Program"
+       como script y muere con MODULE_NOT_FOUND antes de arrancar, asi que el
+       servicio no levanta en una instalacion con los valores por defecto. -->
+  <arguments>"%BASE%\..\facturacion\apps\facturacion\server.js"</arguments>
   <workingdirectory>%BASE%\..\facturacion\apps\facturacion</workingdirectory>
 
   <depend>erp-api</depend>
@@ -24,10 +28,10 @@
   <onfailure action="restart" delay="30 sec"/>
   <onfailure action="restart" delay="60 sec"/>
 
-  <log mode="roll-by-size-time">
+  <!-- roll-by-size, not roll-by-size-time: see erp-postgres.xml.template
+       for why the timed mode crashes the wrapper. Sizes are in KB. -->
+  <log mode="roll-by-size">
     <sizeThreshold>10240</sizeThreshold>
-    <pattern>yyyyMMdd</pattern>
-    <autoRollAtTime>00:00:00</autoRollAtTime>
     <keepFiles>14</keepFiles>
   </log>
   <logpath>%BASE%\..\logs</logpath>

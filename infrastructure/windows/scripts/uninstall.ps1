@@ -23,33 +23,36 @@ Set-StrictMode -Version Latest
 
 $servicesDir = Join-Path $InstallDir 'services'
 
-# Reverse dependency order: dependents first, PostgreSQL last, so Windows never
-# refuses to stop a service something else still depends on.
-$serviceIds = @('erp-agent', 'erp-facturacion', 'erp-gestion', 'erp-api', 'erp-postgres')
+# Stop everything first, including processes a crashed wrapper left behind:
+# anything still running from the install directory would keep its files
+# locked and the uninstaller would leave half the program behind.
+& (Join-Path $PSScriptRoot 'stop-services.ps1') -InstallDir $InstallDir
 
-foreach ($id in $serviceIds) {
-  $service = Get-Service -Name $id -ErrorAction SilentlyContinue
-  if (-not $service) { continue }
-
-  Write-Host "Stopping $id"
-  Stop-Service -Name $id -Force -ErrorAction SilentlyContinue
-
-  # Wait for it to actually stop: WinSW cannot uninstall a running service, and
-  # Stop-Service returns before the process has necessarily exited.
-  foreach ($attempt in 1..30) {
-    $service.Refresh()
-    if ($service.Status -eq 'Stopped') { break }
-    Start-Sleep -Seconds 1
-  }
+# Reverse dependency order, so Windows never refuses to delete a service that
+# something else still depends on.
+foreach ($id in @('erp-agent', 'erp-facturacion', 'erp-gestion', 'erp-api', 'erp-postgres')) {
+  if (-not (Get-Service -Name $id -ErrorAction SilentlyContinue)) { continue }
 
   $exe = Join-Path $servicesDir "$id.exe"
+  Write-Host "Removing $id"
   if (Test-Path $exe) {
-    Write-Host "Removing $id"
     & $exe uninstall | Out-Null
   } else {
-    # The WinSW shim is gone (a partial install, or files removed first) —
+    # The WinSW shim is gone (a partial install, or files removed first) --
     # fall back to the built-in tool so the service does not linger forever.
     & sc.exe delete $id | Out-Null
+  }
+}
+
+# The firewall rules the installer created. Removed here because leaving
+# allow-rules behind for ports nothing listens on any more is exactly the kind
+# of residue an uninstall is supposed to clean up -- unlike the data and the
+# backups below, a firewall rule holds nothing of the business's.
+foreach ($name in @('ERP Server - Gestion', 'ERP Server - Facturacion', 'ERP Server - API')) {
+  $rule = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
+  if ($rule) {
+    Write-Host "Removing firewall rule: $name"
+    $rule | Remove-NetFirewallRule -ErrorAction SilentlyContinue
   }
 }
 

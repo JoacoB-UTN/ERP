@@ -248,6 +248,7 @@ jobs:
             "$payload/services/erp-api.xml.template",
             "$payload/scripts/install.ps1",
             "$payload/scripts/uninstall.ps1",
+            "$payload/scripts/stop-services.ps1",
             "$payload/VERSION",
             # Without these the erp-postgres service has nothing to run and
             # the backup agent has no pg_dump — an installer that gets all
@@ -264,7 +265,11 @@ jobs:
             # Without this the payload builds, passes every check here, and
             # cannot install on any machine that lacks the runtime -- which
             # is every clean Windows install.
-            "$payload/vcredist/vc_redist.x64.exe"
+            "$payload/vcredist/vc_redist.x64.exe",
+            # Prisma 7 takes the connection URL only from a config file, so
+            # without this `migrate deploy` fails on every installed machine
+            # while DATABASE_URL is set correctly.
+            "$payload/server/prisma.config.cjs"
           )
           $missing = $required | Where-Object { -not (Test-Path $_) }
           if ($missing) {
@@ -393,6 +398,14 @@ jobs:
 
             if ($c -match '\{\{[A-Z_]+\}\}') {
               Write-Host "::error::$id : unreplaced placeholder $($Matches[0])"
+              $failed = $true; continue
+            }
+
+            # WinSW 2.12's timed rotation crashes the wrapper and orphans the
+            # service's process (see erp-postgres.xml.template). WinSW parses
+            # it happily, so the status check below would not catch it.
+            if ($c -match 'mode="roll-by-size-time"|<autoRollAtTime>') {
+              Write-Host "::error::$id : timed log rotation ($($Matches[0])) crashes WinSW 2.12; use roll-by-size"
               $failed = $true; continue
             }
 

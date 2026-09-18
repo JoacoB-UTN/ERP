@@ -14,6 +14,15 @@
   passes them in as parameters, so the same script serves an attended install,
   an unattended one, and a support session.
 
+  -Upgrade is what the installer passes when it finds an existing installation.
+  It takes no company or administrator: an upgrade must not be able to create
+  a second company because the operator typed the name slightly differently,
+  or rotate the administrator's password as a side effect. Ports, backup
+  schedule and offsite-backup settings are read back from the service
+  definitions the previous install rendered -- or, when an uninstall removed
+  those, from config\settings.json -- so what the operator configured
+  survives; a parameter passed explicitly still wins.
+
 .NOTES
   Must run elevated: registering services and setting ACLs require it.
 #>
@@ -21,10 +30,14 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)][string]$InstallDir,
-  [Parameter(Mandatory)][string]$CompanyName,
-  [Parameter(Mandatory)][string]$CompanyTaxId,
-  [Parameter(Mandatory)][string]$AdminEmail,
-  [Parameter(Mandatory)][string]$AdminPassword,
+
+  # Required on a new install, ignored with -Upgrade.
+  [string]$CompanyName,
+  [string]$CompanyTaxId,
+  [string]$AdminEmail,
+  [string]$AdminPassword,
+
+  [switch]$Upgrade,
 
   [int]$PgPort = 5433,
   [int]$ApiPort = 3001,
@@ -61,6 +74,115 @@ $serverDir  = Join-Path $InstallDir 'server'
 $backupDir  = Join-Path $InstallDir 'backups'
 $logsDir    = Join-Path $InstallDir 'logs'
 $secretsFile= Join-Path $InstallDir 'config\erp-secrets.json'
+$settingsFile = Join-Path $InstallDir 'config\settings.json'
+
+# ---------------------------------------------------------------------------
+# New install or upgrade
+# ---------------------------------------------------------------------------
+if ($Upgrade) {
+  # An upgrade with nothing to upgrade would fall through to a fresh install
+  # with no company and no administrator -- a server nobody can log in to.
+  if (-not (Test-Path $secretsFile) -or -not (Test-Path (Join-Path $pgData 'PG_VERSION'))) {
+    throw "-Upgrade was given, but there is no existing installation in $InstallDir (no config\erp-secrets.json or data\PG_VERSION)."
+  }
+
+  # The rendered service definitions ARE the running configuration, so they
+  # are what gets carried forward whenever they exist: if someone edited one
+  # by hand, that edit is what the services run with, and it wins over the
+  # copy in config\settings.json.
+  #
+  # They can be missing: the uninstaller deletes services\ but keeps data\ and
+  # config\, so reinstalling over kept data is an upgrade with no service
+  # definitions. Then config\settings.json -- the copy of the same settings
+  # this script writes next to them -- is read instead. With neither (an
+  # installation from before settings.json existed), the parameters apply, and
+  # the operator is told what could not be carried forward.
+  function Get-RenderedEnv([string]$id) {
+    $file = Join-Path $servicesDir "$id.xml"
+    $values = @{}
+    if (-not (Test-Path $file)) { return $values }
+    foreach ($node in ([xml](Get-Content $file -Raw)).SelectNodes('/service/env')) {
+      $values[$node.GetAttribute('name')] = $node.GetAttribute('value')
+    }
+    $values
+  }
+  $pgEnv    = Get-RenderedEnv 'erp-postgres'
+  $apiEnv   = Get-RenderedEnv 'erp-api'
+  $gesEnv   = Get-RenderedEnv 'erp-gestion'
+  $facEnv   = Get-RenderedEnv 'erp-facturacion'
+  $agentEnv = Get-RenderedEnv 'erp-agent'
+
+  if ($agentEnv.Count -gt 0) {
+    $settingsSource = 'the service definitions'
+    $carried = [ordered]@{
+      PgPort              = $pgEnv['PGPORT']
+      ApiPort             = $apiEnv['API_PORT']
+      GestionPort         = $gesEnv['PORT']
+      FacturacionPort     = $facEnv['PORT']
+      BackupTimes         = $agentEnv['ERP_BACKUP_TIMES']
+      BackupRetentionDays = $agentEnv['ERP_BACKUP_RETENTION_DAYS']
+      BackupKeepMinimum   = $agentEnv['ERP_BACKUP_KEEP_MINIMUM']
+    }
+    if ($agentEnv['ERP_BACKUP_CLOUD_ENABLED'] -eq 'true') {
+      $carried['CloudBackup']          = [switch]$true
+      $carried['CloudRegion']          = $agentEnv['ERP_BACKUP_CLOUD_REGION']
+      $carried['CloudBucket']          = $agentEnv['ERP_BACKUP_CLOUD_BUCKET']
+      $carried['CloudAccessKeyId']     = $agentEnv['ERP_BACKUP_CLOUD_ACCESS_KEY_ID']
+      $carried['CloudSecretAccessKey'] = $agentEnv['ERP_BACKUP_CLOUD_SECRET_ACCESS_KEY']
+      # Optional: absent means AWS itself.
+      if ($agentEnv.ContainsKey('ERP_BACKUP_CLOUD_ENDPOINT') -and -not $PSBoundParameters.ContainsKey('CloudEndpoint')) {
+        $CloudEndpoint = $agentEnv['ERP_BACKUP_CLOUD_ENDPOINT']
+      }
+    }
+  } elseif (Test-Path $settingsFile) {
+    $settingsSource = 'config\settings.json'
+    $saved = Get-Content $settingsFile -Raw | ConvertFrom-Json
+    $carried = [ordered]@{}
+    foreach ($name in 'PgPort', 'ApiPort', 'GestionPort', 'FacturacionPort',
+        'BackupTimes', 'BackupRetentionDays', 'BackupKeepMinimum') {
+      $carried[$name] = $saved.$name
+    }
+    if ($saved.CloudBackup) {
+      $carried['CloudBackup'] = [switch]$true
+      foreach ($name in 'CloudRegion', 'CloudBucket', 'CloudAccessKeyId', 'CloudSecretAccessKey') {
+        $carried[$name] = $saved.$name
+      }
+      if ($saved.CloudEndpoint -and -not $PSBoundParameters.ContainsKey('CloudEndpoint')) {
+        $CloudEndpoint = $saved.CloudEndpoint
+      }
+    }
+  } else {
+    $settingsSource = 'nowhere'
+    $carried = [ordered]@{
+      PgPort = $null; ApiPort = $null; GestionPort = $null; FacturacionPort = $null
+      BackupTimes = $null; BackupRetentionDays = $null; BackupKeepMinimum = $null
+    }
+  }
+
+  Write-Step "Upgrading an existing installation; carrying its settings forward from $settingsSource"
+  $notCarried = @()
+  foreach ($name in $carried.Keys) {
+    if ($PSBoundParameters.ContainsKey($name)) { continue }
+    $value = $carried[$name]
+    if ($null -eq $value -or "$value" -eq '') {
+      $notCarried += $name
+      continue
+    }
+    # Assigning to the typed parameter converts ('5433' -> [int] 5433).
+    Set-Variable -Name $name -Value $value
+    if ($name -ne 'CloudSecretAccessKey') { Write-Host "    $name = $value" }
+  }
+  if ($notCarried.Count -gt 0) {
+    Write-Warning ("Not found in the previous service definitions or config\settings.json, using this run's values instead: " +
+      ($notCarried -join ', ') + '. If offsite backup was configured before, it has to be configured again.')
+  }
+} else {
+  foreach ($name in @('CompanyName', 'CompanyTaxId', 'AdminEmail', 'AdminPassword')) {
+    if (-not (Get-Variable -Name $name -ValueOnly)) {
+      throw "-$name is required for a new installation (use -Upgrade on an existing one)."
+    }
+  }
+}
 
 # ---------------------------------------------------------------------------
 # Payload validation -- FIRST, before anything is created on this machine
@@ -261,6 +383,15 @@ $usersSid = [System.Security.Principal.SecurityIdentifier]::new(
   [System.Security.Principal.WellKnownSidType]::BuiltinUsersSid, $null)
 $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
       $usersSid, 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+
+# And NetworkService explicitly: it is the account erp-postgres runs as (see
+# services/erp-postgres.xml.template for why it cannot be LocalSystem) and it
+# is NOT a member of the Users group, so the rule above does not cover it. It
+# needs to read the binaries it executes.
+$networkServiceSid = [System.Security.Principal.SecurityIdentifier]::new(
+  [System.Security.Principal.WellKnownSidType]::NetworkServiceSid, $null)
+$acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+      $networkServiceSid, 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
 Set-Acl -Path $InstallDir -AclObject $acl
 
 # The directories that carry secrets or business data: SYSTEM and
@@ -287,17 +418,80 @@ foreach ($name in @('config', 'services', 'backups')) {
   Set-Acl -Path $dir -AclObject $secretAcl
 }
 
+# `logs` has to be WRITABLE by the accounts the services run as, and the
+# tree-wide rule above grants only read+execute. WinSW writes its wrapper log
+# there before it does anything else; as NetworkService it silently could not,
+# which is why erp-postgres left no trace of a boot-time start at all while
+# postgres itself was running and serving. A service account that cannot write
+# its own log directory produces failures with no evidence anywhere.
+#
+# Modify, not FullControl: these accounts write and roll log files, they do not
+# need to change the directory's permissions.
+$logIdentities = @(
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::NetworkServiceSid, $null)
+)
+$logsAcl = Get-Acl $logsDir
+foreach ($identity in $logIdentities) {
+  $logsAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $identity, 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+}
+Set-Acl -Path $logsDir -AclObject $logsAcl
+
 # ---------------------------------------------------------------------------
 # PostgreSQL cluster
 # ---------------------------------------------------------------------------
 # $initdbExe was resolved and version-checked by the payload validation at the
 # top of this script, before anything was written to this machine.
 
+New-Item -ItemType Directory -Path $pgData -Force | Out-Null
+# Applied on EVERY run, not only when the cluster is created. A re-run --
+# an upgrade, or a repair after an interrupted install -- must re-assert
+# these permissions; leaving it inside the creation branch means an existing
+# cluster never gets them and the service cannot read its own database.
+#
+# The cluster directory needs its own ACL, and getting this wrong fails in a
+# way that looks like the DLL problem above: 0xC0000135, no output at all.
+#
+# PostgreSQL drops the Administrators SID from its own token before doing
+# real work, so the process that writes this directory is neither an
+# administrator nor SYSTEM during an installation -- it is the plain user
+# account that launched the installer. Read+execute from the tree above is
+# not enough: initdb has to CREATE the cluster here.
+#
+# So: SYSTEM (the account the service runs as afterwards), Administrators
+# (support, backups, uninstall) and the installing user (initdb, right
+# now). Inheritance is broken so the tree-wide read+execute for Users does
+# NOT reach the database files -- a cluster readable by every local account
+# would hand over the whole business's data.
+$dataAcl = Get-Acl $pgData
+$dataAcl.SetAccessRuleProtection($true, $false)
+$dataPrincipals = @(
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
+  [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+  # The account the service runs as from here on: it has to read AND write
+  # the cluster, not just reach it.
+  [System.Security.Principal.SecurityIdentifier]::new(
+    [System.Security.Principal.WellKnownSidType]::NetworkServiceSid, $null)
+)
+foreach ($principal in $dataPrincipals) {
+  $dataAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $principal, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+}
+Set-Acl -Path $pgData -AclObject $dataAcl
+
 if (Test-Path (Join-Path $pgData 'PG_VERSION')) {
   Write-Step 'PostgreSQL data directory already initialised'
 } else {
   Write-Step 'Initialising PostgreSQL data directory'
   New-Item -ItemType Directory -Path $pgData -Force | Out-Null
+
+
 
   # The superuser password goes through a file, never argv: command lines are
   # readable by any process on the machine.
@@ -325,6 +519,43 @@ port = $PgPort
 # ---------------------------------------------------------------------------
 # Service definitions
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# CORS origins
+# ---------------------------------------------------------------------------
+# This used to be hard-coded to localhost, and that made the product work ONLY
+# when browsed from the server itself. Gestion and the API live on different
+# ports, so every request between them is cross-origin; they carry the session
+# cookie, so the API must name the exact origin (a wildcard is invalid for
+# credentialed requests, which is why main.ts keeps an explicit allow-list).
+#
+# A till opening http://192.168.1.50:3000 therefore sent an Origin the API did
+# not recognise, the preflight came back without Access-Control-Allow-Origin,
+# and the browser blocked the login -- the user saw "No se pudo iniciar
+# sesion" while the API itself accepted those exact credentials over curl. On a
+# LAN product that is every client machine except the server.
+#
+# So the allow-list is built from what this machine actually answers on:
+# loopback, its hostname, and each of its IPv4 addresses.
+#
+# If the server's IP changes -- DHCP renewing a lease, a new network card --
+# the clients break again and the installer must be re-run (it is idempotent).
+# A server should hold a static address or a reserved lease; the deeper fix is
+# for the API to accept any origin whose port is one of the two frontends,
+# which is application code and a separate decision.
+Write-Step 'Building the CORS allow-list'
+$corsHosts = @('localhost', '127.0.0.1', $env:COMPUTERNAME)
+$corsHosts += (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+  Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+  Select-Object -ExpandProperty IPAddress)
+$corsHosts = $corsHosts | Where-Object { $_ } | Select-Object -Unique
+$corsOrigins = @()
+foreach ($h in $corsHosts) {
+  $corsOrigins += "http://${h}:$GestionPort"
+  $corsOrigins += "http://${h}:$FacturacionPort"
+}
+$corsOrigin = $corsOrigins -join ','
+foreach ($h in $corsHosts) { Write-Host "    $h" }
+
 Write-Step 'Rendering service definitions'
 
 # XML attribute values must be escaped; a generated secret, an object-store key
@@ -356,12 +587,14 @@ $replacements = @{
   '{{GESTION_PORT}}'               = $GestionPort
   '{{FACTURACION_PORT}}'           = $FacturacionPort
   '{{DATABASE_URL}}'               = (ConvertTo-XmlAttribute $databaseUrl)
-  # Redis is optional and not installed by the ERP Server — the API starts and
-  # runs correctly without it (see apps/api/src/redis/redis.service.ts). The
-  # value is still required by the config schema, so it points at a local Redis
-  # that may simply never exist.
-  '{{REDIS_URL}}'                  = 'redis://127.0.0.1:6379'
-  '{{CORS_ORIGIN}}'                = "http://localhost:$GestionPort,http://localhost:$FacturacionPort"
+  # Empty on purpose. The ERP Server does not bundle Redis (see
+  # docs/server-installer.md, "Why Redis is not bundled"), and pointing the API
+  # at a Redis that never exists made every installation report `degraded`
+  # forever. Empty means "no cache in this deployment", a supported
+  # configuration: permissions are read from PostgreSQL
+  # (apps/api/src/redis/redis.service.ts).
+  '{{REDIS_URL}}'                  = ''
+  '{{CORS_ORIGIN}}'                = $corsOrigin
   '{{AUTH_ACCESS_TOKEN_SECRET}}'   = (ConvertTo-XmlAttribute $secrets.authSecret)
   '{{ERP_BACKUP_DIR}}'             = (ConvertTo-XmlAttribute $backupDir)
   '{{ERP_PG_BIN_DIR}}'             = (ConvertTo-XmlAttribute $pgBin)
@@ -379,14 +612,15 @@ if (-not (Test-Path $winswSource)) {
 
 $serviceIds = @('erp-postgres', 'erp-api', 'erp-gestion', 'erp-facturacion', 'erp-agent')
 
-# On an upgrade the services are still running, and Windows holds a lock on a
-# running service's executable — replacing erp-<id>.exe below would fail. Stop
-# them first, dependents before their dependencies so Windows never refuses.
-foreach ($id in @('erp-agent', 'erp-facturacion', 'erp-gestion', 'erp-api', 'erp-postgres')) {
-  if (Get-Service -Name $id -ErrorAction SilentlyContinue) {
-    Write-Step "Stopping $id for upgrade"
-    Stop-Service -Name $id -Force -ErrorAction SilentlyContinue
-  }
+# On a re-run the services may still be running, and Windows holds a lock on a
+# running service's executable -- replacing erp-<id>.exe below would fail. The
+# installer already did this before copying files; doing it again covers a
+# re-run by hand during support, and a wrapper that crashed and left its child
+# running (see stop-services.ps1).
+if (Get-Service -Name 'erp-*' -ErrorAction SilentlyContinue) {
+  Write-Step 'Stopping the running services'
+  & (Join-Path $PSScriptRoot 'stop-services.ps1') -InstallDir $InstallDir
+  if ($LASTEXITCODE -ne 0) { throw 'Could not stop everything running from the install directory; see the warnings above.' }
 }
 
 foreach ($id in $serviceIds) {
@@ -420,17 +654,57 @@ foreach ($id in $serviceIds) {
   }
 }
 
+# The same settings, kept where an uninstall does not reach. The uninstaller
+# deletes services\ but keeps config\, so this is what lets a reinstall over
+# kept data carry the operator's backup schedule and offsite-backup settings
+# forward. config\ is SYSTEM and Administrators only (above), like services\,
+# which already holds the object-store secret.
+[pscustomobject]@{
+  PgPort               = $PgPort
+  ApiPort              = $ApiPort
+  GestionPort          = $GestionPort
+  FacturacionPort      = $FacturacionPort
+  BackupTimes          = $BackupTimes
+  BackupRetentionDays  = $BackupRetentionDays
+  BackupKeepMinimum    = $BackupKeepMinimum
+  CloudBackup          = [bool]$CloudBackup
+  CloudEndpoint        = $CloudEndpoint
+  CloudRegion          = $CloudRegion
+  CloudBucket          = $CloudBucket
+  CloudAccessKeyId     = $CloudAccessKeyId
+  CloudSecretAccessKey = $CloudSecretAccessKey
+} | ConvertTo-Json | Set-Content -Path $settingsFile -Encoding utf8
+
 # ---------------------------------------------------------------------------
 # Register and start
 # ---------------------------------------------------------------------------
 function Install-ErpService([string]$id) {
   $exe = Join-Path $servicesDir "$id.exe"
   if (Get-Service -Name $id -ErrorAction SilentlyContinue) {
-    Write-Step "Updating service $id"
-    # `stop` on an already-stopped service exits non-zero, which is not a
-    # failure here — only the outcome of refresh/install decides that.
+    # Re-registered, not refreshed. `winsw refresh` reloads only the settings
+    # Windows keeps inside the service definition; it does NOT change the
+    # logon account, the dependencies or the failure actions, because those
+    # live in the Service Control Manager's own registration.
+    #
+    # That is not a theoretical limitation. When erp-postgres moved from
+    # LocalSystem to NetworkService, `refresh` reported success and left the
+    # service running as LocalSystem -- so PostgreSQL kept refusing to start
+    # for the same reason as before, while the XML on disk said otherwise.
+    #
+    # Uninstalling first costs nothing: every service was already stopped
+    # above for the upgrade, so there is no additional outage. And it makes
+    # the registration always match the file, which is the only version of
+    # this that stays correct as the definitions change.
+    Write-Step "Re-registering service $id"
     & $exe stop | Out-Null
-    & $exe refresh | Out-Null
+    & $exe uninstall | Out-Null
+    # The SCM can hold a service in "marked for deletion" for a moment after
+    # uninstall; installing into that window fails. Wait for it to be gone.
+    foreach ($attempt in 1..20) {
+      if (-not (Get-Service -Name $id -ErrorAction SilentlyContinue)) { break }
+      Start-Sleep -Milliseconds 500
+    }
+    & $exe install | Out-Null
   } else {
     Write-Step "Installing service $id"
     & $exe install | Out-Null
@@ -438,7 +712,60 @@ function Install-ErpService([string]$id) {
   if ($LASTEXITCODE -ne 0) { throw "WinSW failed for $id (exit $LASTEXITCODE)" }
 }
 
+# erp-postgres runs as NetworkService (see its template for why it cannot be
+# LocalSystem), and the Service Control Manager has to launch the WinSW
+# wrapper AS that account. But `services` was locked to SYSTEM and
+# Administrators above, because the rendered definitions carry secrets -- and
+# a service whose own binary it cannot read does not fail inside WinSW, it
+# fails in the SCM before WinSW ever runs, with a bare "could not start".
+#
+# Granted per FILE, not on the directory: NetworkService gets the wrapper and
+# the PostgreSQL definition, and stays unable to read erp-api.xml, which is
+# the one that contains the database password and the JWT signing key.
+$pgServiceFiles = @(
+  (Join-Path $servicesDir 'erp-postgres.exe'),
+  (Join-Path $servicesDir 'erp-postgres.xml')
+)
+foreach ($file in $pgServiceFiles) {
+  if (-not (Test-Path $file)) { continue }
+  $fileAcl = Get-Acl $file
+  $fileAcl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $networkServiceSid, 'ReadAndExecute', 'Allow')))
+  Set-Acl -Path $file -AclObject $fileAcl
+}
+
 foreach ($id in $serviceIds) { Install-ErpService $id }
+
+# ---------------------------------------------------------------------------
+# Windows Firewall
+# ---------------------------------------------------------------------------
+# Without this the product does not work in the deployment it is designed for.
+# Every other PC on the premises is supposed to reach this machine over the
+# LAN (see docs/desktop-lan-architecture.md), but Windows blocks unsolicited
+# inbound connections by default, and a service has no interactive session in
+# which the "allow this app?" prompt could ever appear. So nothing asks and
+# nothing is allowed: the ports listen on 0.0.0.0 and every other machine
+# times out. Verified on a clean install -- Gestion answered 200 on the server
+# itself and timed out from another machine until these rules existed.
+#
+# Gestion, Facturacion and the API only. PostgreSQL is deliberately absent:
+# it binds 127.0.0.1 and LAN clients must reach the API, never the database
+# directly -- the invariant from AGENTS.md.
+Write-Step 'Opening the firewall for LAN clients'
+foreach ($rule in @(
+    @{ Name = 'ERP Server - Gestion';     Port = $GestionPort },
+    @{ Name = 'ERP Server - Facturacion'; Port = $FacturacionPort },
+    @{ Name = 'ERP Server - API';         Port = $ApiPort }
+  )) {
+  # Idempotent: a re-run must not stack duplicate rules.
+  Get-NetFirewallRule -DisplayName $rule.Name -ErrorAction SilentlyContinue |
+    Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  New-NetFirewallRule -DisplayName $rule.Name `
+    -Direction Inbound -Protocol TCP -LocalPort $rule.Port -Action Allow `
+    -Profile Any `
+    -Description 'ERP Server. Created by the ERP installer; removed on uninstall.' | Out-Null
+  Write-Host "    $($rule.Name) -> TCP $($rule.Port)"
+}
 
 Write-Step 'Starting PostgreSQL'
 Start-Service -Name 'erp-postgres'
@@ -474,13 +801,22 @@ try {
     'migrate' 'deploy' '--schema' (Join-Path $serverDir 'apps\api\prisma\schema.prisma')
   if ($LASTEXITCODE -ne 0) { throw 'prisma migrate deploy failed' }
 
-  Write-Step 'Provisioning company and administrator'
   # Real provisioning, NOT the demo seed: a customer must never receive
   # "Distribuidora Horizonte" and ten invented sales. See prisma/provision.ts.
-  $env:ERP_COMPANY_NAME   = $CompanyName
-  $env:ERP_COMPANY_TAX_ID = $CompanyTaxId
-  $env:ERP_ADMIN_EMAIL    = $AdminEmail
-  $env:ERP_ADMIN_PASSWORD = $AdminPassword
+  if ($Upgrade) {
+    # Catalog only: new permission codes, and the system roles that must pick
+    # them up, for every company already in the database. No tenant, company
+    # or user is created or changed.
+    Write-Step 'Updating the permission catalog and system roles'
+    $env:ERP_PROVISION_MODE = 'upgrade'
+  } else {
+    Write-Step 'Provisioning company and administrator'
+    $env:ERP_PROVISION_MODE = 'install'
+    $env:ERP_COMPANY_NAME   = $CompanyName
+    $env:ERP_COMPANY_TAX_ID = $CompanyTaxId
+    $env:ERP_ADMIN_EMAIL    = $AdminEmail
+    $env:ERP_ADMIN_PASSWORD = $AdminPassword
+  }
   # Bundled by build-payload.ps1 next to schema.prisma — NOT under dist/, which
   # excludes prisma/ entirely (see apps/api/tsconfig.build.json).
   & (Join-Path $InstallDir 'node\node.exe') (Join-Path $serverDir 'apps\api\prisma\provision.js')
@@ -503,11 +839,24 @@ $ip = (Get-NetIPAddress -AddressFamily IPv4 |
   Where-Object { $_.PrefixOrigin -ne 'WellKnown' -and $_.IPAddress -ne '127.0.0.1' } |
   Select-Object -First 1 -ExpandProperty IPAddress)
 
+# Written last, and only here: its presence is how the installer tells a
+# finished installation (upgrade it, skip the company and administrator pages)
+# from one that failed halfway (ask again, and provision). See
+# IsExistingInstallation in erp-server.iss.
+[pscustomobject]@{
+  completedAt = (Get-Date).ToString('o')
+  mode        = if ($Upgrade) { 'upgrade' } else { 'install' }
+} | ConvertTo-Json | Set-Content -Path (Join-Path $InstallDir 'config\install-complete.json') -Encoding utf8
+
 Write-Host ''
-Write-Host 'ERP Server instalado.' -ForegroundColor Green
+if ($Upgrade) {
+  Write-Host 'ERP Server actualizado.' -ForegroundColor Green
+} else {
+  Write-Host 'ERP Server instalado.' -ForegroundColor Green
+}
 Write-Host "  Gestión:      http://$ip`:$GestionPort"
 Write-Host "  Facturación:  http://$ip`:$FacturacionPort"
-Write-Host "  Usuario:      $AdminEmail"
+if (-not $Upgrade) { Write-Host "  Usuario:      $AdminEmail" }
 Write-Host "  Backups:      $backupDir (diario $BackupTimes)"
 Write-Host ''
 Write-Host 'Configurá esta dirección en el cliente ERP de cada PC de la red.'

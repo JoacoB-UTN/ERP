@@ -169,7 +169,7 @@ function SidebarContent({
 
       <nav
         aria-label="Modos de Facturación"
-        className={cn('shrink-0 pb-3', collapsed ? 'px-2' : 'px-2.5')}
+        className={cn('shrink-0 pb-3', collapsed ? 'px-2' : 'sidebar-gutter px-2.5')}
       >
         <div className="space-y-0.5">
           {items
@@ -189,11 +189,17 @@ function SidebarContent({
       {!collapsed && (
         <div
           aria-label="Contexto operativo"
-          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto border-t border-sidebar-border px-2.5 py-3"
+          className="sidebar-scroll flex min-h-0 flex-1 flex-col overflow-y-auto border-t border-sidebar-border"
         >
-          <BranchSelector companyId={activeCompanyId} />
-          <WarehouseSelector branchId={activeBranchId} />
-          <PriceListSelector />
+          {/* El padding va adentro del área que scrollea: puesto en el
+              contenedor, la barra se dibuja por dentro y le come ancho solo a
+              este bloque, que entonces deja de alinear con la navegación de
+              arriba y con el botón de abajo. */}
+          <div className="flex flex-col gap-3 px-2.5 py-3">
+            <BranchSelector companyId={activeCompanyId} />
+            <WarehouseSelector branchId={activeBranchId} />
+            <PriceListSelector />
+          </div>
         </div>
       )}
       {collapsed && <div className="flex-1" />}
@@ -201,7 +207,7 @@ function SidebarContent({
       {/* Anchored to the bottom, away from the navigation: signing out is not a
           destination, and putting it in the list invites mis-clicks by people
           aiming for the item above it. */}
-      <div className={cn('shrink-0 pb-3', collapsed ? 'px-2' : 'px-2.5')}>
+      <div className={cn('shrink-0 pb-3', collapsed ? 'px-2' : 'sidebar-gutter px-2.5')}>
         <button
           type="button"
           onClick={handleLogout}

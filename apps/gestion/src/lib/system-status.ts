@@ -172,7 +172,20 @@ export function describeSystemStatus(input: {
       }
     : { key: 'database', label: 'Base de datos', value: 'Operativa', tone: 'success' };
 
-  const redis: SystemStatusService = redisDown
+  // `disabled` is NOT a fault: it means this installation was set up without a
+  // cache, which is supported and is what the Windows installer does. Shown as
+  // neutral, never as a warning -- a panel that is permanently yellow on every
+  // installation teaches the operator to ignore it, and then it fails to warn
+  // when something is genuinely wrong.
+  const redis: SystemStatusService = services.redis === 'disabled'
+    ? {
+        key: 'redis',
+        label: 'Caché (Redis)',
+        value: 'No configurado',
+        tone: 'neutral',
+        hint: 'Esta instalación no usa caché. Los permisos se leen de la base de datos.',
+      }
+    : redisDown
     ? {
         key: 'redis',
         label: 'Caché (Redis)',

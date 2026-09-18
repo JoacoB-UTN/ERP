@@ -195,3 +195,92 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Barra de scroll, en toda la app.
+ *
+ * Chrome dibuja su barra nativa —pista clara, flechas arriba y abajo— que en
+ * una interfaz oscura se ve como una pieza ajena pegada al costado. Y no
+ * aparece solo en el panel lateral: cada tabla ancha lleva su envoltorio con
+ * `overflow-x-auto`, el carrito del POS scrollea, los diálogos con listas
+ * largas también. Por eso la regla es global en vez de una clase por
+ * componente: con la clase habría que acordarse de ponerla en cada lugar
+ * nuevo, y el primero que se olvide vuelve a mostrar la barra del sistema.
+ *
+ * Fina y del color del panel. No se oculta: saber que algo scrollea, y por
+ * dónde va, es información que el usuario necesita. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sidebar-border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--sidebar-border);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Reserva del canal en la navegación del panel lateral.
+ *
+ * El color y el grosor ya los pone la regla global; esto solo reserva el
+ * espacio, para que mostrar u ocultar la barra no corra el menú un par de
+ * píxeles cuando la lista pasa a ser scrolleable. */
+.sidebar-scroll {
+  scrollbar-gutter: stable;
+}
+
+/* El bloque de abajo del panel —el botón de cerrar sesión— no scrollea, así
+ * que no reserva el canal de la barra y quedaba 10px más ancho que los ítems
+ * de navegación: los bordes derechos no coincidían.
+ *
+ * `scrollbar-gutter: stable` solo aplica a contenedores de scroll, por eso va
+ * junto con `overflow-y: auto`. Como su contenido nunca desborda, la barra no
+ * llega a dibujarse: lo único que hace es reservar exactamente el mismo canal
+ * que reserva la navegación, y así los dos bloques comparten ancho. */
+.sidebar-gutter {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+
+.sidebar-gutter::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-gutter::-webkit-scrollbar-thumb,
+.sidebar-gutter::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Riel contraído: sin barra y sin canal reservado.
+ *
+ * Con la barra fina y `scrollbar-gutter: stable`, el riel de 56px reservaba
+ * 10px y los iconos quedaban centrados en x=22,5 cuando el centro real es 28
+ * — corridos cinco píxeles y medio a la izquierda. Medido, no estimado.
+ *
+ * En una columna de iconos la barra no aporta ninguna información: no hay
+ * texto que seguir y el alto es el mismo siempre. Se oculta y el scroll sigue
+ * funcionando con la rueda, que es como se usa. Expandido sí se muestra,
+ * porque ahí la lista es larga y saber dónde estás importa. */
+.sidebar-rail {
+  scrollbar-width: none;
+}
+
+.sidebar-rail::-webkit-scrollbar {
+  display: none;
+}

@@ -29,6 +29,30 @@
        itself, which collides with WinSW doing the same thing. A service
        wrapper wants a plain foreground process, and postgres.exe is exactly
        that. -->
+  <!-- NetworkService, NOT LocalSystem (which is what WinSW uses when no
+       account is declared, and what this file used to get by omission).
+
+       PostgreSQL REFUSES to run under an account with administrative
+       privileges. Not a permission it lacks, but a deliberate check: it exits
+       immediately with "execution of PostgreSQL by a user with administrative
+       privileges is not permitted". As LocalSystem the service therefore
+       never started, and WinSW simply restarted it in a loop.
+
+       NetworkService is an unprivileged built-in account, needs no password,
+       and exists on every Windows install. install.ps1 grants it access to
+       the cluster directory and the binaries; nothing else on the machine
+       becomes reachable by it.
+
+       Note the element names: WinSW v2 (pinned in build-payload.ps1) wants
+       <domain> and <user>. It accepts a <username> element without
+       complaining and then silently ignores it, leaving the service on
+       LocalSystem, which is exactly the failure this block exists to fix. -->
+  <serviceaccount>
+    <domain>NT AUTHORITY</domain>
+    <user>NetworkService</user>
+    <allowservicelogon>true</allowservicelogon>
+  </serviceaccount>
+
   <executable>%BASE%\..\pgsql\bin\postgres.exe</executable>
   <arguments>-D "%BASE%\..\data"</arguments>
   <workingdirectory>%BASE%\..\pgsql\bin</workingdirectory>
@@ -45,10 +69,19 @@
   <onfailure action="restart" delay="10 sec"/>
   <onfailure action="restart" delay="30 sec"/>
 
-  <log mode="roll-by-size-time">
+  <!-- roll-by-size, NOT roll-by-size-time. WinSW 2.12's roll-by-size-time
+       rotates on a timer thread that closes the log file while the copy
+       thread may be writing to it, outside the lock; the next write throws
+       ObjectDisposedException on a bare thread and the WRAPPER process dies.
+       It does not take postgres.exe with it: the orphaned postmaster keeps
+       the data directory's lock, so every restart the SCM attempts fails with
+       "lock file postmaster.pid already exists" and the service stays down
+       while the database quietly keeps running unsupervised. Seen on the test
+       VM, not theorised. roll-by-size rotates on the writing thread itself,
+       and unlike roll-by-size-time it actually honours keepFiles (the other
+       mode ignores it: logs were never deleted). Sizes are in KB. -->
+  <log mode="roll-by-size">
     <sizeThreshold>10240</sizeThreshold>
-    <pattern>yyyyMMdd</pattern>
-    <autoRollAtTime>00:00:00</autoRollAtTime>
     <keepFiles>14</keepFiles>
   </log>
   <logpath>%BASE%\..\logs</logpath>

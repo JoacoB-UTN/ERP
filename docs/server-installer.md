@@ -1,20 +1,58 @@
 # ERP Server installer (Windows)
 
-**Status: IT HAS NOW BEEN RUN ON A CLEAN MACHINE, AND IT FAILED THREE TIMES
-BEFORE IT WORKED.** The payload build, the provisioning path and — since PR
-#25 — compiling the `.exe` in CI were already verified. On 2026-09-14 the
-installer was finally executed on a clean Windows 10 Home VM and hit three
-consecutive blocking defects, none of which CI could see: no Visual C++
-runtime, English-only identity names in the ACL step, and an ACL hardening
-that locked PostgreSQL out of its own binaries. All three are fixed — see
-"The first real installation, and the three things it found" below.
+**Status: IT INSTALLS, UPGRADES AND UNINSTALLS — AND SIXTEEN DEFECTS HAD TO
+BE FIXED ON A REAL MACHINE FIRST.** The payload build, the provisioning path and — since PR #25 —
+compiling the `.exe` in CI had all been verified long before. What had never
+happened was an install. On 2026-09-14 the installer was finally run on a
+clean Windows 10 Home VM, in Spanish, and failed eleven times for eleven
+unrelated reasons — none of which CI could see, because a GitHub runner is in
+English, already has the Visual C++ runtime, runs no Windows services and has
+no second machine on its network. Every one is fixed and documented in "The
+first real installation" below. Five more came out of upgrading and
+uninstalling that installation on 2026-09-17 — among them a WinSW crash that
+left PostgreSQL running with no service supervising it — and are in "Upgrade
+and uninstall, and five more defects".
 
-What is still **not** verified is everything after a successful first
-install: service registration against the real Service Control Manager,
-survival across a reboot, the ACLs against a non-administrator, an upgrade
-over an existing installation, and the uninstall path. The pending list near
-the end of this document is the authority on that; do not read "it installs
-now" as "it is ready for a customer".
+**Verified on a pristine machine, installed from the compiled `.exe`:** the
+payload carries its PostgreSQL and the Visual C++ runtime; the installer
+installs that runtime, creates the cluster, provisions the company, registers
+the five services against the real Service Control Manager and opens the
+firewall. All five survive a cold reboot and come back on their own.
+PostgreSQL stops cleanly with no orphaned processes. Gestión, Facturación and
+the API answer over the LAN from a second machine, and a login there returns
+the session cookie with the right `Access-Control-Allow-Origin`. Health reports
+`ok`. Against a real standard (non-administrator) account, the secrets, the
+rendered service definitions, the cluster and the backups are unreadable while
+the PostgreSQL binaries stay executable.
+
+**Backup and restore work on the installed machine.** `erp-backup now` wrote
+and verified a dump; `erp-backup list` reported it `success`/`verified`;
+`erp-backup restore <archive> --into erp_restaurada` verified the checksum,
+created the target database and restored into it. The restored database
+matches the live one exactly — 91 permissions, 8 roles, 1 company, 1 user, 60
+tables in both.
+
+**An upgrade and an uninstall work on that machine too.** Upgrading kept the
+secrets, the company, the users and the operator's backup schedule, brought
+the permission catalog up to date, and recovered a PostgreSQL left orphaned by
+defect 12 with a clean shutdown. Uninstalling removed the services, the
+firewall rules and the program, and kept the database, the backups and the
+secrets.
+
+Reinstalling over the kept data through the wizard also ran as an upgrade and
+kept the secrets, the company and the users.
+
+The `.exe` is unsigned, and a downloaded copy is stopped by SmartScreen until
+someone clicks "Más información → Ejecutar de todas formas"; signing is
+deferred. Still **not** verified: an attended (rather than silent) upgrade
+over a running installation. "What is still not verified" at the end of this
+document is the authority; do not read "it installs now" as "it is ready for a customer".
+
+One operational note worth knowing before a customer calls: after a reboot the
+stack takes a minute or two to be usable. PostgreSQL was not yet accepting
+connections around fifty seconds in, and the API answered locally before it
+answered over the LAN. Nothing is wrong when a till cannot log in immediately
+after the server restarts.
 
 This is the second half of Phase 1's remaining work. The first half — scheduled
 backups — is [backups.md](backups.md), and this installer is what registers
@@ -29,13 +67,13 @@ document is how it actually gets onto a customer's PC.
 
 Five Windows services, all supervised by [WinSW](https://github.com/winsw/winsw):
 
-| Service | Runs | Depends on |
-| --- | --- | --- |
-| `erp-postgres` | Bundled PostgreSQL, loopback only | — |
-| `erp-api` | `apps/api` | `erp-postgres` |
-| `erp-gestion` | Gestión (Next.js standalone) | `erp-api` |
-| `erp-facturacion` | Facturación (Next.js standalone) | `erp-api` |
-| `erp-agent` | Backup agent | `erp-postgres` |
+| Service           | Runs                              | Depends on     |
+| ----------------- | --------------------------------- | -------------- |
+| `erp-postgres`    | Bundled PostgreSQL, loopback only | —              |
+| `erp-api`         | `apps/api`                        | `erp-postgres` |
+| `erp-gestion`     | Gestión (Next.js standalone)      | `erp-api`      |
+| `erp-facturacion` | Facturación (Next.js standalone)  | `erp-api`      |
+| `erp-agent`       | Backup agent                      | `erp-postgres` |
 
 The maintenance agent depends on PostgreSQL but deliberately **not** on the
 API: backups must keep running while the API is stopped for maintenance or an
@@ -92,10 +130,14 @@ The installer runs `apps/api/prisma/provision.ts` instead, which creates only:
 - one tenant and one company, named by the operator;
 - one administrator account.
 
-No customers, no products, no stock, no prices, no sales. It is idempotent, so
-re-running it on an upgrade grants newly added permission codes to the roles
-that should have them — and rotates the administrator's password, which is the
-documented recovery path when it is lost.
+No customers, no products, no stock, no prices, no sales. It is idempotent.
+
+An upgrade runs it in `upgrade` mode (`ERP_PROVISION_MODE=upgrade`), which
+only grants newly added permission codes to the system roles of the companies
+that already exist, and creates or changes no tenant, company or user — see
+"Upgrading". Running the default mode again by hand, with the same company
+name and tax id, rotates the administrator's password: that is still the
+recovery path when it is lost, and now only ever a deliberate one.
 
 ## Building
 
@@ -143,7 +185,7 @@ the archive and compares it against `POSTGRES_SHA256`:
 
 **What the pin is and is not worth.** The pinned digest was taken from what
 CI computed while downloading over HTTPS from the URL above. That is
-**trust-on-first-use**: it detects the archive *changing* from here on — a
+**trust-on-first-use**: it detects the archive _changing_ from here on — a
 swapped build, a corrupted transfer, a tampered mirror — which is the half
 of the problem that actually bites. It is **not** verification against a
 checksum EnterpriseDB published, because none is published next to that
@@ -173,7 +215,7 @@ PostgreSQL` step uses the payload's own binaries to `initdb` a cluster, start
 it with `pg_ctl`, connect with `psql` and run a query, take a `pg_dump`, and
 stop it again. Until that step existed the only evidence the bundled engine
 worked was `initdb --version`, which proves the binary loads its DLLs and
-nothing more — it says nothing about whether a cluster can be *created*,
+nothing more — it says nothing about whether a cluster can be _created_,
 which is exactly what the payload pruning puts at risk (`share/` holds the
 templates `initdb` reads, `lib/` the libraries the server loads).
 
@@ -189,7 +231,7 @@ ACLs — is check that `initdb`, `pg_ctl`, `postgres`, `pg_dump` and
 and print the recorded provenance. An installer that cannot work says so
 while the machine is still untouched.
 
-That ordering is the fix for a real defect: the check used to run *after*
+That ordering is the fix for a real defect: the check used to run _after_
 secrets had been generated and the install directory had been locked down,
 so a payload built without `-PostgresDir` left a half-installed machine —
 directories, a secrets file and restrictive ACLs for a database that was
@@ -204,7 +246,7 @@ which WinSW build is used and why.
 Two things worth knowing about the payload build:
 
 - **Gestión and Facturación ship as Next.js standalone output.** This is the
-  `output: 'standalone'` mode, *not* the static export that
+  `output: 'standalone'` mode, _not_ the static export that
   `desktop-lan-architecture.md` rules out — that document's objection is that
   the apps have dynamic routes with no `generateStaticParams`, which is still
   true and which standalone does not care about. Standalone keeps the Node
@@ -237,20 +279,20 @@ Two things worth knowing about the payload build:
 They are not variants of one number, and none of them is "the size of the
 installer" on its own:
 
-| What | Size | Where it comes from |
-|---|---|---|
-| Payload, Node-only (historic) | **503 MB**, 25,451 files | The payload build that was measured, before PostgreSQL was bundled at all |
-| Bundled PostgreSQL, before pruning | **822 MB** | Its own directory inside the payload, as staged |
-| Bundled PostgreSQL, after pruning | **120 MB** | The same directory once `doc`/`include`/`symbols`/pgAdmin/StackBuilder are gone |
-| Payload, current (with PostgreSQL) | **679 MB** | What the payload build produces today |
-| Compiled `.exe`, Node-only (historic) | **89.3 MB** | `ERPServerSetup-0.1.0.exe`, the first installer that ever existed as a file |
-| Uploaded artifact of run #14 | **116 MB compressed** | The GitHub Actions artifact `erp-server-installer` |
+| What                                  | Size                     | Where it comes from                                                             |
+| ------------------------------------- | ------------------------ | ------------------------------------------------------------------------------- |
+| Payload, Node-only (historic)         | **503 MB**, 25,451 files | The payload build that was measured, before PostgreSQL was bundled at all       |
+| Bundled PostgreSQL, before pruning    | **822 MB**               | Its own directory inside the payload, as staged                                 |
+| Bundled PostgreSQL, after pruning     | **120 MB**               | The same directory once `doc`/`include`/`symbols`/pgAdmin/StackBuilder are gone |
+| Payload, current (with PostgreSQL)    | **679 MB**               | What the payload build produces today                                           |
+| Compiled `.exe`, Node-only (historic) | **89.3 MB**              | `ERPServerSetup-0.1.0.exe`, the first installer that ever existed as a file     |
+| Uploaded artifact of run #14          | **116 MB compressed**    | The GitHub Actions artifact `erp-server-installer`                              |
 
 Two traps worth naming, because both have already been walked into:
 
 - **679 MB is a payload, 116 MB is a compressed artifact, 89.3 MB is an
   `.exe`.** Comparing any two of them says nothing. In particular the
-  116 MB artifact is *not* smaller than the 89.3 MB `.exe` in any
+  116 MB artifact is _not_ smaller than the 89.3 MB `.exe` in any
   meaningful sense — one is zipped, the other is not — and no difference
   between them should be claimed.
 - **The 120 MB figure is the pruned PostgreSQL directory, not the payload
@@ -295,15 +337,76 @@ prompt, an antivirus block — is fixed by running it again as Administrator, no
 by uninstalling. Every step checks for its own prior result: an initialised
 data directory, an existing database, an already-registered service.
 
+The last thing a successful run does is write `config\install-complete.json`.
+That marker, not the presence of data, is what makes the next run of the
+installer an upgrade — see below.
+
+## Upgrading
+
+Running a newer `ERPServerSetup-*.exe` on a server that already has the ERP
+installed is an upgrade, and the installer treats it as one:
+
+- **It does not ask for the company, the administrator or the backup
+  schedule again.** Those pages are skipped. Asking was not harmless:
+  provisioning finds the tenant by a slug of the company name, so a name typed
+  slightly differently created a second tenant and a second company, and the
+  password typed there silently replaced the administrator's.
+- **It stops the running installation before replacing a file.** Inno Setup
+  copies files before `install.ps1` runs, and the running services hold
+  `node.exe`, the PostgreSQL binaries and the WinSW wrappers. The installer's
+  `PrepareToInstall` runs `scripts/stop-services.ps1` first; if that cannot
+  free every file, nothing is modified and the operator is told to reboot and
+  retry.
+- **It keeps what the operator configured.** `install.ps1 -Upgrade` reads the
+  ports, the backup schedule, the retention and the offsite-backup settings
+  back from the service definitions the previous install rendered — those
+  _are_ the running configuration, so a hand edit to one wins. Each install
+  also writes the same settings to `config\settings.json` (SYSTEM and
+  Administrators only, like `services\`), which is what gets read when the
+  service definitions are gone.
+- **It brings the permission catalog up to date and nothing else.**
+  `provision.ts` runs with `ERP_PROVISION_MODE=upgrade`: it upserts the
+  permissions and currencies and resyncs the system roles of every company
+  already in the database, so permissions a release adds reach existing roles.
+  It creates and changes no tenant, company or user.
+
+What counts as "already installed" is `config\install-complete.json` plus a
+database cluster. Secrets and a cluster are not enough on their own: a first
+install that failed halfway has both and no company yet, and treating it as an
+upgrade would skip the very pages that create the company. Because `config\`
+survives an uninstall, **reinstalling over kept data is also an upgrade**. The
+service definitions are gone in that case, and the settings come from
+`config\settings.json` instead, so nothing is asked again. Only an
+installation made before that file existed has neither: then the installer
+shows the backup page, and offsite-backup settings have to be re-entered.
+
+`/SILENT` and `/VERYSILENT` are accepted **only** as an upgrade. A silent run
+with no existing installation is refused at startup. It used to hang forever:
+the company page failed validation, the message box was suppressed, and the
+wizard waited for an answer nobody could give.
+
+To re-run an upgrade by hand after a failure:
+`scripts\install.ps1 -InstallDir "<dir>" -Upgrade`, as Administrator.
+
 ## Uninstall
 
-`scripts/uninstall.ps1` stops and removes the five services, in reverse
-dependency order so Windows never refuses to stop one another still depends on.
+`scripts/uninstall.ps1` runs `stop-services.ps1`, then removes the five
+services in reverse dependency order and the three firewall rules.
 
-It removes **services only**. The PostgreSQL data directory and the backups
-survive an uninstall, and the script says so on the way out. Uninstalling an
-application must never be the action that destroys a business's accounting
-data; deleting those folders has to be a decision someone makes deliberately.
+`stop-services.ps1` exists because stopping the services is not enough to free
+the install directory. A service in a failure loop is restarted by the SCM's
+recovery actions seconds later, so each one is set to Disabled before it is
+stopped. And a WinSW wrapper that dies leaves its child running with no
+service attached (see defect 12 below), which `Stop-Service` cannot reach: the
+script shuts an orphaned PostgreSQL down with `pg_ctl stop -m fast` and ends
+any other process still running from the install directory. It never touches
+a process that runs from anywhere else.
+
+It removes **services only**. The PostgreSQL data directory, the backups and
+`config\` (the secrets, the install marker and `settings.json`) survive an uninstall, and the
+script says so on the way out. Uninstalling an application must never be the
+action that destroys a business's accounting data; deleting those folders has
+to be a decision someone makes deliberately.
 
 ## What is actually verified
 
@@ -394,7 +497,7 @@ publishes none next to that artifact. Cross-checking against a vendor-signed
 digest, or building PostgreSQL from source, is worth doing before shipping to
 customers.
 
-## The first real installation, and the three things it found
+## The first real installation, and the eleven things it found
 
 **2026-09-14.** The installer was run for the first time on a machine that was
 not a developer's and not a CI runner: a clean Windows 10 Home 22H2 VM
@@ -462,10 +565,188 @@ protecting — `config` (the secrets), `services` (the rendered definitions,
 which contain the database password and the signing key) and `backups` (the
 dumps). What must not be readable is the password, not `initdb.exe`.
 
-`data` is deliberately left out of that list: the cluster is written by
-PostgreSQL under the same restricted token, so restricting it reintroduces
-the failure. Granting the account the service actually runs as is follow-up
-work.
+`data` is left out of that loop but is **not** left open: it gets its own ACL
+a few steps later, once `initdb` has a directory to create. It has to, and the
+list of who needs it is longer than it looks — SYSTEM, Administrators, the
+account running the installer (whose restricted token is what `initdb`
+actually runs as) and NetworkService (the account the service runs as
+afterwards). Restricting it with the same rule as `config` would lock out the
+process that has to write it.
+
+Verified against a real standard (non-administrator) account on the installed
+machine: `config`, `services`, `data` and `backups` grant it nothing, while
+`pgsql` grants read+execute — the binaries run, the database password, the
+signing key and the business's data do not open.
+
+### 4. The cluster was created but nothing could write to it
+
+Two more, both consequences of the ACL work above being half right.
+
+`initdb` could load its DLLs but not CREATE the cluster: read+execute is
+enough for the loader, not for a database. The earlier manual check passed
+only because it wrote to a directory outside the install tree. `data` now
+gets its own ACL, inheritance broken, granting SYSTEM, Administrators, the
+installing user (whose restricted token is what `initdb` actually runs as)
+and the service account. Applied on every run, not only at creation: it lived
+inside the creation branch, so an existing cluster never received the
+permissions.
+
+Then the service would not start, because `services` had been locked to SYSTEM
+and Administrators and **that is where the WinSW wrapper lives**. A service
+whose own binary the account cannot read does not fail inside WinSW; it fails
+in the Service Control Manager, before WinSW runs, with a bare "could not
+start". NetworkService is now granted read+execute on `erp-postgres.exe` and
+`erp-postgres.xml` specifically -- per file, so it still cannot read
+`erp-api.xml`, which carries the database password and the signing key.
+
+### 5. PostgreSQL refuses to run as LocalSystem
+
+The service definitions declared no account, so WinSW used LocalSystem, and
+PostgreSQL exits immediately under any administrative account -- a deliberate
+check, not a missing permission: "execution of PostgreSQL by a user with
+administrative privileges is not permitted". WinSW restarted it in a loop.
+
+`erp-postgres` now runs as `NT AUTHORITY\NetworkService`. Note the element
+names: **WinSW v2 wants `<domain>` and `<user>`**. It accepts a `<username>`
+element without complaining and silently ignores it, leaving the service on
+LocalSystem -- so the fix appears applied while nothing changed.
+
+Registration also changed from `winsw refresh` to uninstall + install.
+`refresh` reloads only what lives inside the definition; the logon account,
+the dependencies and the failure actions live in the SCM's registration and
+are not touched. Every service is already stopped for the upgrade at that
+point, so re-registering costs no additional outage and makes the
+registration always match the file on disk.
+
+### 6. Migrations could not run: the payload had no Prisma config
+
+`prisma migrate deploy` failed with "The datasource.url property is required
+in your Prisma config file", with `DATABASE_URL` correctly set in the
+environment. `schema.prisma` declares `datasource db { provider =
+"postgresql" }` and no url, because **Prisma 7 removed `url` from schema
+files** — it says so when you try: "no longer supported in schema files. Move
+connection URLs for Migrate to prisma.config.ts". So the url can only come
+from a config file, and the payload carried none: `apps/api/prisma.config.ts`
+exists only in the development tree.
+
+Copying that file would not have worked either. It opens with `import
+'dotenv/config'`, and `dotenv` is a devDependency the payload prunes, and its
+paths are relative to `apps/api` rather than to the payload's server root.
+
+`build-payload.ps1` now emits its own `server/prisma.config.cjs` with the
+installed layout's paths. `.cjs` deliberately: no TypeScript loader and no ESM
+ambiguity in a tree that carries no build tooling. CI's payload check lists
+it, so it cannot go missing again without the build failing.
+
+### 7. The Node services died on the default install path
+
+`Cannot find module 'C:\Program'`. The four Node service templates passed the
+script path in `<arguments>` **unquoted**, so Node took `C:\Program` as the
+script and exited before starting. The default install directory is
+`C:\Program Files\ERP Server`, so this broke all four services on a default
+installation, not in some exotic configuration. The PostgreSQL template
+already quoted its `-D` argument; the Node ones did not.
+
+### 8. A service account that could not write its own log directory
+
+This one is worth reading even if you never touch this installer, because of
+how it presented.
+
+`erp-postgres` reported **Stopped** while PostgreSQL was running and serving
+queries. Stopping the service left orphaned `postgres.exe` processes holding
+port 5433, so the next install run could not start the database. It looked
+like WinSW was failing to supervise `postgres.exe` — plausible, since
+PostgreSQL re-executes itself under a restricted token when started by an
+administrator, which would indeed detach it from a wrapper. That diagnosis was
+recorded as an open architectural question.
+
+It was wrong. The tree-wide ACL granted the service accounts read+execute
+only, and WinSW writes its wrapper log **before** it does anything else. As
+NetworkService it silently could not, and the wrapper did not survive it. The
+giveaway was in the evidence that was missing rather than present: after a
+reboot, `erp-postgres.wrapper.log` contained no entry at all for the boot,
+while postgres was demonstrably up.
+
+`logs` now grants Modify to SYSTEM and NetworkService. Modify rather than
+FullControl: these accounts write and roll log files, they do not need to
+change permissions on the directory.
+
+Verified afterwards, on the installed machine:
+
+- the service stays `Running` and does not restart in a loop;
+- `Stop-Service` leaves **zero** `postgres.exe` processes and frees 5433, so
+  the compensating `pg_ctl stop` in the template does its job;
+- it starts again cleanly and `pg_isready` reports accepting connections;
+- after a cold reboot all five services come up `Auto`/`Running` on their own
+  and all four ports listen.
+
+The lesson generalises past this bug: when a component fails with no evidence
+anywhere, check whether it can write where it logs before believing any
+theory about what it is doing.
+
+### 9. Nobody on the LAN could reach the ERP, or log in
+
+Two separate defects, both invisible on the server itself.
+
+**The firewall was never opened.** The whole deployment model is that every
+other PC on the premises reaches this machine over the LAN, but Windows blocks
+unsolicited inbound connections by default and a service has no interactive
+session in which the "allow this app?" prompt could appear. Nothing asked and
+nothing was allowed. Measured: Gestión answered 200 on the server and timed
+out from another machine, with zero ERP firewall rules present; with one
+temporary rule it answered 200 from that machine. `install.ps1` now creates
+three rules — Gestión, Facturación and the API — and `uninstall.ps1` removes
+them. PostgreSQL is deliberately absent from that list: it binds 127.0.0.1 and
+LAN clients reach the API, never the database.
+
+**CORS was pinned to localhost.** `CORS_ORIGIN` was rendered as
+`http://localhost:3000,http://localhost:3002`. Gestión and the API are on
+different ports, so every request between them is cross-origin and carries the
+session cookie, which means the API must name the exact origin — a wildcard is
+invalid for credentialed requests. A till opening `http://192.168.1.50:3000`
+therefore sent an Origin the API did not recognise, the preflight came back
+with no `Access-Control-Allow-Origin`, and the browser blocked the login. The
+symptom was baffling in exactly the way that wastes an afternoon: the user saw
+"No se pudo iniciar sesión" while the API accepted those same credentials over
+curl. The allow-list is now built from what the machine actually answers on —
+loopback, its hostname and each of its IPv4 addresses.
+
+**If the server's IP changes, this breaks again.** DHCP renewing a lease or a
+new network card leaves the allow-list stale and every client fails to log in
+until the installer is re-run. A server should hold a static address or a
+reserved lease. The deeper fix — having the API accept any origin whose port is
+one of the two frontends — is application code and a separate decision.
+
+### 10. Every installation reported itself degraded, forever
+
+`REDIS_URL` was mandatory, so the installer had to name some Redis and named
+`redis://127.0.0.1:6379` — one this installer deliberately never ships. The
+health endpoint read "not responding" as `error` and the overall status fell to
+`degraded` on every installed machine, permanently.
+
+A health panel that is always yellow is not a diagnosis. The operator cannot
+tell normal from broken and learns to ignore it, which is precisely when it
+stops warning about anything.
+
+Redis now has three states rather than two: `disabled` when no `REDIS_URL` is
+configured (a supported deployment — permissions come from PostgreSQL), and
+`error` only when a Redis was configured and cannot be reached. Only the
+second degrades the server. The installer leaves `REDIS_URL` empty. Verified:
+`{"status":"ok","services":{"database":"ok","redis":"disabled"}}`.
+
+### 11. Scheduled backups never ran
+
+The agent logged "Next backup at ..." and exited with code 0. Both timers in
+its scheduling loop were `unref()`'d, with a comment saying the loop condition
+would decide when to exit. It could not: when every remaining handle is
+unref'd, Node has nothing holding the event loop open and the process ends
+immediately — before the promise resolves and therefore before the loop
+condition is read again.
+
+Invisible in a manual test, because a backup triggered by hand works fine:
+only the scheduler was broken. The agent's 38 tests all passed and none of
+them covered it — they test schedule arithmetic and retention, not that the
+process stays alive.
 
 ### What this says about the CI smoke test
 
@@ -483,37 +764,186 @@ can install.
   and nothing else; 5433/3001/3000/3002 are hard-coded. A machine that
   already has PostgreSQL on 5433 — likely, for a customer migrating off
   another system — cannot be resolved from the interface at all.
-- **There is no unattended install.** The values come only from the wizard
-  pages, so `/VERYSILENT` produces empty mandatory parameters. Every store is
-  a manual installation.
+- **There is no unattended first install.** The company and administrator
+  come only from the wizard pages. An unattended _upgrade_ works (see
+  "Upgrading"), and a silent run with nothing to upgrade is now refused up
+  front instead of hanging, but every new store is still a manual
+  installation.
 
 Neither is fixed here; both are recorded so they are decided rather than
 rediscovered.
 
-**Not verified, and needing a clean Windows VM:**
+## Upgrade and uninstall, and five more defects
 
-- **Running the installer.** Compiling it is verified (above); no
-  `ERPServerSetup-*.exe` has ever been executed on any machine, clean or
-  otherwise.
-- **The bundled PostgreSQL actually working.** The payload stages it and CI
-  verifies `initdb`, `pg_ctl`, `postgres`, `pg_dump` and `pg_restore` are
-  present and that `initdb --version` reports major `16`, and run #14 put all
-  of that inside an `.exe`. What none of it shows is that `initdb` can create
-  a cluster: a version banner proves the binary loads its DLLs and nothing
-  more. The pruning above is what makes this worth stating — the first real
-  installation is the test that something needed was not trimmed.
-- **Code signing.** The artifact is unsigned, so Windows SmartScreen will
-  flag it on a customer machine.
-- `initdb` and the bundled PostgreSQL running under a Windows service account.
-- WinSW service *registration* and start order. The configurations parse and
-  the executables run; what is untested is `install`/`start` against the real
-  Service Control Manager, and the failure/restart behaviour. Note the
-  PostgreSQL service runs `postgres.exe` directly, not `pg_ctl runservice` —
-  the latter registers itself with the Service Control Manager and collides
-  with WinSW doing the same.
-- The ACL hardening against a real non-administrator user.
-- Upgrade over an existing installation, and the uninstall path.
+**2026-09-17.** Same VM, now with a working installation on it. Running the
+installer a second time over it, and then uninstalling, found five more
+defects. The first of them has nothing to do with upgrading, and is the most
+serious thing in this document: it happens on a running server with nobody
+touching it.
 
-Do these on a VM before the first customer install. The most likely place to
-find the next problem is `initdb` under a service account (locale and
-directory permissions).
+### 12. The PostgreSQL service died on its own, and left the database running unsupervised
+
+Checking the installation before the upgrade, `erp-postgres` was in a restart
+loop — "terminó inesperadamente", every 30 seconds, 24 times — while the
+database answered queries normally. Its log said why each restart failed:
+`lock file "postmaster.pid" already exists`, held by a postmaster started two
+days earlier. That postmaster had no parent process.
+
+The Application event log had the cause: the WinSW wrapper (`erp-postgres.exe`)
+died with an unhandled `System.ObjectDisposedException: Cannot access a closed
+file` in `RollingSizeTimeLogAppender`. WinSW 2.12's source makes it plain. With
+`<autoRollAtTime>`, a timer thread closes the log file inside a lock, while
+the thread copying the child's output writes to it _outside_ that lock; and if
+the rotation's `File.Move` fails, the writer is left closed for good. Either
+way the next write throws on a bare thread and the wrapper process ends.
+
+WinSW does not take its child down with it. The postmaster kept running with
+the data directory's lock, so every restart the Service Control Manager
+attempted failed, and Windows showed the service stopped while the database
+kept serving, unsupervised: no restart if it crashed, no clean stop at
+shutdown.
+
+All five services now log with `roll-by-size`, which rotates on the writing
+thread itself. It also fixes something nobody had noticed:
+`roll-by-size-time` ignores `keepFiles` entirely, so the 14- and 90-file
+retention the templates declared was never applied and logs were never
+deleted. CI now fails any template that uses timed rotation — WinSW parses it
+without complaint, so the existing "WinSW accepts the configuration" check
+could never have caught this.
+
+It struck when a Hyper-V checkpoint was being taken, which is when the
+guest's clock was adjusted. That is a trigger, not the cause: the race is
+there on every rotation.
+
+### 13. An upgrade could not replace its own files
+
+Inno Setup copies files before `install.ps1` runs, and the running services
+hold `node.exe`, the PostgreSQL binaries and the WinSW executables.
+`install.ps1` did stop the services first — but only after the copy. Fixed by
+stopping everything in `PrepareToInstall`, before a file is touched (see
+"Upgrading" and `stop-services.ps1`, which also handles the orphan from
+defect 12 and services the SCM would restart mid-copy).
+
+### 14. An upgrade could create a second company and rotate the administrator's password
+
+The wizard asked for the company and the administrator again, and
+provisioning ran in full. It finds the tenant by a slug of the company name,
+so "ERP Test SRL" typed as "ERP Test S.R.L." created a second tenant and a
+second company; and the password typed there silently replaced the
+administrator's. Fixed: an upgrade skips those pages, and `provision.ts`
+runs in `upgrade` mode, which touches the permission catalog and system roles
+and nothing else.
+
+### 15. An upgrade reset the operator's settings
+
+Re-rendering the service definitions with the parameters' defaults put the
+backup schedule back to 03:00 / 30 days and dropped the offsite-backup
+configuration. Fixed: `install.ps1 -Upgrade` reads them back from the
+rendered definitions.
+
+### 16. A silent run hung forever
+
+`/SILENT` over an existing installation still showed the company page
+internally, failed its validation, suppressed the message box and waited for
+an answer. Ten minutes later it was still waiting. Fixed: silent is accepted
+only as an upgrade and refused at startup otherwise.
+
+### What the test established
+
+On the installation from the first-install test, deliberately left in the
+state defect 12 had put it in — `erp-postgres` crash-looping, the orphaned
+postmaster still serving — with the backup schedule changed beforehand to
+21:30 / 45 days, so that carrying it forward could not be confused with a
+reset to the defaults. That installation came from a build that did not yet
+write `config\install-complete.json`, so the marker was created by hand for
+the test.
+
+**Upgrade** (`/SILENT`, the `.exe` from run 35293734714), 271 seconds, exit 0:
+
+- `PrepareToInstall` ran before Inno's own Restart Manager check, which then
+  found no file in use; no retry dialog, no reboot requested.
+- The orphan was shut down cleanly: the next startup logged "database system
+  was shut down at 19:12:12", eight seconds after the installer began, with
+  no crash recovery.
+- The secrets file is byte-for-byte the same. Tenants, companies and users are
+  unchanged — the same company, and the same hash over every user's email and
+  password hash.
+- Backups still at 21:30 / 45 days.
+- The catalog moved from 91 to 101 permissions — the treasury permissions
+  this branch picked up from `main` — and the administrator's effective
+  permissions over the API are 101, all treasury ones included. That is the
+  case upgrade mode exists for, exercised for real.
+- All five services Running and Automatic; the postmaster's parent is now
+  `erp-postgres.exe`; logs in `roll-by-size`; the completion marker rewritten
+  with `mode: upgrade`.
+- From the host over the LAN: health `ok`, both frontends HTTP 200, and a
+  login with the administrator's **original** password returns 200 with the
+  right `Access-Control-Allow-Origin`.
+
+**Uninstall** (`unins000.exe /VERYSILENT`), about 50 seconds: the five services
+and the three firewall rules are gone, as is the uninstall registry key;
+nothing is left running from the install directory; 29,578 program files were
+deleted. `data` (78 MB, 2,306 files), `backups` (both dumps and the manifest)
+and `config` (secrets and marker) are intact. The only other thing left was
+an empty `server\node_modules\.cache\jiti`: a cache created at run time by the
+loader `prisma.config` goes through, which Inno never installed and so never
+removed. It is now listed under `[UninstallDelete]`.
+
+**Silent run with nothing to upgrade**, on that uninstalled machine: refused
+in one second, exit code 1, the reason in the log, nothing installed.
+
+**Reinstalling over the kept data, through the wizard** (double-clicked by a
+person, the `.exe` from run 35294953709): it ran as an upgrade —
+`install.ps1 -Upgrade`, the marker rewritten with `mode: upgrade` — so the
+company and administrator pages were skipped. The secrets file, the company,
+and the hash over every user's email and password hash are the same as
+before the uninstall; the catalog is at 101 permissions; all five services
+Running, the postmaster under `erp-postgres.exe`. The backup schedule came
+back as 03:00 / 30 days, the page's defaults: the 21:30 / 45 days set before
+was in the service definitions the uninstall removed, which is why that page
+was shown. That lost setting is why `config\settings.json` now exists (see
+"Upgrading"). Verified with the `.exe` from run 35367689544, on the same
+data: reinstall (settings.json written, 03:00 / 30), `install.ps1 -Upgrade
+-BackupTimes 21:30 -BackupRetentionDays 45`, uninstall (settings.json kept,
+readable by SYSTEM and Administrators only), reinstall — which came back at
+21:30 / 45 days with nothing asked, and the same secrets, company and users.
+Those two reinstalls ran with `/SILENT`, which only accepts a registered
+installation; the test recreated the uninstall key's path so they would run.
+A silent reinstall over kept data is refused otherwise, by design — through
+the wizard it needs nothing.
+
+**Uninstalling that reinstall** confirmed the cache was removed — and showed
+that Inno had already tried, and failed, to remove the directories above it
+by then, leaving an empty `server\node_modules`. Two `dirifempty` entries
+after the cache's handle that. With them (the `.exe` from run 35352848078):
+a silent upgrade over the reinstall kept the secrets, the company, the users
+and its 03:00 / 30 days schedule, Restart Manager again found no file in use;
+and uninstalling it left exactly `backups`, `config` and `data` behind —
+nothing else.
+
+## What is still not verified
+
+- **SmartScreen.** The `.exe` is unsigned. Double-clicked on the test VM it
+  showed only the UAC prompt with an unknown publisher — but that copy
+  arrived through `Copy-VMFile` and carried no Mark of the Web
+  (`Zone.Identifier`), and SmartScreen only checks files that do. A copy
+  given the mark a browser download adds (`ZoneId=3`) was then
+  double-clicked, and SmartScreen blocked it with the blue "Windows protegió
+  su PC" screen. So on a customer's machine the installer only starts after
+  "Más información → Ejecutar de todas formas". Code signing would remove
+  that; it is deliberately deferred, as secondary.
+- **An attended upgrade over a running installation.** The wizard has been
+  run over kept data (below), where the same pages are skipped by the same
+  condition; over a running installation only `/SILENT` has been run.
+- **Upgrading an installation made before the completion marker existed.**
+  It would be treated as a new installation and show every page, which is the
+  second-company risk of defect 14 all over again. No such installation
+  exists outside the test VM, so the marker was not made optional to cover
+  it; this is recorded so nobody ships a build without it.
+- **A wrapper dying for any other reason.** Defect 12's trigger is gone, but
+  WinSW v2 still does not end its child when it dies, and nothing notices an
+  orphaned postmaster at run time. `stop-services.ps1` recovers from it on an
+  upgrade or an uninstall; between those, it would be found by reading the
+  event log.
+- The two limits recorded above: fixed ports, and no unattended first
+  install.
