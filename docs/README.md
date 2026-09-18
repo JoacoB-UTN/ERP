@@ -17,6 +17,10 @@ shared rules, then come back here for detail.
   strategy.
 - [multi-agent-workflow.md](multi-agent-workflow.md) — how Claude Code,
   Codex, and humans coordinate parallel work safely.
+- [deployment-model.md](deployment-model.md) — the deployment decision: an
+  ERP Server in each shop (one legal entity, one database, sells offline)
+  and a central in the cloud that owns shared masters and collects stock
+  snapshots. Read before anything that crosses a shop boundary.
 
 ## Domain modules
 
