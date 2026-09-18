@@ -42,9 +42,11 @@ secrets.
 Reinstalling over the kept data through the wizard also ran as an upgrade and
 kept the secrets, the company and the users.
 
-Still **not** verified: what SmartScreen does with the unsigned `.exe`, and an
-attended (rather than silent) upgrade over a running installation. "What is still not verified" at the end of this document is
-the authority; do not read "it installs now" as "it is ready for a customer".
+The `.exe` is unsigned, and a downloaded copy is stopped by SmartScreen until
+someone clicks "Más información → Ejecutar de todas formas"; signing is
+deferred. Still **not** verified: an attended (rather than silent) upgrade
+over a running installation. "What is still not verified" at the end of this
+document is the authority; do not read "it installs now" as "it is ready for a customer".
 
 One operational note worth knowing before a customer calls: after a reboot the
 stack takes a minute or two to be usable. PostgreSQL was not yet accepting
@@ -909,9 +911,15 @@ nothing else.
 
 ## What is still not verified
 
-- **SmartScreen.** The `.exe` is unsigned. What a customer's Windows shows
-  when it is double-clicked has not been observed, and code signing is not
-  set up.
+- **SmartScreen.** The `.exe` is unsigned. Double-clicked on the test VM it
+  showed only the UAC prompt with an unknown publisher — but that copy
+  arrived through `Copy-VMFile` and carried no Mark of the Web
+  (`Zone.Identifier`), and SmartScreen only checks files that do. A copy
+  given the mark a browser download adds (`ZoneId=3`) was then
+  double-clicked, and SmartScreen blocked it with the blue "Windows protegió
+  su PC" screen. So on a customer's machine the installer only starts after
+  "Más información → Ejecutar de todas formas". Code signing would remove
+  that; it is deliberately deferred, as secondary.
 - **An attended upgrade over a running installation.** The wizard has been
   run over kept data (below), where the same pages are skipped by the same
   condition; over a running installation only `/SILENT` has been run.
