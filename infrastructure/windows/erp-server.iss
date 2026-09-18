@@ -365,3 +365,8 @@ Type: filesandordirs; Name: "{app}\services"
 ; not know it and left server\node_modules\.cache\jiti behind on the test VM.
 ; A cache, not the business's data.
 Type: filesandordirs; Name: "{app}\server\node_modules\.cache"
+; [UninstallDelete] runs after Inno has already tried, and failed, to remove
+; the directories above the cache, so the VM was left with an empty
+; server\node_modules. Entries run in order, so these come after the cache.
+Type: dirifempty; Name: "{app}\server\node_modules"
+Type: dirifempty; Name: "{app}\server"
