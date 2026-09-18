@@ -361,3 +361,7 @@ Filename: "powershell.exe"; \
 ; The uninstaller says so, and leaves both folders behind.
 Type: filesandordirs; Name: "{app}\logs"
 Type: filesandordirs; Name: "{app}\services"
+; Created at run time by the loader prisma.config goes through, so Inno does
+; not know it and left server\node_modules\.cache\jiti behind on the test VM.
+; A cache, not the business's data.
+Type: filesandordirs; Name: "{app}\server\node_modules\.cache"
