@@ -392,6 +392,19 @@ end up with, whenever either side moves. Covered by three e2e cases in
 `current-accounts.e2e-spec.ts`, including the legitimate edit that moves
 both together, which must still be accepted.
 
+**Gestión no longer offers an account the API would refuse (2026-09-19).**
+The selector on `/cobros/nuevo` and `/pagos/nuevo` listed every active
+account with its currency in parentheses and left the operator to police
+the match. It now filters to the document's currency, and changing the
+currency clears a selection that currency no longer allows — the case
+that actually bit, because a field that looks filled and then fails on
+submit is worse than an empty one. The two empty states are distinct:
+"none loaded" and "none in this currency". Eight Vitest cases across
+`cobros/cobro-account-currency.test.tsx` and
+`pagos/pago-account-currency.test.tsx`; the pages are covered separately
+because they carry the same logic in two files, which is how one gets
+fixed and the other left behind.
+
 **What this deliberately does NOT do, and it matters:** a POS sale's
 `SalesTender` reaches no account at all — see `AGENTS.md`'s invariant and
 treasury.md's "Deliberately not wired". **A cash box balance is therefore
