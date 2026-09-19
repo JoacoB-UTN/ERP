@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { TableMessage } from '@/components/ui/table-support';
 import { Unauthorized } from '@/components/layout/unauthorized';
 import { SystemStatusPanel } from '@/components/administracion/system-status-panel';
+import { SystemDiagnosticsPanel } from '@/components/administracion/system-diagnostics-panel';
 
 /**
  * Server and backup health.
@@ -82,6 +83,7 @@ export default function BackupsPage() {
           backups que se muestra abajo es información vieja, y conviene
           saberlo antes de leerla. */}
       <SystemStatusPanel />
+      <SystemDiagnosticsPanel />
 
       {statusQuery.isLoading && (
         <Card>

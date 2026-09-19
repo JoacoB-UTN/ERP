@@ -1,7 +1,10 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import type { BackupStatusResponse } from '@erp/shared';
+import type {
+  BackupStatusResponse,
+  SystemDiagnosticsResponse,
+} from '@erp/shared';
 import type { ApiFetchOptions } from './api-client';
 
 interface SystemClientConfig {
@@ -10,7 +13,7 @@ interface SystemClientConfig {
 }
 
 /**
- * Server operations status — backup health today.
+ * Server operations status: backup health and machine diagnostics.
  *
  * The data itself is instance-wide, not company-owned (a backup covers every
  * company on the server). The query is still keyed by the active company
@@ -38,5 +41,28 @@ export function createSystemClient(config: SystemClientConfig) {
     });
   }
 
-  return { useBackupStatus };
+  /**
+   * Deep diagnostics for the machine the server runs on.
+   *
+   * Keyed by company for the same reason as backups: the data is
+   * instance-wide, but the permission that gates it is granted per company.
+   *
+   * Polled faster than backups and refetched on focus, because unlike a
+   * nightly manifest these numbers move continuously — an operator who
+   * switches back to this tab while watching a sick machine should not be
+   * reading a five-minute-old uptime.
+   */
+  function useSystemDiagnostics() {
+    const companyId = useActiveCompanyId();
+    return useQuery({
+      queryKey: ['company', companyId, 'system', 'diagnostics'],
+      queryFn: () => apiFetch<SystemDiagnosticsResponse>('/system/diagnostics'),
+      enabled: !!companyId,
+      staleTime: 15_000,
+      refetchInterval: 30_000,
+      refetchOnWindowFocus: true,
+    });
+  }
+
+  return { useBackupStatus, useSystemDiagnostics };
 }

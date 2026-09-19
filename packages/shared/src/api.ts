@@ -44,3 +44,60 @@ export interface PaginationMeta {
   pageSize: number;
   total: number;
 }
+
+/** Free and total bytes of a filesystem the server depends on. */
+export interface DiskUsage {
+  totalBytes: number;
+  freeBytes: number;
+}
+
+/**
+ * Deep diagnostics for the machine the ERP Server runs on.
+ *
+ * Deliberately NOT part of `HealthResponse`: `GET /health` is unauthenticated
+ * — the desktop client polls it before anyone logs in — so a version string,
+ * a disk size or an uptime there would be readable by anyone who can reach
+ * the port. This lives behind `system.backups.read` instead.
+ *
+ * Every field answers a question a real failure on the Windows VM raised;
+ * see docs/server-installer.md. `null` means "could not be measured", which
+ * is a different answer from zero and is rendered as such.
+ */
+export interface SystemDiagnosticsResponse {
+  server: {
+    /** Version of the installed build. */
+    version: string;
+    /** When this API process started. */
+    startedAt: string;
+    uptimeSeconds: number;
+    nodeVersion: string;
+  };
+  database: {
+    /**
+     * When the PostgreSQL server itself started.
+     *
+     * The field that earns its place: compared against the API's own start
+     * time, a postmaster far older than every service around it is the
+     * signature of defect 12 — WinSW's log rotation killed the wrapper and
+     * left PostgreSQL running unsupervised, so Windows reported the service
+     * stopped while the database kept answering.
+     */
+    startedAt: string | null;
+    uptimeSeconds: number | null;
+    /** Round-trip of a trivial query. Tells "slow" apart from "down". */
+    latencyMs: number | null;
+    sizeBytes: number | null;
+  };
+  disk: {
+    /**
+     * The filesystem holding the backup directory. Null when it cannot be
+     * read. Only sizes are reported, never the path: the response crosses
+     * to a browser and a directory layout is not the operator's business
+     * data.
+     *
+     * When PostgreSQL runs on another machine this says nothing about the
+     * disk under the database — a documented limit, not an oversight.
+     */
+    backups: DiskUsage | null;
+  };
+}
