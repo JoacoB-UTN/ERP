@@ -252,6 +252,14 @@ back.
   days later. The company scoping is what closes the cross-tenant hole: a
   lookup filtered by `companyId` simply does not find another company's
   account, even with the id in hand.
+- **On edit, what gets re-checked is the resulting pair, not the field
+  that arrived.** Changing only the currency invalidates the account
+  already stored just as surely as changing the account does, so both
+  edits run the same check, against the values the row will actually end
+  up holding. Hanging it off `treasuryAccountId` alone let a
+  currency-only `PATCH` save a peso cash box under a dollar Cobro —
+  accepted with a 200, refused later at confirmation, which is precisely
+  the trap the bullet above says this check exists to prevent.
 - **The currencies must match.** A peso Cobro cannot land in a dollar
   account; it is rejected, never converted. Checked at both ends — the
   confirmation keeps its own check for a document that got its account
