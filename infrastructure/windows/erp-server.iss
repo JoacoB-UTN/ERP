@@ -70,6 +70,9 @@ var
     the install directory no longer shows what was there before. }
   Upgrading: Boolean;
   HadRenderedSettings: Boolean;
+  { 0 = not asked yet, 1 = upgrade, 2 = fresh install. Only ever set for an
+    installation that predates the completion marker; see AskAboutLegacyInstall. }
+  LegacyChoice: Integer;
 
 const
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8F3C2A16-7C9E-4C2B-9E4D-6E0F1B2A3C4D}_is1';
@@ -81,11 +84,67 @@ const
   create the company, leaving no way forward but the command line. The marker
   lives in config\, which the uninstaller keeps, so reinstalling over kept
   data counts as an upgrade too. }
-function IsExistingInstallation(const Dir: string): Boolean;
+function HasCompletionMarker(const Dir: string): Boolean;
 begin
   Result := (Dir <> '') and
     FileExists(AddBackslash(Dir) + 'config\install-complete.json') and
     FileExists(AddBackslash(Dir) + 'data\PG_VERSION');
+end;
+
+{ ...but the marker is newer than the installations it has to recognise.
+
+  It is written only by the install.ps1 that introduced it, so EVERY machine
+  installed before that release lacks it. Without a fallback those machines
+  answer "no existing installation" to the question above, the wizard asks for
+  a company and an administrator again, install.ps1 runs WITHOUT -Upgrade, and
+  provision.ts in install mode creates a SECOND tenant and a SECOND company
+  and rotates the administrator's password -- exactly the defect the marker
+  was added to prevent, on the only upgrade that currently matters: the first
+  one from the installed release.
+
+  No file can settle it on its own. install.ps1 writes the secrets, creates
+  the cluster, renders the service definitions and registers the services all
+  BEFORE it provisions, so an install that died at provisioning looks
+  identical on disk to one that finished. The only two things that can tell
+  them apart are the database itself and the person running the installer,
+  and the installer cannot query the database before it has decided which
+  pages to show. So it asks. }
+function LooksLikeLegacyInstallation(const Dir: string): Boolean;
+begin
+  Result := (Dir <> '') and
+    not HasCompletionMarker(Dir) and
+    FileExists(AddBackslash(Dir) + 'config\erp-secrets.json') and
+    FileExists(AddBackslash(Dir) + 'data\PG_VERSION');
+end;
+
+{ Asked once, and only when the marker is missing but a previous installation
+  is plainly there.
+
+  SuppressibleMsgBox returns the default without showing anything in silent
+  mode, and the default is "upgrade" -- which is right in both senses: /SILENT
+  is only ever accepted for an upgrade (see InitializeSetup), and upgrading is
+  the non-destructive answer. Getting it wrong the safe way leaves the
+  operator with an installer that stops and explains itself; getting it wrong
+  the other way duplicates their company. }
+procedure AskAboutLegacyInstall(const Dir: string);
+begin
+  if LegacyChoice <> 0 then Exit;
+  if not LooksLikeLegacyInstallation(Dir) then Exit;
+
+  if SuppressibleMsgBox(
+      'Encontramos una instalación anterior del ERP Server en esta carpeta, hecha con una versión que todavía no dejaba constancia de haber terminado.' + #13#10#13#10 +
+      '¿Querés ACTUALIZARLA, conservando la empresa, los usuarios y los datos?' + #13#10#13#10 +
+      'Elegí "No" solamente si aquella instalación nunca llegó a terminar y querés empezar de cero. En ese caso se te van a pedir la empresa y el administrador otra vez.',
+      mbConfirmation, MB_YESNO, IDYES) = IDYES then
+    LegacyChoice := 1
+  else
+    LegacyChoice := 2;
+end;
+
+function IsExistingInstallation(const Dir: string): Boolean;
+begin
+  Result := HasCompletionMarker(Dir) or
+    (LooksLikeLegacyInstallation(Dir) and (LegacyChoice = 1));
 end;
 
 function IsUpgrade: Boolean;
@@ -119,6 +178,10 @@ begin
 
   if not RegQueryStringValue(HKLM64, UninstallKey, 'Inno Setup: App Path', PreviousDir) then
     PreviousDir := '';
+  { A machine installed before the completion marker existed must still be
+    upgradable silently. SuppressibleMsgBox asks nothing here and takes the
+    default, which is "upgrade". }
+  AskAboutLegacyInstall(PreviousDir);
   if not IsExistingInstallation(PreviousDir) then
   begin
     Log('Silent mode needs an existing installation to upgrade; none found.');
@@ -210,6 +273,13 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+
+  { The directory is settled here and the company page comes next, so this is
+    the last moment at which the answer can still change which pages are
+    shown. WizardDirValue and not the app constant: that constant is only
+    committed once this page is left. }
+  if CurPageID = wpSelectDir then
+    AskAboutLegacyInstall(WizardDirValue);
 
   if CurPageID = CompanyPage.ID then
   begin
