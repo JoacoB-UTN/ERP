@@ -380,6 +380,42 @@ service definitions are gone in that case, and the settings come from
 installation made before that file existed has neither: then the installer
 shows the backup page, and offsite-backup settings have to be re-entered.
 
+### Installations older than the marker
+
+The marker is newer than the installations it has to recognise. It is written
+only by the `install.ps1` that introduced it, so **every machine installed
+before that release lacks it** — which is, right now, every installed machine.
+
+Left alone, those machines answer "no existing installation": the wizard asks
+for a company and an administrator again, `install.ps1` runs without
+`-Upgrade`, and `provision.ts` in install mode creates a second tenant and a
+second company and rotates the administrator's password. That is exactly the
+defect the marker was added to prevent, firing on the only upgrade that
+currently matters — the first one from the installed release. It was missed
+because the upgrade was tested on an installation whose marker had been
+created by hand.
+
+**No file settles it.** `install.ps1` writes the secrets, creates the cluster,
+renders the service definitions and registers the services all *before* it
+provisions, so an install that died at provisioning is byte-for-byte
+indistinguishable on disk from one that finished. Only the database and the
+person running the installer can tell them apart, and the wizard has to decide
+which pages to show before it can reach the database.
+
+**So it asks.** When the marker is missing but `config\erp-secrets.json` and
+`data\PG_VERSION` are both present, the installer shows one confirmation:
+upgrade this installation, or install from scratch. The default is upgrade,
+because that is the answer that destroys nothing — a wrong "upgrade" on a
+half-finished install stops with `provision.ts` refusing ("the database has no
+company"), while a wrong "fresh install" duplicates the operator's company.
+Under `/SILENT` the prompt is suppressed and the default taken, which is also
+what makes a silent upgrade of an existing machine possible at all; without
+this it was refused at startup.
+
+The question is asked once, when the install directory is settled and before
+the company page. From the next upgrade onward the marker exists and nothing
+is asked.
+
 `/SILENT` and `/VERYSILENT` are accepted **only** as an upgrade. A silent run
 with no existing installation is refused at startup. It used to hang forever:
 the company page failed validation, the message box was suppressed, and the
@@ -426,8 +462,8 @@ PostgreSQL 16 and a real provisioned database:
   `compile_installer=true`, 2026-09-14 08:22–08:30 UTC) succeeded and uploaded
   the **`erp-server-installer`** artifact, **116 MB compressed**, downloadable
   from the repository's Actions tab until 2026-12-13. That is the first
-  installer built with a database inside it. It says nothing about whether it
-  installs — see the pending list below; the `.exe` has still never been run.
+  installer built with a database inside it. On its own it said nothing about
+  whether it installs; the sections below record what running it established.
 - **The payload builds.** 503 MB Node-only, 25,451 files after pruning dev
   dependencies — 679 MB today, with PostgreSQL bundled (see "Sizes" above)
   (from 74,000+ before). All expected entry points, both Next standalone trees
