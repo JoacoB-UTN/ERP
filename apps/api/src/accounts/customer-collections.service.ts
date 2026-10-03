@@ -300,6 +300,7 @@ export class CustomerCollectionsService {
     ) {
       currency = await this.loadCurrency(input.currencyId);
     }
+    const currencyChanged = currency.id !== existing.currencyId;
     const amount = input.amount ?? existing.amount.toString();
 
     let rebuiltApplications: BuiltApplication[] | undefined;
@@ -321,17 +322,31 @@ export class CustomerCollectionsService {
       if (input.amount !== undefined) data.amount = input.amount;
       if (input.paymentMethod !== undefined)
         data.paymentMethod = input.paymentMethod;
-      if (input.treasuryAccountId !== undefined) {
-        // Re-validated on edit, not only on create: otherwise a draft
-        // created against a valid account could be pointed at another
-        // company's, or at one retired since, and the check at
-        // confirmation would be the first to notice.
+      // Re-validated on edit, not only on create: otherwise a draft
+      // created against a valid account could be pointed at another
+      // company's, or at one retired since, and the check at
+      // confirmation would be the first to notice.
+      //
+      // What has to hold is the *pair*, not either half of it. Hanging
+      // this off `input.treasuryAccountId` alone let the other edit
+      // through: a PATCH that moves only the currency leaves the stored
+      // account naming the old one, and the draft then reaches a
+      // confirmation that cannot post it. Re-check whenever either side
+      // moves, against the values the row will actually end up with.
+      const targetAccountId =
+        input.treasuryAccountId ?? existing.treasuryAccountId;
+      if (
+        targetAccountId !== null &&
+        (input.treasuryAccountId !== undefined || currencyChanged)
+      ) {
         await this.assertTreasuryAccountUsable(
           tx,
           ctx,
-          input.treasuryAccountId,
+          targetAccountId,
           currency.id,
         );
+      }
+      if (input.treasuryAccountId !== undefined) {
         data.treasuryAccountId = input.treasuryAccountId;
       }
       if (input.externalReference !== undefined)

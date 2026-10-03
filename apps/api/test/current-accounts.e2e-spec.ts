@@ -1039,6 +1039,53 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         expect(res.status).toBe(409);
       });
 
+      it('re-validates the stored account when only the currency moves', async () => {
+        // The half of the pair the first version of this check missed. A
+        // PATCH that carries no `treasuryAccountId` still invalidates the
+        // one already stored, because what has to hold is the pair. Let
+        // through, the draft saved cleanly and then failed at
+        // confirmation with a mismatch nothing on that screen caused.
+        const created = await agent0(); // ARS, on the ARS cash box
+        const agent = await loginAs(userAdminId);
+        const res = await agent
+          .patch(`/api/v1/customer-collections/${created}`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({ currencyId: usdId });
+
+        expect(res.status).toBe(400);
+        expect((res.body as ErrorEnvelope).error.code).toBe(
+          'TREASURY_CURRENCY_MISMATCH',
+        );
+
+        // Rejected whole. The row must not be left holding the new
+        // currency and the old account, which is the state that made the
+        // document unconfirmable in the first place.
+        const after = await prisma.customerCollection.findFirstOrThrow({
+          where: { id: created },
+        });
+        expect(after.currencyId).toBe(arsId);
+        expect(after.treasuryAccountId).toBe(treasuryArsId);
+      });
+
+      it('accepts a currency change that moves the account with it', async () => {
+        // The counterpart, and the reason the check is on the resulting
+        // pair rather than on either field: this edit is legitimate and
+        // must still go through.
+        const created = await agent0();
+        const agent = await loginAs(userAdminId);
+        await agent
+          .patch(`/api/v1/customer-collections/${created}`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({ currencyId: usdId, treasuryAccountId: treasuryUsdId })
+          .expect(200);
+
+        const after = await prisma.customerCollection.findFirstOrThrow({
+          where: { id: created },
+        });
+        expect(after.currencyId).toBe(usdId);
+        expect(after.treasuryAccountId).toBe(treasuryUsdId);
+      });
+
       it('links the reversal back to the movement it undoes', async () => {
         const agent = await loginAs(userAdminId);
         const created = await agent
@@ -1559,6 +1606,40 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           where: { id },
         });
         expect(after.status).toBe('DRAFT');
+      });
+
+      it('re-validates the stored account when only the currency moves', async () => {
+        // Same defect, same fix, on the Pagos side: the two services
+        // carry the same edit path and drifted together.
+        const agent = await loginAs(userAdminId);
+        const created = await agent
+          .post('/api/v1/supplier-payments')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            supplierId,
+            currencyId: arsId,
+            amount: '50',
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryArsId,
+          })
+          .expect(201);
+        const id = (created.body as { payment: PaymentBody }).payment.id;
+
+        const res = await agent
+          .patch(`/api/v1/supplier-payments/${id}`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({ currencyId: usdId });
+
+        expect(res.status).toBe(400);
+        expect((res.body as ErrorEnvelope).error.code).toBe(
+          'TREASURY_CURRENCY_MISMATCH',
+        );
+
+        const after = await prisma.supplierPayment.findFirstOrThrow({
+          where: { id },
+        });
+        expect(after.currencyId).toBe(arsId);
+        expect(after.treasuryAccountId).toBe(treasuryArsId);
       });
     });
 

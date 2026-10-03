@@ -380,6 +380,18 @@ the customer/supplier ledger and stay out of every treasury balance,
 which is the documented rule (task 019, criterion 7), not an oversight.
 A Pago cannot overdraw a cash box: the confirmation fails whole.
 
+**Account/currency re-validated on edit as a pair (2026-09-19).** The
+check that keeps a Cobro or Pago from naming an account it cannot use ran
+only when the `PATCH` carried a `treasuryAccountId`. A `PATCH` that moved
+only `currencyId` was accepted with a 200 and left the document holding
+the new currency and the old account — saved cleanly, then rejected at
+confirmation with `TREASURY_CURRENCY_MISMATCH`, which is the exact trap
+that check exists to prevent. Both `CustomerCollectionsService.update()`
+and `SupplierPaymentsService.update()` now validate the pair the row will
+end up with, whenever either side moves. Covered by three e2e cases in
+`current-accounts.e2e-spec.ts`, including the legitimate edit that moves
+both together, which must still be accepted.
+
 **What this deliberately does NOT do, and it matters:** a POS sale's
 `SalesTender` reaches no account at all — see `AGENTS.md`'s invariant and
 treasury.md's "Deliberately not wired". **A cash box balance is therefore
