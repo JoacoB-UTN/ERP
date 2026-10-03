@@ -1,6 +1,7 @@
 # 025 — UI de Tesorería en Gestión
 
-Estado: IMPLEMENTADO; revisión humana, recorrido visual y merge pendientes.
+Status: DONE — screen scope integrated in PR #62; core browser acceptance verified.
+PR: #62 (merged).
 Fecha: 2026-10-03.
 Owner: Codex UI; integración y revisión por coordinador independiente.
 Rama de entrega: `agent/codex-treasury-delivery`.
@@ -65,4 +66,4 @@ P2 resuelto: el backend solo permite anular CONFIRMED. El botón, revisión y ej
 
 Las regresiones del cliente usan `createApiClient` real con fetch simulado: renovación 401 normal, cambio A→B durante refresh para consultas y creación de cuentas, respuestas/errores tardíos y revalidación después de parseo asíncrono. Comprueban que no haya retry a B ni datos de B cacheados bajo A. Se conserva compatibilidad sin opt-in. La UI prueba permisos, Decimal strings, extractos, estado de transferencias y revisión de confirmación/anulación.
 
-No se realizó recorrido visual en navegador ni ensayo manual de servidor local. Sigue pendiente esa aceptación y la revisión humana antes del merge. Auditar el cambio de empresa durante requests de consumidores legacy sin `expectedCompanyId` es un seguimiento separado; esta entrega aplica el refuerzo a Tesorería.
+En la integración original no hubo recorrido visual. Posteriormente, sobre `1c2e7e8`, se ejecutó una instalación descartable y aceptación de los flujos principales; ver [evidencia](../../docs/acceptance-2026-10-03.md). PR #62 ya está mergeado. La matriz visual completa de permisos, filtros/paginación y todos los casos de edición sigue cubierta parcialmente por pruebas automatizadas, no por este recorrido. Auditar el cambio de empresa durante requests de consumidores legacy sin `expectedCompanyId` es un seguimiento separado; esta entrega aplica el refuerzo a Tesorería.

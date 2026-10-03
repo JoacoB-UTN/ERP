@@ -441,7 +441,7 @@ it.
 - **Cash count / blind close ("arqueo", "cierre de caja").**
 ## Gestión screens
 
-The review branch implements `/tesoreria` (cash boxes and bank accounts),
+PR #62 implements `/tesoreria` (cash boxes and bank accounts),
 `/tesoreria/nueva`, `/tesoreria/:id`, and `/tesoreria/transferencias`
 (list, new draft and detail). Account editing and opening balances use
 separate forms in the detail view. Transfer drafts can be edited and confirmed; only confirmed transfers
@@ -477,4 +477,8 @@ transfer and current-account suites (87 tests). The new currency endpoint
 passed three additional permission/company tests on a separate disposable
 instance. No application database, seed, migration definition or production
 deployment was changed. UI automated checks are recorded in task 025;
-manual browser acceptance remains pending before declaring task 019 closed.
+a subsequent disposable browser rehearsal passed account creation, opening
+and repeated-opening refusal, transfer confirmation/reversal, statement history,
+company switching and POS exclusion. See [acceptance evidence](acceptance-2026-10-03.md)
+for exact observations and remaining coverage. The opening-refusal message now
+explains the rule without directing users to an unimplemented adjustment flow.

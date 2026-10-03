@@ -6,11 +6,12 @@ from [seed.ts](../apps/api/prisma/seed.ts); do not recreate it for this demo.
 See [sales.md](sales.md), [pos.md](pos.md), [pricing.md](pricing.md),
 [inventory.md](inventory.md) and [dashboard.md](dashboard.md) for domain rules.
 
-**Evidence status:** reconciled by static inspection on 2026-10-03 against
-`6dac59ffc89174f4ce6a9af5df08577e682e2da2`. The numbers below are expectations
-calculated from that code. This revision has not been rehearsed against a
-database or in a browser. Task 015 remains **PARTIAL — runtime verification
-pending**; earlier browser checks do not validate this revised script.
+**Evidence status:** on 2026-10-03, a disposable database and browser rehearsal
+verified the double seed, a normal sale and a cash POS sale against base
+`1c2e7e8`. See [acceptance evidence](acceptance-2026-10-03.md). The full timed
+tour, optional card sale and receipt dialog/physical printing were not
+performed. Task 015 remains **PARTIAL**; observed results and untested
+expectations are distinguished below.
 
 ## Before the meeting
 
@@ -21,7 +22,7 @@ already available. Have the environment owner verify the effective
 credentials. Do not inherit another installation's environment or reset an
 existing database to obtain this baseline.
 
-For a future authorized rehearsal, from the repository root:
+For another rehearsal in that disposable environment, from the repository root:
 
 ```bash
 npm run db:migrate:deploy --workspace=apps/api
@@ -72,19 +73,19 @@ numbers rather than promising a sequence number on a reused database.
 
 ### 1. Dashboard — 0:00–1:00
 
-In Gestión `/`, verify ANRAS and Casa Central. Point out **Ventas confirmadas
-hoy** and **Total operado hoy**, computed by `GET /dashboard/summary` using
-`confirmedAt` and the company's local day.
+In Gestión `/`, verify ANRAS and Casa Central. The **Ventas** panel defaults
+to **30 días**, with sales amount, confirmed count and average ticket from
+`GET /dashboard/sales-series?period=D30`.
 
-Expected starting point: **2 confirmed sales / ARS 28.900,00**:
+Observed fresh starting point: **11 confirmed sales / ARS 657.400,00**, with
+**ARS 59.763,64** average ticket. The numbered draft is excluded. These totals
+include the seeded historical sales within the selected period.
 
-- DEMO-SEED-01: Ferretería El Puente, Yerba mate 1 kg ×2 and Resma A4 ×1:
-  2 × 8.500 + 6.500 = ARS 23.500,00.
-- DEMO-SEED-02: Consumidor Final, Gaseosa cola 500 ml ×3 and Bolígrafo ×2:
-  3 × 1.200 + 2 × 900 = ARS 5.400,00.
-
-These expectations hold on the day those seed sales were first created.
-Running the seed again on a later day does not move their dates forward.
+The API also exposes today's aggregate through `/dashboard/summary`, but
+those daily cards are not the current dashboard UI. Do not present its
+**2 / ARS 28.900,00** seed-day aggregate as the visible 30-day baseline.
+Re-seeding later does not move existing sale dates forward; a later rehearsal
+must check which dates remain inside the selected period.
 
 ### 2. Clientes — 1:00–2:00
 
@@ -162,7 +163,10 @@ should decrease from **159 to 158**; verify the associated **SALE** movement.
 The other two warehouses should remain unchanged. Re-reading the confirmed
 sale must not create another movement.
 
-Reload `/`: the expected daily aggregate is now **3 / ARS 50.900,00**.
+Reload `/` with **30 días** selected: the expected aggregate after this sale
+is **12 / ARS 679.400,00**. The normal sale and stock change were observed;
+the separately recorded dashboard observations are the fresh baseline and
+the result after both required sales.
 Both applications use the same sales, pricing and inventory domain and
 database. This demonstration does not require a synchronization process
 between Gestión and Facturación.
@@ -180,7 +184,8 @@ In Facturación `/pos`, verify the same company, branch, warehouse and list.
 5. Select **Confirmar y cobrar**. Record the number (expected **VTA-000014**)
    and inspect the total, method, received amount and change.
 6. Reload Gestión and compare the sale. Café in Central should now be **157**
-   with one additional SALE movement, and the dashboard **4 / ARS 72.900,00**.
+   with one additional SALE movement. The observed **30 días** dashboard after
+   both sales was **13 / ARS 701.400,00**, with **ARS 53.953,85** average ticket.
 
 A tender is operational payment metadata, not a Treasury cash or bank
 posting. The optional printed receipt says **Documento interno. No
@@ -203,8 +208,9 @@ method, not an integration with a card terminal. Confirm and record the
 number (expected **VTA-000015**). Compare the sale in Gestión and verify a
 Cuaderno SALE movement of −1 in Central. Café remains 157.
 
-Only after this optional sale should the daily aggregate be
-**5 / ARS 75.400,00**. Without it, the script ends at 4 / ARS 72.900,00.
+**Expected, not observed:** after this optional sale, the **30 días**
+aggregate would be **14 / ARS 703.900,00**. Without it, the observed script
+ends at **13 / ARS 701.400,00**. The optional sale was not rehearsed.
 
 ## Data notes and static sources
 
@@ -223,29 +229,38 @@ Only after this optional sale should the daily aggregate be
   Existing historical sales keep their dates, numbers and totals. The seed
   constructs fixtures directly rather than proving the live confirmation
   path; the rehearsal must exercise that path through the UI.
-- `DashboardService.getSalesToday` uses `confirmedAt` within the company's
-  local calendar day. Its totals are grouped by currency. A baseline from
-  another day or a previously used database requires fresh measurement.
+- `SalesOverview` selects `D30` by default. `SalesSeriesService.windowTotals`
+  counts confirmed sales in the company's local period, scoped by company
+  and currency; average ticket uses Decimal with two-decimal half-up rounding.
+  `DashboardService.getSalesToday` still serves the separate daily summary.
+  A previously used database or a later period requires fresh measurement.
 - ANRAS uses CUIT placeholder `30-71876543-5`; company identifiers in this
   dataset are demonstration placeholders, not verified tax registrations.
 
-## Rehearsal evidence — still pending
+## Rehearsal evidence — core flow verified, full tour pending
 
-Record the tested SHA, local date/time and timezone, environment identity
-without credentials, and actual observations alongside expectations:
+See [acceptance evidence](acceptance-2026-10-03.md) for the environment and
+observations. On the disposable database, seed runs one and two preserved
+IDs and compared fields, excluding `updatedAt`, for **4 companies,
+16 customers, 17 products, 21 variants, 3 price lists, 21 price items,
+21 price-history rows, 12 sales, 22 sale lines, 10 tenders,
+49 stock movements and 23 inventory balances**. This does not claim every
+row in the database is immutable under a repeated seed.
 
-1. After seed runs one and two, compare company-scoped IDs and counts for
-   customers, products, variants, lists, price items/history, sales markers,
-   numbers/dates/totals, stock movements and balances. Require no duplicates
-   or extra inventory effect; do not require byte-for-byte equality of all
-   rows, because upserts and password setup can write existing data.
-2. Complete the timed walkthrough; record selected context, prices, sale
-   numbers and totals, tender/change, and non-fiscal receipt wording.
-3. For each confirmed tracked line, match the SALE movement and resulting
-   stock delta; compare both apps and the daily aggregate. Record the
-   optional sale separately and verify other warehouses are unchanged.
-4. Keep browser observations, seed results and any separately run automated
-   suites distinct. Do not label Task 015 DONE until this evidence exists.
+The browser flow confirmed **VTA-000013**, Ferretería + Café ×1 at Minorista,
+for **ARS 22.000,00**, then **VTA-000014**, Consumidor Final + Café ×1,
+with cash received **ARS 25.000,00** and change **ARS 3.000,00**. Central Café
+stock changed **159 → 158 → 157**; the other warehouses remained **16 and 14**.
+The fresh and final visible 30-day dashboard totals matched those above.
+A database comparison confirmed exactly one new SALE movement of -1 linked
+to each confirmed sale (14 sales and 51 stock movements afterward).
 
-No migrations, seed, application tests/build, servers or database
-connections were executed for this documentation reconciliation.
+Remaining before closing Task 015:
+
+1. Run and time the complete customer/product/pricing presentation, including
+   the receipt dialog and verification of its non-fiscal wording. Physical
+   printing was not tested; verify it separately if part of the presentation.
+2. Rehearse the optional card sale if it will be demonstrated; its results
+   above remain expectations, not observations.
+3. Keep browser, seed and automated-test evidence separate. The successful
+   core flow does not establish the duration or completion of the full tour.
