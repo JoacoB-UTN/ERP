@@ -191,7 +191,10 @@ export class TreasuryService {
       params.movementType === 'COLLECTION_REVERSAL' &&
       params.reversalOfId !== undefined;
 
+    // A correction can leave a deficit. Positive movements must be able
+    // to reduce it even when they do not clear it in a single payment.
     if (
+      params.amount.lt(0) &&
       updated.balance.lt(0) &&
       !account.allowsNegativeBalance &&
       !isCorrectiveCollectionReversal

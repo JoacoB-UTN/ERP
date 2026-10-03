@@ -13,6 +13,7 @@ import {
   setTreasuryOpeningBalanceSchema,
   treasuryAccountsQuerySchema,
   treasuryStatementQuerySchema,
+  type CurrenciesResponse,
   type CreateTreasuryAccountInput,
   type UpdateTreasuryAccountInput,
   type SetTreasuryOpeningBalanceInput,
@@ -41,6 +42,12 @@ export class TreasuryAccountsController {
   ): Promise<TreasuryAccountsResponse> {
     const accounts = await this.accounts.list(ctx.companyId, query);
     return { accounts };
+  }
+
+  @RequirePermissions('treasury.accounts.create')
+  @Get('currencies')
+  async currencies(): Promise<CurrenciesResponse> {
+    return { currencies: await this.accounts.listCurrencies() };
   }
 
   @RequirePermissions('treasury.accounts.read')

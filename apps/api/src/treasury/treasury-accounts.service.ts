@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type {
+  CurrencyDto,
   CreateTreasuryAccountInput,
   UpdateTreasuryAccountInput,
   SetTreasuryOpeningBalanceInput,
@@ -84,6 +85,22 @@ export class TreasuryAccountsService {
     private readonly auditService: AuditService,
     private readonly treasury: TreasuryService,
   ) {}
+
+  /** Global reference catalog, available when opening a treasury account. */
+  async listCurrencies(): Promise<CurrencyDto[]> {
+    return this.prisma.currency.findMany({
+      where: { active: true },
+      orderBy: { code: 'asc' },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        symbol: true,
+        decimalPlaces: true,
+        active: true,
+      },
+    });
+  }
 
   async list(
     companyId: string,
