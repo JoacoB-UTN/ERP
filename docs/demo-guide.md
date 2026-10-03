@@ -1,233 +1,251 @@
 # Demo Guide
 
-A script for the first serious product demonstration of the ERP,
-against the data produced by `apps/api/prisma/seed.ts`. This is a
-presentation aid, not a product doc — for what actually exists, see
-[implementation-status.md](implementation-status.md); for the domain
-rules the seed had to respect, see [sales.md](sales.md),
-[pos.md](pos.md), [pricing.md](pricing.md), [inventory.md](inventory.md).
+A 13-minute presentation of customers, products, pricing, stock and sales
+across Gestión and Facturación, including POS. The existing dataset comes
+from [seed.ts](../apps/api/prisma/seed.ts); do not recreate it for this demo.
+See [sales.md](sales.md), [pos.md](pos.md), [pricing.md](pricing.md),
+[inventory.md](inventory.md) and [dashboard.md](dashboard.md) for domain rules.
 
-Every record named below (customer, product, price, warehouse, sale
-number) comes from a fresh `db:reset` + seed run and was verified live
-in the browser before this guide was written. If the seed ever changes,
-re-verify this script — don't just re-read it.
+**Evidence status:** reconciled by static inspection on 2026-10-03 against
+`6dac59ffc89174f4ce6a9af5df08577e682e2da2`. The numbers below are expectations
+calculated from that code. This revision has not been rehearsed against a
+database or in a browser. Task 015 remains **PARTIAL — runtime verification
+pending**; earlier browser checks do not validate this revised script.
 
 ## Before the meeting
 
-From the repo root, with PostgreSQL and Redis running locally:
+Prepare and rehearse in a **new, disposable local database**, with dedicated
+PostgreSQL and Redis, installed dependencies and the API's generated client
+already available. Have the environment owner verify the effective
+`DATABASE_URL` and `REDIS_URL` before any command, without publishing their
+credentials. Do not inherit another installation's environment or reset an
+existing database to obtain this baseline.
+
+For a future authorized rehearsal, from the repository root:
 
 ```bash
-npm run db:reset
-npm run dev
+npm run db:migrate:deploy --workspace=apps/api
+npm run db:seed
 ```
 
-`db:reset` runs `prisma migrate reset` for `apps/api`, which connects
-using `DATABASE_URL` — it drops and recreates whatever database that URL
-points to, reapplies all migrations, and runs the seed automatically.
-**Before confirming the reset, check `apps/api/.env`'s `DATABASE_URL`
-yourself and make sure it points at your local dev database** (e.g.
-`localhost:5432/erp_platform_dev`) — there is no code-level guard
-preventing this command from running against whatever database is
-configured, so a misconfigured `.env` pointed at a shared or production
-database would be dropped too. If you only need to re-seed without
-dropping the schema (e.g. you didn't touch migrations), `npm run
-db:seed` alone is enough and is idempotent — safe to re-run, it will not
-duplicate demo data.
+The first command applies existing migrations to the disposable database;
+it does not generate new migrations. Record the first seed's counts,
+identities, sales numbers/dates/totals, price history and inventory movements
+and balances. Then run `npm run db:seed` a second time and compare them as
+described under **Rehearsal evidence** below. Re-seeding is not universally a
+no-op: some upserts update fields and the administrator password is set
+again. It must not be used to refresh an existing installation for a demo.
 
-`npm run dev` starts all three apps together:
+After those checks, `npm run dev` starts the API and both frontends:
 
-| App | URL |
+| App | Default local URL |
 | --- | --- |
-| Gestión (backoffice) | http://localhost:3000 |
+| Gestión | http://localhost:3000 |
 | API | http://localhost:3001/api/v1 |
-| Facturación (incl. POS at `/pos`) | http://localhost:3002 |
+| Facturación, including `/pos` | http://localhost:3002 |
 
-Open Gestión and Facturación in two browser tabs/windows before you
-start talking — the "prove integration" step (section 7 below) depends
-on switching between them quickly.
+Open Gestión and Facturación in separate tabs and log in before starting
+the timer. Finish the seed and presentation on the same calendar day in
+ANRAS's timezone, `America/Argentina/Buenos_Aires`, without crossing midnight
+or allowing concurrent operators. If the observed baseline differs, record
+and investigate it before presenting; do not force the data to match.
 
-## Demo credentials
+## Demo login and company
 
-Local/dev only — never use these values outside a local database.
+The seed's local defaults are `admin@example.local` and `ChangeMe1234`.
+`SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` can override them; use the values
+chosen by the rehearsal environment owner. The default password is for
+local development only.
 
-- **Email:** `admin@example.local`
-- **Password:** `ChangeMe1234` (the seed's `DEV_ONLY_DEFAULT_PASSWORD`;
-  overridable via `SEED_ADMIN_PASSWORD` in `apps/api/.env`, and
-  *required* to be overridden if `NODE_ENV=production`)
+The administrator has access to **ANRAS**, **CABACO** and **BLANCO BAHIA**.
+Use **ANRAS → Casa Central** in both apps. ANRAS has the illustrative
+customers, catalog, stock, price lists and sales. The other two companies
+support selection/isolation scenarios, not this sales demo. A separate
+other-tenant fixture also exists but is not granted to this administrator;
+three accessible companies does not mean three company rows in the database.
 
-This one admin user has access to both seeded companies. Use
-**ANRAS** for the demo — the second company
-("Second Demo Company") exists only for cross-company isolation tests
-and has no realistic demo data.
+## Presentation: 13 minutes, or 15 with the optional sale
 
-## 10–15 minute presentation
+All expected numbers assume the complete seed in the new database described
+above, unchanged prices and no other operations. Capture actual sale
+numbers rather than promising a sequence number on a reused database.
 
-Log into Gestión first, select **ANRAS** →
-**Casa Central**, and confirm the URL bar shows `localhost:3000`.
+### 1. Dashboard — 0:00–1:00
 
-### 1. Gestión Dashboard
+In Gestión `/`, verify ANRAS and Casa Central. Point out **Ventas confirmadas
+hoy** and **Total operado hoy**, computed by `GET /dashboard/summary` using
+`confirmedAt` and the company's local day.
 
-Land on `/`. Point out **Ventas confirmadas hoy** and **Total operado
-hoy** — these are real, live-computed aggregates
-(`GET /dashboard/summary`), not placeholders. On a fresh `db:reset` +
-seed, before you create any sale in this demo, this reads **2 confirmed
-sales / ARS 28.900,00** — the seed's two `daysAgo: 0` sales (DEMO-SEED-01:
-Ferretería El Puente, Yerba mate 1 kg ×2 + Resma A4 ×1 = ARS 23.500,00;
-DEMO-SEED-02: Consumidor Final, Gaseosa cola 500 ml ×3 + Bolígrafo ×2 =
-ARS 5.400,00). This baseline is what "today" happens to already contain —
-it doesn't shift with when you seed, only the historical sales' relative
-dates do (see "Determinism" below).
+Expected starting point: **2 confirmed sales / ARS 28.900,00**:
 
-By the end of this script (after the Facturación sale in step 6 and both
-POS sales in step 8), the same card should read **5 confirmed sales /
-ARS 75.400,00** (28.900 + 22.000 + 22.000 + 2.500). Don't claim the
-5/75.400 figure before those three sales actually exist — walk the
-presenter through the baseline now, and circle back to the grown total
-in step 7/8's "prove integration" moments.
+- DEMO-SEED-01: Ferretería El Puente, Yerba mate 1 kg ×2 and Resma A4 ×1:
+  2 × 8.500 + 6.500 = ARS 23.500,00.
+- DEMO-SEED-02: Consumidor Final, Gaseosa cola 500 ml ×3 and Bolígrafo ×2:
+  3 × 1.200 + 2 × 900 = ARS 5.400,00.
 
-### 2. Clientes
+These expectations hold on the day those seed sales were first created.
+Running the seed again on a later day does not move their dates forward.
 
-Go to `/clientes`. Search **"Ferretería"** — one hit, **Ferretería El
-Puente** (code `000002`, Responsable Inscripto, CUIT
-`30-71234567-1`). Open it to show the customer detail page (fiscal data,
-contact info, address). Mention the roster: 16 customers, a mix of
-companies, small businesses, and individuals, plus the mandatory
-**Consumidor Final** (code `000001`) used by walk-in POS sales.
+### 2. Clientes — 1:00–2:00
 
-### 3. Productos
+Go to `/clientes`, search **Ferretería**, and open **Ferretería El Puente**
+(code `000002`, legal name **Ferretería El Puente S.R.L.**, CUIT
+`30-71234567-1`). Show its detail. There are **16 customers total**, including
+**Consumidor Final** (`000001`) and one inactive customer; the active count
+is therefore 15. Do not add Consumidor Final to the total a second time.
 
-Go to `/productos`. Point out the catalog mix: **Café 1 kg**
-(`CAFE-1KG`, stock-tracked, single-variant), **Bolígrafo**/**Buzo con
-capucha** (multi-variant — Buzo has 4 variants across size/color
-combinations: Negro/S, Negro/M, Negro/L, Gris/M), **Gaseosa cola 500 ml**
-(has a valid EAN-13 barcode, `7790001000019`), and **Servicio de flete**
-(type Servicio — no stock, no warehouse). 17 products, 21 sellable
-variants total.
+### 3. Productos — 2:00–3:30
 
-### 4. Inventario
+Go to `/productos`. Show **Café 1 kg** (SKU `CAFE-1KG`, one variant, tracked
+inventory), **Buzo con capucha** (Negro/S, Negro/M, Negro/L and Gris/M),
+**Gaseosa cola 500 ml** (barcode `7790001000019`) and **Servicio de flete**
+(no inventory movement).
 
-Go to `/stock/existencias`. Filter by **Café 1 kg** — three rows, one
-per warehouse (Depósito Central, Salón de Ventas, Depósito Sucursal
-Norte), all with distinct on-hand quantities. This is the point to
-mention that stock is a projection over an append-only `StockMovement`
-ledger, never a mutable counter. Optionally filter to **Cargador USB-C**
-to show it returns zero rows — a genuine, deliberate zero-stock example
-for the negative-/edge-case story.
+The catalog contains **17 products and 21 variants**, including three
+services and one inactive product, Cinta adhesiva. There are 16 active
+products; do not describe every catalog variant as currently sellable.
 
-### 5. Precios
+### 4. Existencias — 3:30–5:00
 
-Go to `/listas-de-precios`. Three price lists exist — **Minorista**
-(FIXED, the default), **Mayorista** (DERIVED, -10% off Minorista), and
-**Distribuidor** (DERIVED, -15% off Minorista) — but the live demo only
-needs to show **Minorista** and **Mayorista**; skip Distribuidor unless
-asked. DERIVED lists are computed at read time from their base, never
-materialized. Open **Café 1 kg** in Minorista to show its price:
-**ARS 22.000,00**.
+Go to **`/stock`**, search **Café**, and select **Todos los depósitos**.
+The expected current physical balances after the complete seed are:
 
-### 6. Facturación — Nueva venta
+| Warehouse | Calculation from seeded movements | Expected Café stock |
+| --- | --- | --- |
+| Depósito Central | 90 initial − 1 − 5 sold + 40 + 35 received | 159 |
+| Salón de Ventas | 15 initial − 1 sold | 14 |
+| Depósito Sucursal Norte | 20 initial − 4 sold | 16 |
 
-Switch to the Facturación tab. Confirm company **Distribuidora
-Horizonte**, branch **Casa Central** — you'll be asked to pick a
-warehouse explicitly here (Casa Central has two eligible warehouses,
-Depósito Central and Salón de Ventas, so it won't auto-select). Choose
-**Depósito Central**. Price list **Minorista** auto-selects (it's the
-only eligible default).
+Record the Central balance for the next steps. Initial quantities alone
+are not current stock: seeded receipts and confirmed sales also contribute.
+The receipt quantities explain the baseline; Purchases is not part of this
+walkthrough. Stock is derived from the movement ledger. `/stock/movimientos`
+provides the supporting movements.
 
-Start a **Nueva venta**:
-1. Customer: search **"Ferretería"**, select **Ferretería El Puente**.
-2. Product: search **"Café"**, add **Café 1 kg** (qty 1).
-3. Confirm the line total: **ARS 22.000,00**.
-4. Click **Confirmar** — the sale moves to CONFIRMED, gets a number
-   (continuing the `VTA-NNNNNN` sequence), and Depósito Central's Café 1
-   kg stock decrements by 1. On a fresh `db:reset` + seed, exactly 11
-   sales already exist (10 confirmed + 1 draft), so this sale will be
-   **VTA-000012** — *unless* you or someone else already created sales
-   in this database session, in which case just use whatever number
-   appears; the total (ARS 22.000,00) is what matters for the story.
+If time allows, search **Cargador USB-C**: no stock rows are expected in the
+fresh fixture because it has no seeded movements. This is an expectation to
+check during rehearsal, not a claim about an existing installation.
 
-### 7. Prove integration
+### 5. Precios — 5:00–6:00
 
-Switch back to the Gestión tab and refresh the dashboard (or revisit
-`/ventas`). The sale you just confirmed appears immediately with the
-same number, customer, and total — same `SalesService`, same database,
-no separate "sync." This is the single most important beat of the demo:
-Gestión and Facturación — including POS mode inside Facturación — share
-the same sales/inventory/pricing core and database. There are only two
-user-facing applications; POS is not a third app, it's a fast checkout
-mode inside Facturación.
+Go to `/listas-de-precios`. Show **Minorista** (fixed, default) with Café at
+**ARS 22.000,00**, then **Mayorista** (derived, 10% lower) at **ARS 19.800,00**.
+**Distribuidor** is also derived, 15% below Minorista; it can be skipped.
+Derived prices are resolved from the base list rather than materialized as
+independent prices. Use Minorista for the sales below.
 
-### 8. POS
+The seed supplies an **INITIAL** price-history entry per priced variant in
+Minorista. Do not promise a sequence of historical price increases: that is
+not in this fixture.
 
-Switch to Facturación → **POS** (`/pos`). This is the fast, keyboard-
-first checkout mode:
+### 6. Facturación — 6:00–8:30
 
-1. Search/scan **"Café"**, press Enter to add **Café 1 kg** — total
-   **ARS 22.000,00**.
-2. Press **F2**, search **"Consumidor"**, select **Consumidor Final**.
-3. Press **F10** to open the payment panel. **Efectivo** (cash) is the
-   default tender.
-4. Type **25000** into "Importe recibido." Vuelto (change) computes
-   live: **ARS 3.000,00**.
-5. Click **Confirmar y cobrar** — the success screen shows the sale
-   number, total, method (Efectivo), amount received, and change.
-   Following directly after the Facturación sale above, this will be
-   **VTA-000013**.
+Switch to Facturación `/ventas/nueva`. Verify **ANRAS → Casa Central →
+Depósito Central → Minorista**. Explicitly choose the warehouse when needed;
+Casa Central has two eligible warehouses. Check the price-list selection
+before adding a line.
 
-Optionally repeat with a second, smaller item (e.g. **Cuaderno**, ARS
-2.500,00) and select **Tarjeta** (card) instead (**VTA-000014**) — the
-payment panel drops the received/change fields entirely for non-cash
-tenders, since there's no cash to reconcile.
+1. Search **Ferretería** and select **Ferretería El Puente**.
+2. Search **Café** and add **Café 1 kg**, quantity 1.
+3. Check the total: **ARS 22.000,00**.
+4. Select **Confirmar venta** and complete its confirmation dialog.
+5. Record the displayed sale number. **VTA-000013** is expected only on this
+   fresh baseline: the seed already creates 11 confirmed sales and one
+   numbered draft. Creating the draft allocates the number; confirmation
+   changes its status and applies the inventory movement.
 
-Return to Gestión's dashboard once more to show both POS sales landing
-in the same recent-sales feed and today's totals updating again.
+### 7. Prove integration — 8:30–10:00
 
-### 9. Closing message
+Return to Gestión `/ventas`, reload, and open that same sale number. Compare
+customer, total and confirmed status. At `/stock`, Café in Depósito Central
+should decrease from **159 to 158**; verify the associated **SALE** movement.
+The other two warehouses should remain unchanged. Re-reading the confirmed
+sale must not create another movement.
 
-**Working now**, end to end, across Gestión and Facturación (including
-its POS mode): customers,
-product catalog (with variants, barcodes, services), multi-warehouse
-inventory on an auditable ledger, multi-list pricing (fixed and
-derived), a real internal sales workflow (draft → confirm, with
-inventory and pricing snapshotted atomically), point-of-sale checkout
-with cash/card/transfer/other tenders, and — in Gestión only —
-Purchases: suppliers, purchase orders (commercial intent, no stock
-effect until received), and goods receipts (the only Purchases document
-that moves inventory, including partial receiving across multiple
-receipts against one order). All company-scoped and permission-gated
-(RBAC + audit trail underneath, even though this demo doesn't dwell on
-them).
+Reload `/`: the expected daily aggregate is now **3 / ARS 50.900,00**.
+Both applications use the same sales, pricing and inventory domain and
+database. This demonstration does not require a synchronization process
+between Gestión and Facturación.
 
-**Not yet built — by design, not oversight:** fiscal invoicing / ARCA
-integration, supplier current account / accounts payable, treasury
-(bank/cash reconciliation), accounting (chart of accounts, journal
-entries), and BI-style reporting. The current `SalesDocument` is an
-internal transaction record, not a fiscal invoice — say this plainly if
-asked. See [implementation-status.md](implementation-status.md) for the
-exact, up-to-date boundary; don't improvise beyond what it says.
+### 8. POS — 10:00–12:30
 
-## Data notes (for whoever runs this demo)
+In Facturación `/pos`, verify the same company, branch, warehouse and list.
 
-- **Company:** ANRAS (CUIT `30-71876543-5`),
-  branches Casa Central and Sucursal Norte. All seeded CUITs (company,
-  customers, and suppliers) are fictional but carry a valid Argentine
-  check digit — they're generated, never copied from a real entity (see
-  `suppliers-seed-data.spec.ts` for the regression test guarding this for
-  suppliers specifically).
-- **Determinism:** all seeded data is deterministic except sale dates,
-  which are computed relative to seed-run time (`Date.now() - N days`)
-  so "today's" sales are always genuinely dated today, however long ago
-  the seed was actually run. Re-running the seed without a reset is a
-  no-op for existing data (idempotent upserts + a `notes` marker on
-  seeded sales) — it will not create duplicates.
-- **Historical sales:** 10 CONFIRMED sales spread across 8 distinct
-  calendar-day offsets spanning today through 9 days ago (`daysAgo`:
-  0, 0, 1, 1, 2, 3, 4, 6, 8, 9) — mixed customers, totals, and tender
-  methods (CASH/CARD/TRANSFER/OTHER) — plus 1 DRAFT sale, so the
-  "Borradores abiertos" dashboard card isn't always zero. These were
-  built by mirroring `SalesService.confirm()`'s exact transaction shape
-  directly in the seed script (Decimal-safe totals, atomic sequence
-  numbering, atomic stock-out, tender atomicity) rather than through the
-  real API, because `SalesService.confirm()` hardcodes `confirmedAt: new
-  Date()` and can't be backdated through the real endpoint. See the
-  comments above `seedHistoricalSale` in `seed.ts` for the full
-  rationale.
+1. Check that **Consumidor Final** is selected by default. If missing, select
+   it manually; **F2** is available to change the customer.
+2. Search **Café**, select the result and press Enter to add quantity 1.
+   Check **ARS 22.000,00**.
+3. Press **F10** to open checkout; verify **Efectivo**.
+4. Enter **25000** in **Importe recibido** and check **ARS 3.000,00** change.
+5. Select **Confirmar y cobrar**. Record the number (expected **VTA-000014**)
+   and inspect the total, method, received amount and change.
+6. Reload Gestión and compare the sale. Café in Central should now be **157**
+   with one additional SALE movement, and the dashboard **4 / ARS 72.900,00**.
+
+A tender is operational payment metadata, not a Treasury cash or bank
+posting. The optional printed receipt says **Documento interno. No
+constituye comprobante fiscal.** Do not present it as an ARCA invoice.
+
+### 9. Closing — 12:30–13:00
+
+Show the matching sale in both apps. The demonstrated circuit is customer,
+product, resolved price, physical stock movement and confirmed internal
+sale. POS is a mode inside Facturación. Keep this presentation within that
+circuit; other modules are outside the walkthrough, not necessarily absent
+from the product. For their current status, consult
+[implementation-status.md](implementation-status.md).
+
+### Optional card sale — 13:00–15:00
+
+Start **Nueva venta** in POS, add **Cuaderno ×1** at **ARS 2.500,00**, and
+select **Tarjeta**. Received/change fields do not apply; this records a
+method, not an integration with a card terminal. Confirm and record the
+number (expected **VTA-000015**). Compare the sale in Gestión and verify a
+Cuaderno SALE movement of −1 in Central. Café remains 157.
+
+Only after this optional sale should the daily aggregate be
+**5 / ARS 75.400,00**. Without it, the script ends at 4 / ARS 72.900,00.
+
+## Data notes and static sources
+
+- `seedDemoCustomers` and `seedDemoProducts` define the catalog counts;
+  `seedWarehousesAndStock`, `seedDemoSales` and `seedDemoPurchases` explain
+  the Café balances. These are existing fixtures, not new data to generate.
+- `seedDemoPricing` defines the three lists and amounts; `ensureInitialPrice`
+  inserts an initial item/history only when no item exists for that
+  company/list/variant.
+- `seedDemoSales` defines **11 CONFIRMED + 1 DRAFT**. Confirmed markers 01–11
+  have `daysAgo` values **0, 0, 1, 1, 2, 3, 4, 6, 8, 9, 2**, spanning eight
+  distinct offsets. Ten have CASH/CARD/TRANSFER/OTHER tenders; marker 11 has
+  no tender. The draft has no stock effect.
+- `seedHistoricalSale` creates dates relative to its first execution and
+  returns an existing sale by company and marker on subsequent runs.
+  Existing historical sales keep their dates, numbers and totals. The seed
+  constructs fixtures directly rather than proving the live confirmation
+  path; the rehearsal must exercise that path through the UI.
+- `DashboardService.getSalesToday` uses `confirmedAt` within the company's
+  local calendar day. Its totals are grouped by currency. A baseline from
+  another day or a previously used database requires fresh measurement.
+- ANRAS uses CUIT placeholder `30-71876543-5`; company identifiers in this
+  dataset are demonstration placeholders, not verified tax registrations.
+
+## Rehearsal evidence — still pending
+
+Record the tested SHA, local date/time and timezone, environment identity
+without credentials, and actual observations alongside expectations:
+
+1. After seed runs one and two, compare company-scoped IDs and counts for
+   customers, products, variants, lists, price items/history, sales markers,
+   numbers/dates/totals, stock movements and balances. Require no duplicates
+   or extra inventory effect; do not require byte-for-byte equality of all
+   rows, because upserts and password setup can write existing data.
+2. Complete the timed walkthrough; record selected context, prices, sale
+   numbers and totals, tender/change, and non-fiscal receipt wording.
+3. For each confirmed tracked line, match the SALE movement and resulting
+   stock delta; compare both apps and the daily aggregate. Record the
+   optional sale separately and verify other warehouses are unchanged.
+4. Keep browser observations, seed results and any separately run automated
+   suites distinct. Do not label Task 015 DONE until this evidence exists.
+
+No migrations, seed, application tests/build, servers or database
+connections were executed for this documentation reconciliation.
