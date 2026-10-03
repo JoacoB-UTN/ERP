@@ -25,6 +25,7 @@ import { SupplierAccountService } from './supplier-account.service';
 import { TreasuryService } from '../treasury/treasury.service';
 import {
   TreasuryAccountInactiveException,
+  TreasuryAccountRequiredException,
   TreasuryCurrencyMismatchException,
 } from '../treasury/treasury.exceptions';
 import {
@@ -419,6 +420,12 @@ export class SupplierPaymentsService {
         include: PAYMENT_INCLUDE,
       });
 
+      // Nullable preserves historical CONFIRMED rows. A legacy DRAFT still
+      // has to name the account the new confirmation will debit.
+      if (!payment.treasuryAccountId) {
+        throw new TreasuryAccountRequiredException();
+      }
+
       const purchaseReceiptIds = [
         ...new Set(payment.applications.map((a) => a.purchaseReceiptId)),
       ].sort();
@@ -460,27 +467,25 @@ export class SupplierPaymentsService {
       // the account. If that would take a cash box below zero the whole
       // confirmation is rejected — you cannot pay out of a drawer that
       // does not have it. See docs/treasury.md.
-      if (payment.treasuryAccountId) {
-        await this.treasury.post(
-          tx,
-          {
-            companyId: ctx.companyId,
-            tenantId: ctx.tenantId,
-            branchId: ctx.branchId,
-            userId: ctx.userId,
-          },
-          {
-            treasuryAccountId: payment.treasuryAccountId,
-            movementType: 'PAYMENT',
-            amount: payment.amount.negated(),
-            occurredAt: payment.occurredAt,
-            sourceType: 'SupplierPayment',
-            sourceId: payment.id,
-            currencyId: payment.currencyId,
-            description: `Pago ${payment.number}`,
-          },
-        );
-      }
+      await this.treasury.post(
+        tx,
+        {
+          companyId: ctx.companyId,
+          tenantId: ctx.tenantId,
+          branchId: ctx.branchId,
+          userId: ctx.userId,
+        },
+        {
+          treasuryAccountId: payment.treasuryAccountId,
+          movementType: 'PAYMENT',
+          amount: payment.amount.negated(),
+          occurredAt: payment.occurredAt,
+          sourceType: 'SupplierPayment',
+          sourceId: payment.id,
+          currencyId: payment.currencyId,
+          description: `Pago ${payment.number}`,
+        },
+      );
 
       await this.auditService.recordFromContext(
         ctx,

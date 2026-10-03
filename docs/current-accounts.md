@@ -26,6 +26,9 @@ money landed*, and those are different questions.
 Documents confirmed before Treasury existed have no account and are
 deliberately left that way — see treasury.md's "Documents that predate
 Treasury". Reconciliation, cheques and cash counts are still not here.
+That compatibility applies only to already-confirmed history: a legacy
+DRAFT without an account is rejected at confirmation rather than creating
+a new current-account movement with no corresponding Treasury movement.
 
 It is also **not** invoicing. `SalesDocument` is not a fiscal invoice (see
 [sales.md](sales.md)), so what a customer owes here is what our own sales
@@ -104,6 +107,12 @@ compensating reversal, so the account shows both the payment and its
 undoing — reversal instead of erasure, the same rule the rest of the system
 follows.
 
+The compensating reversal of a Cobro is allowed even when its cash was used
+after confirmation. In that case Treasury may expose a negative balance:
+blocking the correction would leave the customer ledger and cash ledger in a
+known-false state. This does not permit a new Pago or transfer to overdraw a
+cash box.
+
 Applications are **never deleted** on cancellation either. A cancelled Cobro
 keeps its record of what it had been applied to.
 
@@ -136,6 +145,7 @@ different questions.
 | `*_APPLICATION_CURRENCY_MISMATCH` | The target is in another currency |
 | `*_APPLICATIONS_EXCEED_AMOUNT` | The applications sum to more than the document itself |
 | `*_OVER_APPLICATION` | The target would end up more than fully paid |
+| `TREASURY_ACCOUNT_REQUIRED` | A legacy draft must name where the money moves before confirmation |
 | `PURCHASE_RECEIPT_HAS_ACTIVE_PAYMENTS` | A receipt cannot be cancelled while confirmed payments still point at it |
 
 Duplicated targets inside one request are rejected by the shared Zod schema

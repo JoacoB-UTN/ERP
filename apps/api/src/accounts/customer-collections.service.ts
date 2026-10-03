@@ -25,6 +25,7 @@ import { CustomerAccountService } from './customer-account.service';
 import { TreasuryService } from '../treasury/treasury.service';
 import {
   TreasuryAccountInactiveException,
+  TreasuryAccountRequiredException,
   TreasuryCurrencyMismatchException,
 } from '../treasury/treasury.exceptions';
 import {
@@ -426,6 +427,13 @@ export class CustomerCollectionsService {
         include: COLLECTION_INCLUDE,
       });
 
+      // The nullable column preserves already-CONFIRMED documents from
+      // before Treasury existed. It is not permission for a legacy DRAFT to
+      // create a new confirmation with nowhere for its money to land.
+      if (!collection.treasuryAccountId) {
+        throw new TreasuryAccountRequiredException();
+      }
+
       const salesDocumentIds = [
         ...new Set(collection.applications.map((a) => a.salesDocumentId)),
       ].sort();
@@ -460,31 +468,26 @@ export class CustomerCollectionsService {
       });
 
       // The money physically arrived somewhere, and the same transaction
-      // says where — see docs/treasury.md. `treasuryAccountId` is null
-      // only on Cobros confirmed before Treasury existed; those keep
-      // posting to the customer ledger and stay out of every treasury
-      // balance, which is the documented rule, not an oversight.
-      if (collection.treasuryAccountId) {
-        await this.treasury.post(
-          tx,
-          {
-            companyId: ctx.companyId,
-            tenantId: ctx.tenantId,
-            branchId: ctx.branchId,
-            userId: ctx.userId,
-          },
-          {
-            treasuryAccountId: collection.treasuryAccountId,
-            movementType: 'COLLECTION',
-            amount: collection.amount,
-            occurredAt: collection.occurredAt,
-            sourceType: 'CustomerCollection',
-            sourceId: collection.id,
-            currencyId: collection.currencyId,
-            description: `Cobro ${collection.number}`,
-          },
-        );
-      }
+      // says where — see docs/treasury.md.
+      await this.treasury.post(
+        tx,
+        {
+          companyId: ctx.companyId,
+          tenantId: ctx.tenantId,
+          branchId: ctx.branchId,
+          userId: ctx.userId,
+        },
+        {
+          treasuryAccountId: collection.treasuryAccountId,
+          movementType: 'COLLECTION',
+          amount: collection.amount,
+          occurredAt: collection.occurredAt,
+          sourceType: 'CustomerCollection',
+          sourceId: collection.id,
+          currencyId: collection.currencyId,
+          description: `Cobro ${collection.number}`,
+        },
+      );
 
       await this.auditService.recordFromContext(
         ctx,
@@ -589,7 +592,7 @@ export class CustomerCollectionsService {
         // Point the reversal at the movement it undoes. Without it the
         // self-relation is decorative: a statement can see that a
         // reversal happened but not WHICH movement it cancels.
-        const original = await tx.treasuryMovement.findFirst({
+        const original = await tx.treasuryMovement.findFirstOrThrow({
           where: {
             companyId: ctx.companyId,
             sourceType: 'CustomerCollection',
@@ -616,8 +619,12 @@ export class CustomerCollectionsService {
             sourceId: existing.id,
             currencyId: existing.currencyId,
             description: `Anulación del cobro ${existing.number}`,
-            reversalOfId: original?.id,
+            reversalOfId: original.id,
             allowInactiveAccount: true,
+            // This is a correction of a confirmed document, not a new cash
+            // payout. If the money was used in the meantime, blocking the
+            // reversal would strand both ledgers in a known-false state.
+            allowNegativeBalanceForReversal: true,
           },
         );
       }

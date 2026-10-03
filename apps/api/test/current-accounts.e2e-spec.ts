@@ -887,6 +887,79 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         ]);
       });
 
+      it('can correct a confirmed collection after its cash was spent', async () => {
+        const account = await prisma.treasuryAccount.create({
+          data: {
+            tenantId,
+            companyId: companyAId,
+            code: `REVERSAL-${suffix}`,
+            name: 'Caja para probar anulaciones',
+            type: 'CASH_BOX',
+            currencyId: arsId,
+          },
+        });
+        const agent = await loginAs(userAdminId);
+
+        const collection = await agent
+          .post('/api/v1/customer-collections')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            customerId,
+            currencyId: arsId,
+            amount: '800',
+            paymentMethod: 'CASH',
+            treasuryAccountId: account.id,
+          })
+          .expect(201);
+        const collectionId = (collection.body as { collection: CollectionBody })
+          .collection.id;
+        await agent
+          .post(`/api/v1/customer-collections/${collectionId}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .expect(200);
+
+        // Spend exactly what arrived, leaving the drawer at zero. The
+        // later cancellation corrects the original Cobro; it is not a new
+        // payout and must not leave two ledgers asserting money that never
+        // belonged there.
+        const payment = await agent
+          .post('/api/v1/supplier-payments')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            supplierId,
+            currencyId: arsId,
+            amount: '800',
+            paymentMethod: 'CASH',
+            treasuryAccountId: account.id,
+          })
+          .expect(201);
+        const paymentId = (payment.body as { payment: PaymentBody }).payment.id;
+        await agent
+          .post(`/api/v1/supplier-payments/${paymentId}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .expect(200);
+        expect(await treasuryBalance(account.id)).toBe('0.00');
+
+        await agent
+          .post(`/api/v1/customer-collections/${collectionId}/cancel`)
+          .set(COMPANY_ID_HEADER, companyAId)
+          .expect(200);
+
+        expect(await treasuryBalance(account.id)).toBe('-800.00');
+        const after = await prisma.customerCollection.findFirstOrThrow({
+          where: { id: collectionId, companyId: companyAId },
+        });
+        expect(after.status).toBe('CANCELLED');
+        expect(
+          await prisma.customerAccountMovement.count({
+            where: {
+              sourceType: 'CustomerCollection',
+              sourceId: collectionId,
+            },
+          }),
+        ).toBe(2);
+      });
+
       // The currency mismatch now fails at CREATE — see "rejects a
       // currency mismatch at create time" above. It used to be caught
       // only at confirmation, which left a saved document that could
@@ -1167,10 +1240,10 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         return (res.body as { collection: CollectionBody }).collection.id;
       }
 
-      it('a historical collection without an account still confirms, and stays out of every balance', async () => {
-        // The documented rule for rows that predate Treasury (task 019,
-        // criterion 7): they are not invented an account and not
-        // back-posted into a balance nobody counted.
+      it('refuses to confirm a legacy draft without a treasury account', async () => {
+        // CONFIRMED rows that predate Treasury keep their null account and
+        // history. A DRAFT is different: confirming it now is a new money
+        // movement, so silently skipping Treasury would create a fresh gap.
         const agent = await loginAs(userAdminId);
         const created = await agent
           .post('/api/v1/customer-collections')
@@ -1192,17 +1265,24 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
         });
 
         const before = await treasuryBalance(treasuryArsId);
-        await agent
+        const confirm = await agent
           .post(`/api/v1/customer-collections/${id}/confirm`)
-          .set(COMPANY_ID_HEADER, companyAId)
-          .expect(200);
+          .set(COMPANY_ID_HEADER, companyAId);
+        expect(confirm.status).toBe(409);
+        expect((confirm.body as ErrorEnvelope).error.code).toBe(
+          'TREASURY_ACCOUNT_REQUIRED',
+        );
 
-        // The customer ledger still moved...
-        const customerMovements = await prisma.customerAccountMovement.count({
-          where: { sourceType: 'CustomerCollection', sourceId: id },
+        // The status flip and both ledgers roll back together.
+        const after = await prisma.customerCollection.findFirstOrThrow({
+          where: { id, companyId: companyAId },
         });
-        expect(customerMovements).toBe(1);
-        // ...and treasury did not.
+        expect(after.status).toBe('DRAFT');
+        expect(
+          await prisma.customerAccountMovement.count({
+            where: { sourceType: 'CustomerCollection', sourceId: id },
+          }),
+        ).toBe(0);
         expect(await treasuryBalance(treasuryArsId)).toBe(before);
         expect(
           await prisma.treasuryMovement.count({
@@ -1606,6 +1686,51 @@ describe('Current Accounts: Collections, Supplier Payments (e2e)', () => {
           where: { id },
         });
         expect(after.status).toBe('DRAFT');
+      });
+
+      it('refuses to confirm a legacy draft without a treasury account', async () => {
+        const agent = await loginAs(userAdminId);
+        const created = await agent
+          .post('/api/v1/supplier-payments')
+          .set(COMPANY_ID_HEADER, companyAId)
+          .send({
+            supplierId,
+            currencyId: arsId,
+            amount: '150',
+            paymentMethod: 'CASH',
+            treasuryAccountId: treasuryArsId,
+          })
+          .expect(201);
+        const id = (created.body as { payment: PaymentBody }).payment.id;
+        await prisma.supplierPayment.update({
+          where: { id },
+          data: { treasuryAccountId: null },
+        });
+
+        const before = await treasuryBalance(treasuryArsId);
+        const confirm = await agent
+          .post(`/api/v1/supplier-payments/${id}/confirm`)
+          .set(COMPANY_ID_HEADER, companyAId);
+        expect(confirm.status).toBe(409);
+        expect((confirm.body as ErrorEnvelope).error.code).toBe(
+          'TREASURY_ACCOUNT_REQUIRED',
+        );
+
+        const after = await prisma.supplierPayment.findFirstOrThrow({
+          where: { id, companyId: companyAId },
+        });
+        expect(after.status).toBe('DRAFT');
+        expect(
+          await prisma.supplierAccountMovement.count({
+            where: { sourceType: 'SupplierPayment', sourceId: id },
+          }),
+        ).toBe(0);
+        expect(await treasuryBalance(treasuryArsId)).toBe(before);
+        expect(
+          await prisma.treasuryMovement.count({
+            where: { sourceType: 'SupplierPayment', sourceId: id },
+          }),
+        ).toBe(0);
       });
 
       it('re-validates the stored account when only the currency moves', async () => {

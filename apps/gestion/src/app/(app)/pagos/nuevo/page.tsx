@@ -57,6 +57,12 @@ export default function NuevoPagoPage() {
   // and the project's lint rejects it.
   const currencies = currenciesQuery.data?.currencies ?? [];
   const effectiveCurrencyId = currencyId || currencies[0]?.id || '';
+  const treasuryAccounts = treasuryAccountsQuery.data?.accounts ?? [];
+  // The API rejects an account whose currency is not the document's — see
+  // docs/treasury.md. Offering one here only builds a form that fails on
+  // submit, so the list is filtered rather than merely labelled with the
+  // currency and left for the operator to police.
+  const eligibleAccounts = treasuryAccounts.filter((account) => account.currencyId === effectiveCurrencyId);
 
   const openReceiptsQuery = useSupplierOpenReceipts(supplierId || null, effectiveCurrencyId || null);
 
@@ -72,6 +78,15 @@ export default function NuevoPagoPage() {
   function changeCurrency(value: string) {
     setCurrencyId(value);
     setApplications({});
+    // The account already chosen may not hold the new currency, and a
+    // selection the list no longer offers is worse than none: the field
+    // looks filled and the submit fails. Cleared in the event that caused
+    // it, not in an effect reacting to it afterwards — same rule as the
+    // applications above.
+    setTreasuryAccountId((current) => {
+      const chosen = treasuryAccounts.find((account) => account.id === current);
+      return chosen && chosen.currencyId === value ? current : '';
+    });
   }
 
   const openReceipts = openReceiptsQuery.data?.items ?? [];
@@ -224,17 +239,25 @@ export default function NuevoPagoPage() {
               required
             >
               <option value="">Elegí una caja o cuenta bancaria…</option>
-              {(treasuryAccountsQuery.data?.accounts ?? []).map((account) => (
+              {eligibleAccounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.name} ({account.currencyCode})
                 </option>
               ))}
             </Select>
-            {treasuryAccountsQuery.data?.accounts.length === 0 && (
+            {treasuryAccounts.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No hay cajas ni cuentas bancarias cargadas todavía.
               </p>
-            )}
+            ) : eligibleAccounts.length === 0 ? (
+              // Distinct from the empty case on purpose: "there are none"
+              // and "none of yours holds this currency" send the operator
+              // to two different places.
+              <p className="text-sm text-muted-foreground">
+                Ninguna caja ni cuenta bancaria está en {currencyCode || 'esta moneda'}. Creá una en esa
+                moneda para poder pagar.
+              </p>
+            ) : null}
           </div>
         </div>
 
