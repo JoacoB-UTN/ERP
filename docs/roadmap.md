@@ -80,20 +80,22 @@ account loop a PyME runs day to day is complete — see
 [implementation-status.md](implementation-status.md) for what each of those
 does and does not cover.
 
-**The next milestone is not a feature.** It is installing the ERP Server on
-a clean Windows VM and walking through installation, start-up, upgrade and
-uninstall. The binding constraint stopped being feature coverage once the
-circuit closed: an `.exe` that bundles PostgreSQL now exists, but it has
-never been run on any machine, and until it is, nothing after it can be
-scheduled honestly. See
-[server-installer.md](server-installer.md) for the full matrix of what is
-and is not verified.
+**Current priority (2026-10-03): complete Gestión Treasury screens.**
+The clean Windows validation is already recorded as DONE in PR #51, and
+current-account backfill already runs on API startup. They are not open
+prerequisites for this work; see [server-installer.md](server-installer.md)
+and [implementation-status.md](implementation-status.md).
 
-After that, in order: closing the current-accounts backfill gap for
-existing installations, planning the Tango data migration, and only then
-the fiscal work (ARCA, IVA, electronic invoicing) that turns an internal
-management system into one that can invoice. Demo data / presentation flow
-(Prompt #15) is still open but is no longer the next thing.
+The review branch adds account/statement/transfer screens against the
+existing ledger, alongside a correction allowing positive receipts to
+reduce a deficit caused by a Cobro reversal. Review and browser acceptance
+remain pending. POS settlement, reconciliation, cheques and FX are separate
+future decisions, not implied by these screens.
+
+After this stage, resume central/local sync (020) once its adoption and
+identity decisions are resolved, then Tango migration planning and fiscal
+work. Demo task 015 has an implemented dataset. Guide reconciliation is prepared
+separately; a new disposable-environment rehearsal remains pending.
 
 ### Suggested upcoming milestones
 
@@ -130,7 +132,8 @@ each.
                                  zero duplicated business rules), stale
                                  copy fixes, and a real date-formatting
                                  consistency fix across five screens.
-15  Demo data + presentation flow   — still open, no longer the next thing.
+15  Demo data + presentation flow   — PARTIAL: dataset and guide exist;
+                                       new runtime rehearsal pending.
 16  Warehouse transfers      — DONE (see prompts/completed/, docs/inventory.md).
                                  StockTransfer/StockTransferLine, DRAFT/
                                  CONFIRMED/CANCELLED, TRANSFER_OUT+TRANSFER_IN
@@ -173,9 +176,10 @@ Accounts Payable
 Treasury
   Cash boxes, bank accounts and the movement ledger — PARTIAL, see
   docs/treasury.md. The ledger, accounts, opening balance and statement
-  exist, plus transfers between accounts; nothing posts to them
-  automatically yet (Cobro/Pago wiring and POS are both still open), and
-  cheques, reconciliation and exchange rates are not started.
+  exist, plus transfers between accounts and automatic posting/reversals
+  from Cobros/Pagos. POS settlement remains deliberately excluded.
+  Gestión screens are implemented on the review branch, pending review
+  and browser acceptance; cheques, reconciliation and FX are not started.
 
 Fiscal / ARCA
   Argentine tax authority integration, electronic invoicing

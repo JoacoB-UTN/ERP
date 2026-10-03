@@ -74,6 +74,12 @@ same convention `StockMovement.quantity` uses.
   the correction is still posted and the negative balance exposes the real
   shortage instead of leaving both ledgers asserting money known not to
   belong there.
+- **Positive movements can recover that shortage in installments.** A
+  collection, incoming transfer or payment reversal of 300 against a
+  balance of −800 is accepted and leaves −500. The same rule applies to a
+  bank account without an overdraft. A new operational outflow is still
+  refused if its resulting balance is negative. Zero (including negative
+  zero) and non-finite amounts are rejected before any ledger write.
 - A **`BANK_ACCOUNT` may go below zero** when `allowsNegativeBalance` is
   set. An overdraft is a real thing. The flag is explicit per account
   rather than inferred from the type, and it can never be set on a cash
@@ -88,13 +94,18 @@ const updated = await tx.treasuryAccountBalance.upsert({
   create: { companyId, treasuryAccountId: account.id, balance: amount },
   update: { balance: { increment: amount } },   // never read-modify-write
 });
-if (updated.balance.lt(0) && !account.allowsNegativeBalance) throw ...;
+if (
+  amount.lt(0) &&
+  updated.balance.lt(0) &&
+  !account.allowsNegativeBalance &&
+  !isCorrectiveCollectionReversal // explicit opt-in + COLLECTION_REVERSAL + linked original
+) throw ...;
 ```
 
 Postgres serializes concurrent writers to that row, so two terminals
 posting at once cannot both compute a new balance from the same stale
 read. This is the shape [inventory.md](inventory.md) learned first, and
-it is the reason the check reads `updated.balance` rather than the delta:
+it is the reason the outflow check also reads `updated.balance`:
 a payment that looks like an overdraw can be perfectly fine by the time
 it lands, if another writer put money in first.
 
@@ -428,4 +439,42 @@ it.
   cross-currency transfers are all deferred.
 - **Accounting.** A treasury movement is not an accounting entry.
 - **Cash count / blind close ("arqueo", "cierre de caja").**
-- **Gestión UI.** The API exists; no screens yet.
+## Gestión screens
+
+The review branch implements `/tesoreria` (cash boxes and bank accounts),
+`/tesoreria/nueva`, `/tesoreria/:id`, and `/tesoreria/transferencias`
+(list, new draft and detail). Account editing and opening balances use
+separate forms in the detail view. Transfer drafts can be edited and confirmed; only confirmed transfers
+expose compensating cancellation, never editing/deletion of history.
+The interface does not offer cancellation of a draft because the API
+does not support that transition.
+
+Balances remain separate by currency and carry the POS/historical-document
+exclusion next to the displayed number. Statements use server-provided
+running balances, pagination and inclusive local-date filters. Dates use
+the browser's local timezone, shown by the input/formatting conventions.
+No browser money calculation passes through JavaScript floating point.
+
+Permissions are checked per action; statements require both account-read
+and movement-read. `GET /treasury/accounts/currencies` exposes only the
+active global currency catalog under `treasury.accounts.create`; creating
+an account no longer requires a Pricing permission. The route is declared
+before the account-id route and reuses `CurrenciesResponse`.
+
+Treasury query caches are keyed by company. Changing company remounts the
+forms; Treasury requests bind the expected company on every attempt,
+including retries after session refresh. Responses and context errors from
+a previous company are rejected without clearing the new selection, and
+late completion cannot navigate the new company to an old result. Mutations
+invalidate Treasury reads and the existing Cobro/Pago account-options cache.
+This does not change backend authentication, company context or authorization.
+The expected-company option is enabled by Treasury hooks only; auditing and
+migrating legacy callers of the shared HTTP client is a separate follow-up.
+
+Verification on 2026-10-03: the corrective-deficit recovery case passed
+against disposable PostgreSQL/Redis together with the existing Treasury,
+transfer and current-account suites (87 tests). The new currency endpoint
+passed three additional permission/company tests on a separate disposable
+instance. No application database, seed, migration definition or production
+deployment was changed. UI automated checks are recorded in task 025;
+manual browser acceptance remains pending before declaring task 019 closed.

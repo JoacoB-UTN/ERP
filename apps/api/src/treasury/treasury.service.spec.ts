@@ -148,13 +148,19 @@ describe('TreasuryService.post', () => {
     );
   });
 
-  it('rejects a zero amount rather than writing a movement that means nothing', async () => {
-    const { tx, queryRaw } = fakeTx({});
-    await expect(
-      service().post(tx, ctx, { ...baseParams, amount: new Prisma.Decimal(0) }),
-    ).rejects.toBeInstanceOf(InvalidTreasuryAmountException);
-    expect(queryRaw).not.toHaveBeenCalled();
-  });
+  it.each(['0', '-0', 'NaN', 'Infinity', '-Infinity'])(
+    'rejects an invalid amount %s before writing a movement',
+    async (amount) => {
+      const { tx, queryRaw } = fakeTx({});
+      await expect(
+        service().post(tx, ctx, {
+          ...baseParams,
+          amount: new Prisma.Decimal(amount),
+        }),
+      ).rejects.toBeInstanceOf(InvalidTreasuryAmountException);
+      expect(queryRaw).not.toHaveBeenCalled();
+    },
+  );
 
   it('refuses a currency that is not the account’s, instead of converting', async () => {
     const { tx, queryRaw } = fakeTx({});
@@ -196,6 +202,106 @@ describe('TreasuryService.post', () => {
   });
 
   describe('the negative-balance policy', () => {
+    it.each(['CASH_BOX', 'BANK_ACCOUNT'] as const)(
+      'lets a positive collection partially recover a %s deficit',
+      async (type) => {
+        // A corrective cancellation left -800. A new +300 collection
+        // must be recorded even though the returned balance is still -500.
+        const { tx, upsert } = fakeTx({
+          found: account({ type, allowsNegativeBalance: false }),
+          balanceAfter: '-500.00',
+        });
+        const amount = new Prisma.Decimal('300.00');
+        await expect(
+          service().post(tx, ctx, { ...baseParams, amount }),
+        ).resolves.not.toBeNull();
+        expect(upsert).toHaveBeenCalledWith(
+          expect.objectContaining({
+            update: { balance: { increment: amount } },
+          }),
+        );
+      },
+    );
+
+    it.each(['PAYMENT_REVERSAL', 'TRANSFER_IN'] as const)(
+      'allows a positive %s that only partially recovers a deficit',
+      async (movementType) => {
+        const { tx } = fakeTx({ balanceAfter: '-499.9999' });
+        await expect(
+          service().post(tx, ctx, {
+            ...baseParams,
+            movementType,
+            amount: new Prisma.Decimal('0.0001'),
+          }),
+        ).resolves.not.toBeNull();
+      },
+    );
+
+    it.each(['PAYMENT', 'TRANSFER_OUT'] as const)(
+      'rejects a %s that deepens an existing deficit even with reversal flags',
+      async (movementType) => {
+        const { tx } = fakeTx({ balanceAfter: '-500.0001' });
+        await expect(
+          service().post(tx, ctx, {
+            ...baseParams,
+            movementType,
+            amount: new Prisma.Decimal('-0.0001'),
+            reversalOfId: 'original-movement',
+            allowNegativeBalanceForReversal: true,
+          }),
+        ).rejects.toBeInstanceOf(InsufficientTreasuryFundsException);
+      },
+    );
+
+    it.each(['300.00', '-300.00'])(
+      'accepts a movement of %s whose returned balance is exactly zero',
+      async (amount) => {
+        const delta = new Prisma.Decimal(amount);
+        const { tx } = fakeTx({ balanceAfter: '0' });
+        await expect(
+          service().post(tx, ctx, {
+            ...baseParams,
+            movementType: delta.lt(0) ? 'PAYMENT' : 'COLLECTION',
+            amount: delta,
+          }),
+        ).resolves.not.toBeNull();
+      },
+    );
+
+    it('still permits an explicitly opted-in linked collection reversal', async () => {
+      const { tx } = fakeTx({ balanceAfter: '-800' });
+      await expect(
+        service().post(tx, ctx, {
+          ...baseParams,
+          movementType: 'COLLECTION_REVERSAL',
+          amount: new Prisma.Decimal('-800'),
+          reversalOfId: 'original-movement',
+          allowNegativeBalanceForReversal: true,
+        }),
+      ).resolves.not.toBeNull();
+    });
+
+    it.each([
+      { reversalOfId: undefined, allowNegativeBalanceForReversal: true },
+      {
+        reversalOfId: 'original-movement',
+        allowNegativeBalanceForReversal: false,
+      },
+    ])(
+      'rejects a collection reversal without both safeguards: %j',
+      async (flags) => {
+        const { tx } = fakeTx({ balanceAfter: '-800' });
+        await expect(
+          service().post(tx, ctx, {
+            ...baseParams,
+            movementType: 'COLLECTION_REVERSAL',
+            amount: new Prisma.Decimal('-800'),
+            ...flags,
+          }),
+        ).rejects.toBeInstanceOf(InsufficientTreasuryFundsException);
+      },
+    );
+
     it('rejects a cash box going below zero', async () => {
       const { tx } = fakeTx({ balanceAfter: '-0.01' });
       await expect(

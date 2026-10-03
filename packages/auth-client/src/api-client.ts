@@ -29,6 +29,8 @@ export interface ApiClientConfig {
 }
 
 export interface ApiFetchOptions {
+  /** Opt-in company binding: abort every attempt/response if the selection changed. */
+  expectedCompanyId?: string;
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   json?: unknown;
   /**
@@ -97,12 +99,27 @@ export function createApiClient(config: ApiClientConfig) {
   let inFlightRefresh: Promise<boolean> | null = null;
   const companyContextStore = createCompanyContextStore(config.storageKeyPrefix ?? 'default');
 
+  function assertExpectedCompany(options: ApiFetchOptions): void {
+    if (
+      options.expectedCompanyId !== undefined &&
+      companyContextStore.getActiveCompanyId() !== options.expectedCompanyId
+    ) {
+      throw new ApiError(
+        409,
+        'La empresa cambió. Volvé a abrir el formulario.',
+        undefined,
+        'COMPANY_CONTEXT_CHANGED',
+      );
+    }
+  }
+
   async function rawFetch(path: string, options: ApiFetchOptions = {}): Promise<Response> {
+    assertExpectedCompany(options);
     const headers: Record<string, string> = {};
     if (options.json !== undefined) {
       headers['Content-Type'] = 'application/json';
     }
-    const companyId = companyContextStore.getActiveCompanyId();
+    const companyId = options.expectedCompanyId ?? companyContextStore.getActiveCompanyId();
     if (companyId) {
       headers[COMPANY_ID_HEADER] = companyId;
     }
@@ -153,9 +170,11 @@ export function createApiClient(config: ApiClientConfig) {
 
   async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, isRetry = false): Promise<T> {
     const res = await rawFetch(path, options);
+    assertExpectedCompany(options);
 
     if (res.status === 401 && !isRetry && !NO_REFRESH_PATHS.has(path)) {
       const refreshed = await refreshOnce();
+      assertExpectedCompany(options);
       if (refreshed) {
         return apiFetch<T>(path, options, true);
       }
@@ -165,6 +184,7 @@ export function createApiClient(config: ApiClientConfig) {
 
     if (!res.ok) {
       const { message, details, code } = await parseErrorBody(res);
+      assertExpectedCompany(options);
       if (code && COMPANY_CONTEXT_INVALIDATING_CODES.has(code)) {
         companyContextStore.setActiveCompanyId(null);
       }
@@ -175,12 +195,16 @@ export function createApiClient(config: ApiClientConfig) {
       return undefined as T;
     }
     if (options.responseType === 'blob') {
+      const blob = await res.blob();
+      assertExpectedCompany(options);
       return {
-        blob: await res.blob(),
+        blob,
         fileName: fileNameFromDisposition(res.headers.get('Content-Disposition')),
       } as T;
     }
-    return (await res.json()) as T;
+    const data = (await res.json()) as T;
+    assertExpectedCompany(options);
+    return data;
   }
 
   return { apiFetch, companyContextStore };

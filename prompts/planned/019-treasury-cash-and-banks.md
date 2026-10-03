@@ -1,11 +1,11 @@
 # Task 019 — Treasury: cash boxes, bank accounts and the movement ledger
 
-Status: PLANNED
+Status: PARTIAL — backend integrated; Gestión UI implemented on review branch; acceptance pending
 Depends on: — (see "Relationship to the installer" below)
-Agent: UNASSIGNED
+Agent: Codex, coordinated Treasury implementation
 Base branch: main
-Branch:
-PR:
+Branch: agent/codex-treasury-delivery
+PR: backend through #60; this review branch is unpublished
 
 Before making changes:
 
@@ -18,13 +18,18 @@ Before making changes:
 - Inspect the current implementation — treat repository state as source
   of truth, not this file or any prior conversation.
 
-**Relationship to the installer.** `docs/roadmap.md` says the clean
-Windows VM install is next and "everything else waits on it". That
-sequencing is about *shipping*, not about this task: nothing here touches
-`infrastructure/windows/**`, the payload, or the installer workflow, and
-the module is deployment-agnostic by the Local-first / Cloud-ready rule.
-It can be specified and built in parallel; it must not be presented as
-unblocking the installer, and it does not close Fase 1.
+**Current handoff (2026-10-03).** The backend and Cobro/Pago wiring are
+already integrated through PR #60. Do not rebuild them. The review branch
+adds the missing Gestión UI and corrects partial recovery of a balance left
+negative by a linked Cobro reversal. See [task 025](025-treasury-ui.md),
+[treasury.md](../../docs/treasury.md) and implementation-status for tests
+and remaining acceptance. Keep this task open until human review and the
+browser walkthrough are recorded; do not present POS settlement or other
+explicitly excluded financial features as implemented.
+
+**Relationship to the installer.** Windows clean-install verification was
+completed in PR #51. This task changes no installer/payload/deployment
+configuration and does not replace that separate verification.
 
 ## Objective
 

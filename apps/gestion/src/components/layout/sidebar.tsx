@@ -176,6 +176,13 @@ function SidebarContent({
       ],
     },
     {
+      label: 'Tesorería',
+      items: [
+        { href: '/tesoreria', label: 'Cajas y bancos', icon: Banknote, visible: allowed('treasury.accounts.read'), exact: true },
+        { href: '/tesoreria/transferencias', label: 'Transferencias internas', icon: ArrowLeftRight, visible: allowed('treasury.transfers.read') },
+      ],
+    },
+    {
       label: 'Inventario y precios',
       items: [
         { href: '/stock', label: 'Stock', icon: Warehouse, visible: allowed('inventory.stock.read'), exact: true },

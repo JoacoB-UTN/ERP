@@ -710,6 +710,53 @@ describe('Treasury (e2e)', () => {
       expect(await storedBalance(account.id)).toBe('100');
     });
 
+    it('recovers a corrective deficit in installments without permitting new overdrafts', async () => {
+      const account = await createAccount();
+      const original = await post(account.id, '1000.00');
+      await post(account.id, '-800.00', { movementType: 'PAYMENT' });
+      await prisma.$transaction((tx) =>
+        treasury.post(
+          tx,
+          { companyId: companyAId, tenantId },
+          {
+            treasuryAccountId: account.id,
+            currencyId: arsId,
+            movementType: 'COLLECTION_REVERSAL',
+            amount: new Prisma.Decimal('-1000.00'),
+            occurredAt: new Date(),
+            sourceType: 'CustomerCollection',
+            sourceId: crypto.randomUUID(),
+            reversalOfId: original!.id,
+            allowNegativeBalanceForReversal: true,
+          },
+        ),
+      );
+      expect(await storedBalance(account.id)).toBe('-800');
+
+      const sourceId = crypto.randomUUID();
+      await post(account.id, '300.00', { sourceId });
+      expect(await post(account.id, '300.00', { sourceId })).toBeNull();
+      expect(await storedBalance(account.id)).toBe('-500');
+      expect(await ledgerSum(account.id)).toBe('-500');
+
+      await expect(
+        post(account.id, '-1.00', { movementType: 'PAYMENT' }),
+      ).rejects.toMatchObject({
+        response: { code: 'INSUFFICIENT_TREASURY_FUNDS' },
+      });
+      expect(await storedBalance(account.id)).toBe('-500');
+      expect(await ledgerSum(account.id)).toBe('-500');
+
+      await post(account.id, '500.00');
+      expect(await storedBalance(account.id)).toBe('0');
+      expect(await ledgerSum(account.id)).toBe('0');
+      expect(
+        await prisma.treasuryMovement.count({
+          where: { treasuryAccountId: account.id },
+        }),
+      ).toBe(5);
+    });
+
     it('lets a bank account with an overdraft go below zero', async () => {
       const account = await createAccount({
         code: nextCode('BANCO'),

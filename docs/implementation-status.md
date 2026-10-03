@@ -336,8 +336,8 @@ take a payment against an account; the POS tender path posts
 report.
 
 ### Treasury (cash boxes, bank accounts, movement ledger)
-**Status: PARTIAL — the ledger and accounts exist; nothing posts to them
-automatically yet.** See [treasury.md](treasury.md).
+**Status: PARTIAL — ledger, accounts, transfers and automatic Cobro/Pago
+posting/reversals exist; POS settlement remains deliberately excluded.** See [treasury.md](treasury.md).
 
 `apps/api/src/treasury/*` + `TreasuryAccount`, `TreasuryMovement` and
 `TreasuryAccountBalance`. `TreasuryMovement` is the only authoritative
@@ -416,7 +416,22 @@ treasury.md's "Deliberately not wired". **A cash box balance is therefore
 wrong for a business running POS**, not merely incomplete, which is why
 the statement endpoint returns `excludesPosSales` for the UI to state
 next to the number. Also absent: cheques, bank reconciliation, Mercado
-Pago, exchange rates, arqueo de caja, and any Gestión UI.
+Pago, exchange rates and arqueo de caja.
+
+**Gestión Treasury UI: implemented on the review branch, awaiting human
+review and browser acceptance.** Account list/create/edit/status, opening
+balance, dated/paginated statement with backend running balances, and
+transfer draft/edit/confirm/cancel screens are present under `/tesoreria`.
+POS exclusion stays visible; currency values stay decimal strings.
+`GET /treasury/accounts/currencies` lets account creators read active
+reference currencies without a Pricing permission. See task 025 and
+[treasury.md](treasury.md).
+
+**Corrective deficit recovery:** positive movements may reduce a balance
+left negative by a linked Cobro reversal even before it reaches zero; new
+operational outflows remain blocked if they would leave it negative.
+Verified with unit and disposable-database regression tests; the ledger
+and projection remain equal through retries and rejected outflows.
 
 ### Facturación MVP
 **Status: DONE — MVP scope only, see [facturacion.md](facturacion.md) for
@@ -1068,4 +1083,6 @@ here:
    management system into one that can invoice — designed around ARCA's
    CAEA, since shops must invoice without internet.
 
-Accounting, treasury and reporting remain behind these.
+Current priority confirmed on 2026-10-03: complete the Gestión Treasury
+screens using the existing ledger and contracts before resuming central
+sync. Accounting and broader reporting remain separate milestones.
