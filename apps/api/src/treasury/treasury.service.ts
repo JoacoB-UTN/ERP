@@ -40,6 +40,13 @@ export interface PostMovementParams {
    * refusing would strand the balance wrong forever.
    */
   allowInactiveAccount?: boolean;
+  /**
+   * A confirmed Cobro may need to be corrected after its cash was used.
+   * Refusing that reversal would leave both ledgers asserting money that
+   * never belonged there. This exception is deliberately opt-in: ordinary
+   * payments and transfers must still respect the account's sign policy.
+   */
+  allowNegativeBalanceForReversal?: boolean;
 }
 
 export interface PostMovementContext {
@@ -175,7 +182,20 @@ export class TreasuryService {
       update: { balance: { increment: params.amount } },
     });
 
-    if (updated.balance.lt(0) && !account.allowsNegativeBalance) {
+    // The escape hatch is intentionally narrower than the boolean alone:
+    // a future caller cannot use it to overdraw a cash box with a Pago or
+    // transfer by mistake. It only applies to a linked correction of the
+    // Cobro flow that opted into this exceptional policy.
+    const isCorrectiveCollectionReversal =
+      params.allowNegativeBalanceForReversal === true &&
+      params.movementType === 'COLLECTION_REVERSAL' &&
+      params.reversalOfId !== undefined;
+
+    if (
+      updated.balance.lt(0) &&
+      !account.allowsNegativeBalance &&
+      !isCorrectiveCollectionReversal
+    ) {
       throw new InsufficientTreasuryFundsException();
     }
 

@@ -66,9 +66,14 @@ distinction is not cosmetic — see the sign policy below.
 `amount` is signed: **positive is money in, negative is money out** — the
 same convention `StockMovement.quantity` uses.
 
-- A **`CASH_BOX` can never go below zero.** A drawer holding minus five
-  thousand pesos does not exist, so the movement is rejected
-  (`INSUFFICIENT_TREASURY_FUNDS`) and the whole transaction rolls back.
+- A **`CASH_BOX` cannot go below zero from a new operational outflow.** A
+  drawer holding minus five thousand pesos does not exist, so a Pago or
+  transfer that would cause it is rejected (`INSUFFICIENT_TREASURY_FUNDS`)
+  and the whole transaction rolls back. The narrow exception is a
+  compensating reversal of a confirmed Cobro: if its cash was already used,
+  the correction is still posted and the negative balance exposes the real
+  shortage instead of leaving both ledgers asserting money known not to
+  belong there.
 - A **`BANK_ACCOUNT` may go below zero** when `allowsNegativeBalance` is
   set. An overdraft is a real thing. The flag is explicit per account
   rather than inferred from the type, and it can never be set on a cash
@@ -240,7 +245,9 @@ current-accounts movement, so the three either all land or none do.
 Cancelling appends the reversal (`COLLECTION_REVERSAL` /
 `PAYMENT_REVERSAL`) rather than editing anything, and it is allowed into
 a retired account — money that already moved has to be able to come
-back.
+back. Cancelling a Cobro is also allowed when its cash has since been
+spent: this correction may leave the account negative, while a new Pago
+or transfer out remains forbidden from doing so.
 
 - **`treasuryAccountId` is required on new documents.** A Cobro that does
   not say where the money landed is the gap this module exists to close.
@@ -251,6 +258,11 @@ back.
   will refuse is a form built to fail on submit. It also tells the two
   empty states apart — no accounts loaded at all, versus none in *this*
   currency — because they send the operator to different places.
+- **It is also required at confirmation.** The database column stays
+  nullable for historical compatibility, so a DRAFT created before
+  Treasury may still have no account. Confirming that draft now is a new
+  movement, not history: it is rejected with `TREASURY_ACCOUNT_REQUIRED`
+  until an account is assigned (or the document is cancelled).
 - **The account is validated when the document is written, not when it is
   confirmed** — same company, same currency, still active, on create
   *and* on edit. A document naming an account it cannot reach could never
@@ -281,9 +293,10 @@ back.
 ### Documents that predate Treasury
 
 The column is **nullable in the database**, and that is deliberate (task
-019, criterion 7). Cobros and Pagos confirmed before this module existed
-have no account. They are **not** invented one and **not** back-posted
-into a balance nobody ever counted.
+019, criterion 7). Cobros and Pagos **already confirmed** before this module
+existed have no account. They are **not** invented one and **not**
+back-posted into a balance nobody ever counted. A historical DRAFT is not
+grandfathered: it must receive an account before it can be confirmed.
 
 So they keep posting to the customer/supplier ledger, they stay visible,
 and they stay out of every treasury balance. A cash box opened today

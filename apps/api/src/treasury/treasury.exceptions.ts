@@ -78,6 +78,21 @@ export class TreasuryAccountInactiveException extends ConflictException {
 }
 
 /**
+ * Legacy DRAFT Cobros/Pagos may predate Treasury and therefore have a null
+ * account. Historical CONFIRMED documents stay untouched, but a draft cannot
+ * become a new ledger event without saying where the money moves.
+ */
+export class TreasuryAccountRequiredException extends ConflictException {
+  constructor() {
+    super({
+      message:
+        'Asigná una cuenta de tesorería o anulá el documento antes de confirmarlo.',
+      code: 'TREASURY_ACCOUNT_REQUIRED',
+    });
+  }
+}
+
+/**
  * The opening balance is what was already in the account when it was
  * first loaded into the system. Once the ledger has started, a
  * correction is an adjustment — never a second "opening".

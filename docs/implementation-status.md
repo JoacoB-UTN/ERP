@@ -349,10 +349,13 @@ upsert-increment and the sign policy is validated against the value
 Postgres returned inside the same transaction, never against a prior
 read.
 
-A `CASH_BOX` can never go below zero; a `BANK_ACCOUNT` can when
-`allowsNegativeBalance` says so, and that flag can never be set on a cash
-box. Accounts are single-currency and a movement in another currency is
-rejected, never converted — no exchange rate exists in this module.
+A new operational outflow cannot take a `CASH_BOX` below zero; a
+`BANK_ACCOUNT` can when `allowsNegativeBalance` says so, and that flag can
+never be set on a cash box. A compensating Cobro reversal is the narrow
+exception: it must be able to correct both ledgers even after the cash was
+used, and a negative result exposes the shortage. Accounts are
+single-currency and a movement in another currency is rejected, never
+converted — no exchange rate exists in this module.
 `@@unique([companyId, sourceType, sourceId, movementType])` makes a
 retried or concurrent post idempotent by construction: `post()` returns
 `null` rather than double-counting.
@@ -375,9 +378,11 @@ and reading its ledger are separate codes on purpose.
 treasury account and confirming a Pago takes it out, inside the same
 transaction as the current-accounts movement; cancelling appends the
 reversal. `treasuryAccountId` is required on new documents and nullable
-for the ones confirmed before Treasury existed — those keep posting to
-the customer/supplier ledger and stay out of every treasury balance,
-which is the documented rule (task 019, criterion 7), not an oversight.
+for the ones confirmed before Treasury existed — those stay in the
+customer/supplier ledger and out of every treasury balance, which is the
+documented rule (task 019, criterion 7), not an oversight. A legacy DRAFT
+with a null account cannot be confirmed: it returns
+`TREASURY_ACCOUNT_REQUIRED` until corrected or cancelled.
 A Pago cannot overdraw a cash box: the confirmation fails whole.
 
 **Account/currency re-validated on edit as a pair (2026-09-19).** The
