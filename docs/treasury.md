@@ -244,7 +244,13 @@ back.
 
 - **`treasuryAccountId` is required on new documents.** A Cobro that does
   not say where the money landed is the gap this module exists to close.
-  The Gestión forms for Cobro and Pago carry the selector.
+  The Gestión forms for Cobro and Pago carry the selector, and it offers
+  **only the accounts held in the document's currency**: changing the
+  currency re-filters the list and drops a selection it no longer
+  contains. A form that lets an operator assemble a combination the API
+  will refuse is a form built to fail on submit. It also tells the two
+  empty states apart — no accounts loaded at all, versus none in *this*
+  currency — because they send the operator to different places.
 - **The account is validated when the document is written, not when it is
   confirmed** — same company, same currency, still active, on create
   *and* on edit. A document naming an account it cannot reach could never
