@@ -90,6 +90,19 @@ export class FiscalCreditNoteService {
         throw new ConflictException(
           'El borrador de nota de crédito cambió. Recargá para revisar la versión guardada.',
         );
+      if (
+        existing &&
+        (await tx.fiscalCreditNoteAuthorization.findFirst({
+          where: {
+            companyId: ctx.companyId,
+            creditNoteDraftId: existing.id,
+            status: { not: 'REJECTED' },
+          },
+        }))
+      )
+        throw new ConflictException(
+          'La nota tiene un envío registrado. Consultá su estado; no puede editarse.',
+        );
       let snapshot: Prisma.InputJsonValue;
       if (existing) snapshot = existing.snapshot as Prisma.InputJsonValue;
       else {

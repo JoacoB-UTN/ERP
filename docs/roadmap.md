@@ -189,12 +189,13 @@ Fiscal / ARCA — PARTIAL
   authorization and consult-only recovery; PR #68 adds non-fiscal test printing.
   PR #69 surfaces the latest test status and pending consultations. Explicit
   server-side personal-certificate representation is supported; WSASS grant required.
-  Total credit-note preparation preserves the original test invoice and its amounts
-  without reversing stock/accounts. Credit-note authorization remains the next slice.
+  Total credit notes preserve the original invoice and amounts; manual homologation
+  authorization uses a separate NC series and exact associated-invoice validation.
+  Uncertain responses are recovered by consultation, without reversing stock/accounts.
   Real-certificate acceptance remains pending.
   Next: define issuer, provision homologation credentials and exclusive test PV,
   validate a real test invoice and recovery, then separately review production,
-  QR/printing and credit/debit notes. See docs/fiscal.md. No production issuance.
+  QR/printing, partial notes and commercial reversals. See docs/fiscal.md. No production issuance.
 
 Taxes
   Explicit draft VAT breakdown implemented; PriceList.includesTax remains

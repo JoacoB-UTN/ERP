@@ -337,8 +337,9 @@ read+create permissions respectively. POST accepts only a reason (5–500 trimme
 characters) and expectedRevision (0 creates; the stored revision updates).
 Concurrent stale writes conflict. Audit and persistence share one transaction.
 
-This is **preparation only**: the note has no number or CAE of its own and is not
-sent to ARCA. It remains DRAFT/HOMOLOGATION. Identity and source lines come from
+Saving is **preparation only**: it does not request a number or CAE or send the
+note to ARCA. The draft remains DRAFT/HOMOLOGATION; separate authorization
+attempts below own its transmission status. Identity and source lines come from
 the immutable authorized invoice snapshot; amounts and grouped IVA are copied
 from the original persisted request and retain positive signs. Totals must match.
 Invoice types 1/6/11 map to NC types 3/8/13. The original type, point of sale,
@@ -352,14 +353,44 @@ conflict. Read-only operators can read the saved note. Preparing a note does not
 cancel a sale/invoice, return goods or refund money. Sales, tenders, stock,
 customer accounts, collections/applications and Treasury remain unchanged.
 
-The following authorization slice must serialize the NC series, persist its exact
-request before sending, include and verify the original CbtesAsoc association,
-and preserve consult-only recovery for uncertainty. The current invoice-only
-WSFE parser must not simply receive new voucher type IDs. Partial notes and
-commercial reversal posting need separate cumulative/application designs: the
+The authorization flow below serializes the NC series, persists its exact
+request before sending, verifies the original CbtesAsoc association and recovers
+uncertain results by consultation only. Partial notes and commercial reversal
+posting need separate cumulative/application designs: the
 current outstanding-sale calculation does not apply arbitrary CREDIT_NOTE ledger
 rows to invoices, and a cash refund is not the same event as a fiscal correction.
 
 References: [WSFEv1 manual](https://www.arca.gob.ar/ws/documentacion/manuales/manual-desarrollador-ARCA-COMPG.pdf)
 and [RG 4540](https://biblioteca.afip.gob.ar/search/query/norma.aspx?p=t%3ARAG%7Cn%3A4540%7Co%3A3%7Ca%3A2019%7Cf%3A31%2F07%2F2019).
 No live homologation or legal eligibility validation is claimed by saving a draft.
+
+## Total credit-note authorization in homologation
+
+A saved note can be authorized only with explicit homologation and exclusive-PV
+confirmations plus its current revision. It uses NC3/8/13 and the original point
+of sale, with a separate NC numbering series. The builder preserves the original
+positive amounts and grouped IVA and includes exactly one associated invoice
+(type, point, number, issuer CUIT and original date). The service rechecks the
+note against the original authorized request before claiming a number.
+
+GET `/fiscal/credit-notes/:id/authorization` requires invoice read; POST
+`/fiscal/credit-notes/:id/authorize` and
+`/fiscal/credit-note-authorizations/:id/reconcile` require invoice read/create.
+A separate `fiscal_credit_note_authorizations` table stores only business request
+and result data, never credentials. Partial unique indexes protect active note,
+legal NC series and number. Invoice and NC voucher-type sets are disjoint, so
+separate persistence cannot bypass series uniqueness. Request and audit commit
+before the one external send. The same preparation lock freezes the draft;
+uncertain/authorized attempts block editing and another active attempt.
+
+SENDING/UNKNOWN follow consult-only recovery; a missing result never releases
+or resends the original request. AUTHORIZED requires a matching test CAE/expiry;
+REJECTED permits a new manual attempt. Consultation verifies the full associated
+invoice rather than accepting a number/amount match alone. A result-persistence
+failure leaves the pending request available for recovery. UI prevents sending
+unsaved reason edits and presents test statuses and a test CAE explicitly.
+
+Authorizing a test credit note does not cancel the original invoice, refund a
+payment, return goods or change account/Treasury balances. Real commercial
+corrections, partial notes, production and force-unlock tooling remain separate.
+No live authenticated ARCA acceptance is claimed without operator credentials.

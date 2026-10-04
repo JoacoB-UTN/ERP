@@ -326,6 +326,9 @@ describe('Fiscal authorization (e2e)', () => {
   afterAll(async () => {
     jest.restoreAllMocks();
     if (prisma && tenantId) {
+      await prisma.fiscalCreditNoteAuthorization.deleteMany({
+        where: { tenantId: { in: [tenantId, foreignTenantId] } },
+      });
       await prisma.fiscalCreditNoteDraft.deleteMany({
         where: { tenantId: { in: [tenantId, foreignTenantId] } },
       });
@@ -380,6 +383,9 @@ describe('Fiscal authorization (e2e)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.fiscalCreditNoteAuthorization.deleteMany({
+      where: { tenantId },
+    });
     await prisma.fiscalCreditNoteDraft.deleteMany({ where: { tenantId } });
     await prisma.fiscalAuthorization.deleteMany({ where: { tenantId } });
     wsfe.validate.mockReset().mockResolvedValue(undefined);
@@ -1162,6 +1168,592 @@ describe('Fiscal authorization (e2e)', () => {
       await getCredit(authorization.id).expect(200);
       expect(await snapshot()).toEqual(before);
       expectNoArcaCalls();
+    });
+    describe('credit note authorization', () => {
+      const sendNote = (
+        id: string,
+        body: object = acknowledgement,
+        agent = editor,
+        company = companyId,
+      ) =>
+        agent
+          .post(`/api/v1/fiscal/credit-notes/${id}/authorize`)
+          .set(COMPANY_ID_HEADER, company)
+          .send(body);
+      const latestNote = (id: string, agent = editor, company = companyId) =>
+        agent
+          .get(`/api/v1/fiscal/credit-notes/${id}/authorization`)
+          .set(COMPANY_ID_HEADER, company);
+      const consultNote = (
+        id: string,
+        agent = editor,
+        company = companyId,
+        body: object = {},
+      ) =>
+        agent
+          .post(`/api/v1/fiscal/credit-note-authorizations/${id}/reconcile`)
+          .set(COMPANY_ID_HEADER, company)
+          .send(body);
+      const attempt = (response: { body: unknown }) =>
+        (response.body as FiscalAuthorizationResponse).authorization;
+      async function prepareNote(real = false) {
+        const invoice = await original(real);
+        const note = result(
+          await saveCredit(invoice.authorization.id).expect(201),
+        );
+        clearArcaCalls();
+        return { ...invoice, note };
+      }
+      it('requires scoped read/create permissions, revision and acknowledgements without accepting fiscal payload fields', async () => {
+        const { note } = await prepareNote();
+        expect((await latestNote(note.id, reader).expect(200)).body).toEqual({
+          authorization: null,
+        });
+        await latestNote(note.id, noFiscal).expect(403);
+        await latestNote(note.id, noSalesRead).expect(403);
+        await latestNote(note.id, editor, foreignCompanyId).expect(404);
+        await latestNote(randomUUID()).expect(404);
+        for (const agent of [reader, noFiscal, noSalesRead])
+          await sendNote(note.id, acknowledgement, agent).expect(403);
+        await sendNote(
+          note.id,
+          acknowledgement,
+          editor,
+          foreignCompanyId,
+        ).expect(404);
+        for (const body of [
+          {},
+          { ...acknowledgement, confirmHomologation: false },
+          { ...acknowledgement, exclusivePointOfSale: false },
+          { ...acknowledgement, companyId: foreignCompanyId },
+          { ...acknowledgement, total: '0.01' },
+          { ...acknowledgement, cae: accepted.cae },
+          { ...acknowledgement, voucherType: 13 },
+          { ...acknowledgement, expectedRevision: 0 },
+        ])
+          await sendNote(note.id, body).expect(400);
+        await sendNote(note.id, {
+          ...acknowledgement,
+          expectedRevision: 5,
+        }).expect(409);
+        expectNoArcaCalls();
+        expect(
+          await prisma.fiscalCreditNoteAuthorization.count({
+            where: { companyId },
+          }),
+        ).toBe(0);
+      });
+      it('commits the request before sending once, freezes the note and preserves the original and all commercial ledgers', async () => {
+        const { note, sale: document, authorization } = await prepareNote(true);
+        const snapshot = () =>
+          Promise.all([
+            prisma.salesDocument.findFirst({
+              where: { id: document.id, companyId },
+              include: { lines: true, tender: true },
+            }),
+            prisma.fiscalAuthorization.findFirst({
+              where: { companyId, id: authorization.id },
+            }),
+            prisma.fiscalCreditNoteDraft.findFirst({
+              where: { companyId, id: note.id },
+            }),
+            prisma.stockMovement.findMany({
+              where: { companyId },
+              orderBy: { id: 'asc' },
+            }),
+            prisma.inventoryBalance.findMany({
+              where: { companyId },
+              orderBy: { productVariantId: 'asc' },
+            }),
+            prisma.customerAccountMovement.findMany({
+              where: { companyId },
+              orderBy: { id: 'asc' },
+            }),
+            prisma.customerCollection.findMany({
+              where: { companyId },
+              orderBy: { id: 'asc' },
+              include: { applications: true },
+            }),
+            prisma.treasuryMovement.findMany({
+              where: { companyId },
+              orderBy: { id: 'asc' },
+            }),
+            prisma.treasuryAccount.findMany({
+              where: { companyId },
+              orderBy: { id: 'asc' },
+            }),
+          ]);
+        const before = await snapshot();
+        wsfe.authorize.mockImplementation(async () => {
+          const row =
+            await prisma.fiscalCreditNoteAuthorization.findFirstOrThrow({
+              where: { companyId, creditNoteDraftId: note.id },
+            });
+          expect(row).toMatchObject({
+            status: 'SENDING',
+            voucherType: 3,
+            voucherNumber: 1,
+          });
+          expect(
+            await prisma.auditLog.findFirst({
+              where: {
+                companyId,
+                entityId: row.id,
+                entityType: 'FiscalCreditNoteAuthorization',
+                action: 'CREATE',
+              },
+            }),
+          ).not.toBeNull();
+          expect(attempt(await latestNote(note.id).expect(200))).toMatchObject({
+            status: 'SENDING',
+          });
+          await saveCredit(authorization.id, {
+            reason: 'No cambiar durante el envío',
+            expectedRevision: 1,
+          }).expect(409);
+          return accepted;
+        });
+        const responses = await Promise.all([
+          sendNote(note.id),
+          sendNote(note.id),
+        ]);
+        expect(responses.map((r) => r.status)).toEqual([201, 201]);
+        expect(wsfe.authorize).toHaveBeenCalledTimes(1);
+        await sendNote(note.id).expect(201);
+        expect(wsfe.authorize).toHaveBeenCalledTimes(1);
+        const current = attempt(await latestNote(note.id, reader).expect(200));
+        expect(current).toMatchObject({
+          status: 'AUTHORIZED',
+          cae: accepted.cae,
+          draftId: note.id,
+          draftRevision: 1,
+          pointOfSale: 12,
+          voucherType: 3,
+          voucherNumber: 1,
+        });
+        // Invoice and NC have distinct legal numbering series and may both be number 1.
+        expect(authorization).toMatchObject({
+          voucherType: 1,
+          voucherNumber: 1,
+        });
+        expect(wsfe.lastNumber).toHaveBeenCalledWith(
+          companyId,
+          note.original.issuerCuit,
+          12,
+          3,
+        );
+        await saveCredit(authorization.id, {
+          reason: 'No cambiar después de autorizar',
+          expectedRevision: 1,
+        }).expect(409);
+        expect(await snapshot()).toEqual(before);
+        expect(JSON.stringify(current)).not.toMatch(
+          /private-ticket|private-sign|recipientCuit|associated/,
+        );
+      });
+      it('keeps uncertain sends and their series blocked, then consults exactly the stored association without resending', async () => {
+        const first = await prepareNote();
+        wsfe.lastNumber.mockResolvedValue(1);
+        const second = await prepareNote();
+        wsfe.lastNumber.mockResolvedValue(0);
+        wsfe.authorize.mockRejectedValue(new Error('Uncertain NC network'));
+        const sent = attempt(await sendNote(first.note.id).expect(201));
+        expect(sent.status).toBe('UNKNOWN');
+        const stored =
+          await prisma.fiscalCreditNoteAuthorization.findFirstOrThrow({
+            where: { companyId, id: sent.id },
+          });
+        expect(stored.request).toMatchObject({
+          voucherType: 3,
+          voucherNumber: 1,
+          pointOfSale: 12,
+          associated: {
+            issuerCuit: first.note.original.issuerCuit,
+            voucherType: 1,
+            voucherNumber: first.authorization.voucherNumber,
+            pointOfSale: 12,
+            date: first.note.original.date,
+          },
+        });
+        await sendNote(second.note.id).expect(409);
+        await sendNote(first.note.id).expect(201);
+        await saveCredit(first.authorization.id, {
+          reason: 'Bloqueado por incertidumbre',
+          expectedRevision: 1,
+        }).expect(409);
+        await consultNote(sent.id, reader).expect(403);
+        await consultNote(sent.id, noFiscal).expect(403);
+        await consultNote(sent.id, editor, foreignCompanyId).expect(404);
+        await consultNote(sent.id, editor, companyId, {
+          companyId: foreignCompanyId,
+        }).expect(400);
+        await consultNote(randomUUID()).expect(404);
+        expect(attempt(await consultNote(sent.id).expect(201))).toMatchObject({
+          id: sent.id,
+          status: 'UNKNOWN',
+        });
+        wsfe.consult.mockRejectedValueOnce(
+          new Error('Consult transport error'),
+        );
+        expect(attempt(await consultNote(sent.id).expect(201)).status).toBe(
+          'UNKNOWN',
+        );
+        wsfe.consult.mockResolvedValue(accepted);
+        expect(attempt(await consultNote(sent.id).expect(201))).toMatchObject({
+          id: sent.id,
+          status: 'AUTHORIZED',
+          voucherNumber: 1,
+        });
+        for (const call of wsfe.consult.mock.calls as [string, unknown][])
+          expect(call).toEqual([companyId, stored.request]);
+        const calls = wsfe.consult.mock.calls.length;
+        await consultNote(sent.id).expect(201);
+        expect(wsfe.consult).toHaveBeenCalledTimes(calls);
+        expect(wsfe.authorize).toHaveBeenCalledTimes(1);
+      });
+      it('blocks the pending NC series across companies with the same legal issuer without leaking the other request', async () => {
+        const first = await prepareNote();
+        const scope = {
+          tenantId: foreignTenantId,
+          companyId: foreignCompanyId,
+        };
+        const warehouse = await prisma.warehouse.create({
+          data: { ...scope, code: 'NC-SERIES', name: 'Foreign NC warehouse' },
+        });
+        const customer = await prisma.customer.create({
+          data: {
+            ...scope,
+            code: 'NC-SERIES',
+            legalName: 'Foreign NC recipient',
+            documentType: 'CUIT',
+            taxId: '20123456786',
+            taxCondition: 'RESPONSABLE_INSCRIPTO',
+          },
+        });
+        const prices = await prisma.priceList.create({
+          data: {
+            ...scope,
+            code: 'NC-SERIES',
+            name: 'Foreign NC prices',
+            currencyId,
+          },
+        });
+        const unit = await prisma.unitOfMeasure.create({
+          data: {
+            ...scope,
+            code: 'NC-SERIES',
+            name: 'Unit',
+            symbol: 'u',
+            decimalPlaces: 0,
+          },
+        });
+        const product = await prisma.product.create({
+          data: {
+            ...scope,
+            code: 'NC-SERIES',
+            name: 'Foreign NC product',
+            baseUnitId: unit.id,
+          },
+        });
+        const variant = await prisma.productVariant.create({
+          data: { productId: product.id },
+        });
+        try {
+          const document = await prisma.$transaction(async (tx) => {
+            const created = await tx.salesDocument.create({
+              data: {
+                ...scope,
+                warehouseId: warehouse.id,
+                customerId: customer.id,
+                priceListId: prices.id,
+                currencyId,
+                number: `VTA-NC-${randomUUID()}`,
+                status: 'CONFIRMED',
+                occurredAt: new Date(),
+                total: '121',
+                subtotal: '121',
+                lines: {
+                  create: {
+                    productVariantId: variant.id,
+                    description: 'Foreign NC source item',
+                    quantity: '1',
+                    unitPrice: '121',
+                    netAmount: '121',
+                    totalAmount: '121',
+                  },
+                },
+              },
+              include: { lines: true },
+            });
+            await app.get(CustomerAccountService).postSaleConfirmation(tx, {
+              ...scope,
+              customerId: customer.id,
+              currencyId,
+              salesDocumentId: created.id,
+              salesDocumentNumber: created.number,
+              total: created.total.toString(),
+              occurredAt: created.occurredAt,
+              createdBy: null,
+            });
+            return created;
+          });
+          const foreignDraft = (
+            await save(
+              document.id,
+              input(document.lines[0].id),
+              editor,
+              foreignCompanyId,
+            ).expect(201)
+          ).body as FiscalDraftResponse;
+          wsfe.lastNumber.mockResolvedValue(1);
+          const foreignInvoice = attempt(
+            await authorize(
+              foreignDraft.draft.id,
+              acknowledgement,
+              editor,
+              foreignCompanyId,
+            ).expect(201),
+          );
+          const foreignNote = result(
+            await saveCredit(
+              foreignInvoice.id,
+              { reason, expectedRevision: 0 },
+              editor,
+              foreignCompanyId,
+            ).expect(201),
+          );
+          clearArcaCalls();
+          wsfe.lastNumber.mockResolvedValue(0);
+          wsfe.authorize.mockRejectedValueOnce(
+            new Error('Uncertain NC network'),
+          );
+          const pendingNote = attempt(
+            await sendNote(first.note.id).expect(201),
+          );
+          expect(pendingNote).toMatchObject({
+            status: 'UNKNOWN',
+            voucherType: 3,
+            voucherNumber: 1,
+          });
+          // A different candidate number proves that pending-series uniqueness,
+          // rather than active-number uniqueness, prevents the foreign send.
+          wsfe.lastNumber.mockResolvedValue(42);
+          const blocked = await sendNote(
+            foreignNote.id,
+            acknowledgement,
+            editor,
+            foreignCompanyId,
+          ).expect(409);
+          expect(wsfe.validate).toHaveBeenCalledWith(
+            foreignCompanyId,
+            expect.objectContaining({
+              issuerCuit: '20123456786',
+              pointOfSale: 12,
+              voucherType: 3,
+            }),
+          );
+          expect(wsfe.authorize).toHaveBeenCalledTimes(1);
+          expect(
+            await prisma.fiscalCreditNoteAuthorization.count({
+              where: { ...scope, creditNoteDraftId: foreignNote.id },
+            }),
+          ).toBe(0);
+          expect(
+            await prisma.fiscalCreditNoteAuthorization.findFirst({
+              where: { companyId, id: pendingNote.id },
+            }),
+          ).toMatchObject({ status: 'UNKNOWN', voucherNumber: 1 });
+          expect(JSON.stringify(blocked.body)).not.toContain(pendingNote.id);
+          expect(JSON.stringify(blocked.body)).not.toContain(first.note.id);
+          await latestNote(first.note.id, editor, foreignCompanyId).expect(404);
+          await consultNote(pendingNote.id, editor, foreignCompanyId).expect(
+            404,
+          );
+        } finally {
+          await prisma.fiscalCreditNoteAuthorization.deleteMany({
+            where: scope,
+          });
+          await prisma.fiscalCreditNoteDraft.deleteMany({ where: scope });
+          await prisma.fiscalAuthorization.deleteMany({ where: scope });
+          await prisma.fiscalDraft.deleteMany({ where: scope });
+          await prisma.customerAccountMovement.deleteMany({ where: scope });
+          await prisma.salesDocumentLine.deleteMany({
+            where: { salesDocument: scope },
+          });
+          await prisma.salesDocument.deleteMany({ where: scope });
+          await prisma.productVariant.deleteMany({ where: { product: scope } });
+          await prisma.product.deleteMany({ where: scope });
+          await prisma.unitOfMeasure.deleteMany({ where: scope });
+          await prisma.priceList.deleteMany({ where: scope });
+          await prisma.warehouse.deleteMany({ where: scope });
+          await prisma.customer.deleteMany({ where: scope });
+        }
+      });
+      it('retains rejected history and allows an explicit edited retry with the same unconsumed number', async () => {
+        const { note, authorization } = await prepareNote();
+        wsfe.authorize.mockResolvedValueOnce({
+          status: 'REJECTED',
+          cae: null,
+          expiresAt: null,
+          message: 'Rechazo NC de pruebas',
+        });
+        const rejected = attempt(await sendNote(note.id).expect(201));
+        expect(rejected.status).toBe('REJECTED');
+        expect(attempt(await latestNote(note.id).expect(200)).id).toBe(
+          rejected.id,
+        );
+        const updated = result(
+          await saveCredit(authorization.id, {
+            reason: 'Motivo revisado después del rechazo',
+            expectedRevision: 1,
+          }).expect(201),
+        );
+        expect(updated).toMatchObject({
+          id: note.id,
+          revision: 2,
+          authorizedAmounts: note.authorizedAmounts,
+        });
+        await sendNote(note.id).expect(409);
+        const retried = attempt(
+          await sendNote(note.id, {
+            ...acknowledgement,
+            expectedRevision: 2,
+          }).expect(201),
+        );
+        expect(retried).toMatchObject({
+          status: 'AUTHORIZED',
+          draftRevision: 2,
+          voucherNumber: rejected.voucherNumber,
+        });
+        expect(retried.id).not.toBe(rejected.id);
+        expect(
+          await prisma.fiscalCreditNoteAuthorization.count({
+            where: { companyId, creditNoteDraftId: note.id },
+          }),
+        ).toBe(2);
+        expect(
+          await prisma.fiscalCreditNoteAuthorization.findFirst({
+            where: { companyId, id: rejected.id },
+          }),
+        ).toMatchObject({ status: 'REJECTED' });
+        expect(wsfe.authorize).toHaveBeenCalledTimes(2);
+      });
+      it('never sends or claims a number when preflight or the claim audit fails', async () => {
+        const { note } = await prepareNote();
+        wsfe.validate.mockRejectedValueOnce(
+          new Error('Certificate unavailable'),
+        );
+        await sendNote(note.id).expect(503);
+        wsfe.lastNumber.mockRejectedValueOnce(
+          new Error('Number lookup unavailable'),
+        );
+        await sendNote(note.id).expect(503);
+        const failed = jest
+          .spyOn(app.get(AuditService), 'recordFromContext')
+          .mockRejectedValueOnce(new Error('Claim audit unavailable'));
+        try {
+          await sendNote(note.id).expect(500);
+        } finally {
+          failed.mockRestore();
+        }
+        expect(wsfe.authorize).not.toHaveBeenCalled();
+        expect(
+          await prisma.fiscalCreditNoteAuthorization.count({
+            where: { companyId, creditNoteDraftId: note.id },
+          }),
+        ).toBe(0);
+      });
+      it('retains SENDING if result storage fails after a successful send and recovers by consultation only', async () => {
+        const { note, authorization } = await prepareNote();
+        const audit = app.get(AuditService);
+        const originalAudit = audit.recordFromContext.bind(
+          audit,
+        ) as AuditService['recordFromContext'];
+        const spy = jest
+          .spyOn(audit, 'recordFromContext')
+          .mockImplementationOnce(originalAudit)
+          .mockRejectedValueOnce(new Error('NC result audit unavailable'));
+        try {
+          await sendNote(note.id).expect(500);
+        } finally {
+          spy.mockRestore();
+        }
+        const stored =
+          await prisma.fiscalCreditNoteAuthorization.findFirstOrThrow({
+            where: { companyId, creditNoteDraftId: note.id },
+          });
+        expect(stored).toMatchObject({ status: 'SENDING', cae: null });
+        expect(attempt(await sendNote(note.id).expect(201))).toMatchObject({
+          id: stored.id,
+          status: 'SENDING',
+        });
+        await saveCredit(authorization.id, {
+          reason: 'No cambiar solicitud pendiente',
+          expectedRevision: 1,
+        }).expect(409);
+        wsfe.consult.mockResolvedValue(accepted);
+        expect(attempt(await consultNote(stored.id).expect(201))).toMatchObject(
+          { id: stored.id, status: 'AUTHORIZED', cae: accepted.cae },
+        );
+        expect(wsfe.consult).toHaveBeenCalledWith(companyId, stored.request);
+        expect(wsfe.authorize).toHaveBeenCalledTimes(1);
+      });
+      it('requires the original point of sale and never silently redirects a saved note to current settings', async () => {
+        const { note } = await prepareNote();
+        await prisma.fiscalSettings.update({
+          where: { companyId },
+          data: { testPointOfSale: 13 },
+        });
+        try {
+          await sendNote(note.id).expect(400);
+          expectNoArcaCalls();
+          expect(
+            await prisma.fiscalCreditNoteAuthorization.count({
+              where: { companyId },
+            }),
+          ).toBe(0);
+        } finally {
+          await prisma.fiscalSettings.update({
+            where: { companyId },
+            data: { testPointOfSale: 12 },
+          });
+        }
+      });
+      it('rechecks the note revision after preflight before claiming or sending', async () => {
+        const { note, authorization } = await prepareNote();
+        wsfe.validate.mockImplementationOnce(async () => {
+          await saveCredit(authorization.id, {
+            reason: 'Cambio concurrente antes de enviar',
+            expectedRevision: 1,
+          }).expect(201);
+        });
+        await sendNote(note.id).expect(409);
+        expect(wsfe.authorize).not.toHaveBeenCalled();
+        expect(
+          await prisma.fiscalCreditNoteAuthorization.count({
+            where: { companyId },
+          }),
+        ).toBe(0);
+        expect(
+          result(await getCredit(authorization.id).expect(200)).revision,
+        ).toBe(2);
+      });
+      it('does not allow the database to mark a null CAE as authorized', async () => {
+        const { note } = await prepareNote();
+        wsfe.authorize.mockRejectedValue(new Error('NC timeout'));
+        const pendingNote = attempt(await sendNote(note.id).expect(201));
+        await expect(
+          prisma.fiscalCreditNoteAuthorization.update({
+            where: { id: pendingNote.id, companyId },
+            data: { status: 'AUTHORIZED', cae: null, expiresAt: null },
+          }),
+        ).rejects.toThrow();
+        expect(
+          await prisma.fiscalCreditNoteAuthorization.findFirst({
+            where: { companyId, id: pendingNote.id },
+          }),
+        ).toMatchObject({ status: 'UNKNOWN' });
+      });
     });
   });
 });

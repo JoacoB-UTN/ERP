@@ -946,10 +946,13 @@ selection and an exclusive test point of sale. `SENDING`/`UNKNOWN` reserve the
 original number and block the series; consultation never blindly resends.
 Confirmed sales and ledger balances remain unchanged. Real certificate setup,
 issuer definition and live homologation acceptance are still missing. Production,
-Production QR/printing, credit/debit authorization and commercial reversals remain unimplemented.
-A total credit-note preparation can now be saved against an authorized test invoice,
-with immutable original amounts, reason, revision and atomic audit; no ARCA call or
-ledger movement occurs. See
+production QR/printing, debit notes and commercial reversals remain unimplemented.
+Total credit notes A/B/C preserve the original authorized test invoice and amounts.
+Preparation is audited and does not send; a separate explicit action authorizes
+the note in homologation with its own numbering and exact invoice association.
+Durable attempts, global series/number uniqueness, frozen drafts and consult-only
+recovery prevent blind retries. A test CAE never changes stock, sales, accounts
+or Treasury balances. See
 [fiscal.md](fiscal.md) for credential provisioning, limits and recovery behavior.
 
 ## Not implemented
