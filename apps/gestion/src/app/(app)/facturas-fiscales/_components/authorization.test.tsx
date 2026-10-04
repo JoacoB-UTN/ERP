@@ -136,6 +136,26 @@ it('blocks actions when a background query failed even with cached data', () => 
   expect(screen.queryByText('Continuar preparación')).toBeNull();
 });
 
+it('blocks sends while the outer draft is unavailable and preserves state until it is verified', () => {
+  const view = render(<FiscalAuthorizationPanel draft={draft} canPrepare />);
+  acknowledgements();
+  view.rerender(<FiscalAuthorizationPanel draft={draft} canPrepare available={false} />);
+  expect(screen.queryByRole('checkbox')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Autorizar comprobante de prueba' })).toBeNull();
+  view.rerender(<FiscalAuthorizationPanel draft={draft} canPrepare available />);
+  expect(
+    (screen.getByRole('button', { name: 'Autorizar comprobante de prueba' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+  expect(mock.send).not.toHaveBeenCalled();
+});
+
+it('blocks reconciliation while the outer draft is unavailable', () => {
+  setup('UNKNOWN');
+  render(<FiscalAuthorizationPanel draft={draft} canPrepare available={false} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Consultar resultado en ARCA' }));
+  expect(mock.consult).not.toHaveBeenCalled();
+});
+
 it.each([
   ['AUTHORIZED', 'HOMOLOGATION', 'draft', 3, true],
   ['UNKNOWN', 'HOMOLOGATION', 'draft', 3, false],

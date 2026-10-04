@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FiscalDraftDto, FiscalPreview, FiscalSource } from '@erp/shared';
 import FiscalLayout from '../layout';
 import { FiscalForm, FiscalListPage, FiscalNewPage, FiscalPreparePage, FiscalDetailPage } from './fiscal';
@@ -11,6 +11,11 @@ const mock = vi.hoisted(() => ({
   save: vi.fn(),
   authorize: vi.fn(),
   reconcile: vi.fn(),
+  refreshIdentity: vi.fn(),
+  authorizationState: undefined as unknown,
+  detailDraft: undefined as unknown,
+  detailFetching: false,
+  detailError: false,
   list: vi.fn(),
   sales: vi.fn(),
   source: vi.fn(),
@@ -28,7 +33,19 @@ vi.mock('next/navigation', () => ({ useParams: () => ({ saleId: 'sale-a', id: 'd
 vi.mock('@/lib/auth-client', () => ({
   authClient: { companyContextStore: { getActiveCompanyId: () => mock.company } },
   useActiveCompany: () => ({ activeCompanyId: mock.company }),
-  useFiscalAuthorization: () => ({ data: { authorization: null }, isError: false, isPending: false }),
+  useFiscalAuthorization: () =>
+    mock.authorizationState ?? { data: { authorization: null }, isError: false, isPending: false },
+  useFiscalCreditNote: () => ({ data: { draft: null }, isError: false, isPending: false, isFetching: false }),
+  useFiscalCreditNoteAuthorization: () => ({
+    data: { authorization: null },
+    isError: false,
+    isPending: false,
+    isFetching: false,
+  }),
+  useSaveFiscalCreditNote: () => ({ mutateAsync: vi.fn() }),
+  useAuthorizeFiscalCreditNote: () => ({ mutateAsync: vi.fn() }),
+  useReconcileFiscalCreditNote: () => ({ mutateAsync: vi.fn() }),
+  useRefreshFiscalIdentity: () => ({ mutateAsync: mock.refreshIdentity }),
   useAuthorizeFiscalDraft: () => ({ mutateAsync: mock.authorize }),
   useReconcileFiscalAuthorization: () => ({ mutateAsync: mock.reconcile }),
   usePermissions: () => ({ can: (p: string) => mock.permissions.has(p), isLoading: false }),
@@ -69,7 +86,12 @@ vi.mock('@/lib/auth-client', () => ({
   },
   useFiscalDraft: (...args: unknown[]) => {
     mock.detail(...args);
-    return result({ draft: draft });
+    return {
+      ...result({ draft: mock.detailDraft ?? draft }),
+      isFetching: mock.detailFetching,
+      isError: mock.detailError,
+      error: mock.detailError ? new Error('Error al verificar detalle') : null,
+    };
   },
 }));
 const source: FiscalSource = {
@@ -131,10 +153,203 @@ beforeEach(() => {
   mock.sourceData = undefined;
   mock.draftData = undefined;
   mock.refetchError = false;
+  mock.detailDraft = undefined;
+  mock.authorizationState = undefined;
+  mock.detailFetching = false;
+  mock.detailError = false;
+  mock.refreshIdentity.mockReset().mockResolvedValue({
+    draft: {
+      ...draft,
+      revision: 4,
+      source: { ...source, recipient: { ...source.recipient, legalName: 'Cliente corregido' } },
+    },
+  });
   mock.preview.mockResolvedValue({ preview });
   mock.save.mockResolvedValue({ draft: { ...draft, revision: 1 } });
 });
 afterEach(cleanup);
+
+describe('Fiscal identity detail integration', () => {
+  it('unblocks authorization when the refreshed query arrives before the mutation response', async () => {
+    let resolve!: (value: unknown) => void;
+    mock.refreshIdentity.mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    const view = render(<FiscalDetailPage />);
+    const identity = screen.getByRole('region', { name: 'Identidad fiscal guardada' });
+    fireEvent.click(within(identity).getByRole('checkbox'));
+    fireEvent.click(within(identity).getByRole('button', { name: 'Actualizar datos fiscales del borrador' }));
+    mock.detailDraft = {
+      ...draft,
+      revision: 4,
+      source: {
+        ...source,
+        recipient: { ...source.recipient, legalName: 'Cliente actualizado por consulta' },
+      },
+    };
+    view.rerender(<FiscalDetailPage />);
+    expect(screen.getByText(/Cliente actualizado por consulta · Revisión 4/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Autorizar comprobante de prueba' })).toBeTruthy();
+    await act(async () => resolve({ draft: mock.detailDraft }));
+    const authorization = screen
+      .getByRole('heading', { name: 'Autorización en homologación' })
+      .closest('section')!;
+    within(authorization)
+      .getAllByRole('checkbox')
+      .forEach((checkbox) => fireEvent.click(checkbox));
+    expect(
+      (screen.getByRole('button', { name: 'Autorizar comprobante de prueba' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it.each(['refreshing', 'error'])(
+    'preserves an unsaved credit-note reason when the outer detail is %s',
+    (queryState) => {
+      mock.authorizationState = {
+        data: {
+          authorization: {
+            id: 'invoice-attempt',
+            draftId: draft.id,
+            draftRevision: draft.revision,
+            environment: 'HOMOLOGATION',
+            status: 'AUTHORIZED',
+            pointOfSale: 3,
+            voucherType: 6,
+            voucherNumber: 42,
+            cae: '12345678901234',
+            expiresAt: '20261020',
+            message: 'Sólo pruebas',
+            updatedAt: '20261004',
+          },
+        },
+        isError: false,
+        isPending: false,
+        isFetching: false,
+      };
+      const view = render(<FiscalDetailPage />);
+      fireEvent.change(screen.getByRole('textbox'), {
+        target: { value: 'Conservar este motivo sin guardar' },
+      });
+      mock.detailFetching = queryState === 'refreshing';
+      mock.detailError = queryState === 'error';
+      view.rerender(<FiscalDetailPage />);
+      expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(
+        'Conservar este motivo sin guardar',
+      );
+      expect(
+        (screen.getByRole('button', { name: 'Guardar borrador de nota' }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      mock.detailFetching = false;
+      mock.detailError = false;
+      view.rerender(<FiscalDetailPage />);
+      expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(
+        'Conservar este motivo sin guardar',
+      );
+      expect(
+        (screen.getByRole('button', { name: 'Guardar borrador de nota' }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    },
+  );
+
+  it('displays the returned revision, preserves it over older cache, and resets authorization confirmations', async () => {
+    let resolve!: (value: unknown) => void;
+    mock.refreshIdentity.mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    const view = render(<FiscalDetailPage />);
+    expect(mock.refreshIdentity).not.toHaveBeenCalled();
+    const authorization = screen
+      .getByRole('heading', { name: 'Autorización en homologación' })
+      .closest('section')!;
+    within(authorization)
+      .getAllByRole('checkbox')
+      .forEach((checkbox) => fireEvent.click(checkbox));
+    const identity = screen.getByRole('region', { name: 'Identidad fiscal guardada' });
+    fireEvent.click(within(identity).getByRole('checkbox'));
+    fireEvent.click(within(identity).getByRole('button', { name: 'Actualizar datos fiscales del borrador' }));
+    expect(screen.queryByRole('button', { name: 'Autorizar comprobante de prueba' })).toBeNull();
+    const updated = {
+      ...draft,
+      revision: 4,
+      source: { ...source, recipient: { ...source.recipient, legalName: 'Cliente corregido' } },
+    };
+    await act(async () => resolve({ draft: updated }));
+    expect(screen.getByText(/Venta VTA-001 · Cliente corregido · Revisión 4/)).toBeTruthy();
+    expect(screen.getByText(/Datos fiscales actualizados. Revisá la clase y el IVA/)).toBeTruthy();
+    const send = screen.getByRole('button', { name: 'Autorizar comprobante de prueba' });
+    expect((send as HTMLButtonElement).disabled).toBe(true);
+    expect(mock.authorize).not.toHaveBeenCalled();
+    view.rerender(<FiscalDetailPage />);
+    expect(screen.getByText(/Venta VTA-001 · Cliente corregido · Revisión 4/)).toBeTruthy();
+    const freshAuthorization = screen
+      .getByRole('heading', { name: 'Autorización en homologación' })
+      .closest('section')!;
+    within(freshAuthorization)
+      .getAllByRole('checkbox')
+      .forEach((checkbox) => fireEvent.click(checkbox));
+    fireEvent.click(send);
+    await waitFor(() =>
+      expect(mock.authorize).toHaveBeenCalledWith({
+        draftId: 'draft-a',
+        input: { expectedRevision: 4, confirmHomologation: true, exclusivePointOfSale: true },
+      }),
+    );
+  });
+
+  it.each(['refreshing', 'error'])(
+    'disables identity refresh and authorization while the outer detail is %s',
+    (state) => {
+      mock.detailFetching = state === 'refreshing';
+      mock.detailError = state === 'error';
+      render(<FiscalDetailPage />);
+      expect(screen.getByRole('region', { name: 'Identidad fiscal guardada' })).toBeTruthy();
+      expect(
+        (screen.getByRole('button', { name: 'Actualizar datos fiscales del borrador' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true);
+      expect(screen.queryByRole('button', { name: 'Autorizar comprobante de prueba' })).toBeNull();
+    },
+  );
+
+  it('shows identity read-only without create permission', () => {
+    mock.permissions.delete('sales.invoices.create');
+    render(<FiscalDetailPage />);
+    const identity = screen.getByRole('region', { name: 'Identidad fiscal guardada' });
+    expect(within(identity).getByText(/Emisor: Empresa A/)).toBeTruthy();
+    expect(within(identity).queryByRole('checkbox')).toBeNull();
+    expect(within(identity).queryByRole('button')).toBeNull();
+  });
+
+  it('does not apply a completed refresh to a different active company', async () => {
+    let resolve!: (value: unknown) => void;
+    mock.refreshIdentity.mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    const view = render(<FiscalDetailPage />);
+    const identity = screen.getByRole('region', { name: 'Identidad fiscal guardada' });
+    fireEvent.click(within(identity).getByRole('checkbox'));
+    fireEvent.click(within(identity).getByRole('button', { name: 'Actualizar datos fiscales del borrador' }));
+    mock.company = 'company-b';
+    mock.detailDraft = {
+      ...draft,
+      source: { ...source, issuer: { ...source.issuer, legalName: 'Empresa B' } },
+    };
+    view.rerender(<FiscalDetailPage />);
+    await act(async () => resolve({ draft: { ...draft, revision: 4 } }));
+    expect(screen.getByText(/Emisor: Empresa B/)).toBeTruthy();
+    expect(screen.queryByText(/Datos fiscales actualizados/)).toBeNull();
+    expect(screen.queryByText(/Revisión 4/)).toBeNull();
+  });
+});
 
 describe('Fiscal draft preparation', () => {
   it('requires explicit class, tax treatment and final amount confirmation before server preview', async () => {

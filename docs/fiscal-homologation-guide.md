@@ -78,7 +78,13 @@ antes de enviar. Este documento no da de alta puntos de venta en producción.
    prueba no debe hacerse sobre ventas operativas reales.
 4. Preparar y guardar su borrador fiscal. Revisar tipo A/B/C, IVA e importes.
    Los datos del emisor y receptor deben estar correctos antes de guardar el
-   borrador: el envío exige que coincidan con su instantánea guardada.
+   borrador: el envío exige que coincidan con su instantánea guardada. Si corregiste
+   los datos de la empresa o del cliente después de guardar y todavía no hubo
+   ningún intento, abrí el detalle y usá **Actualizar datos fiscales** con su
+   confirmación explícita. Revisá la identidad actualizada y volvé a revisar
+   clase e IVA: esta acción conserva los importes y tratamientos guardados. Si
+   ya existe algún intento, incluso rechazado, este mecanismo no puede cambiar
+   su identidad histórica.
 5. Confirmar homologación y uso exclusivo del punto de venta. Enviar una vez.
    Verificar estado autorizado, número, CAE de prueba y vencimiento. Un CAE de
    homologación no habilita a entregar una factura fiscal válida.

@@ -37,6 +37,14 @@ export const saveFiscalDraftSchema = fiscalDraftInputSchema
   })
   .strict();
 export type SaveFiscalDraftInput = z.infer<typeof saveFiscalDraftSchema>;
+export const refreshFiscalIdentitySchema = z
+  .object({
+    expectedRevision: z.number().int().min(1).max(2147483646),
+    confirmIdentityRefresh: z.literal(true),
+  })
+  .strict();
+export type RefreshFiscalIdentityInput = z.infer<typeof refreshFiscalIdentitySchema>;
+
 export const fiscalDraftsQuerySchema = z
   .object({
     page: z.coerce.number().int().min(1).max(1_000_000).default(1),

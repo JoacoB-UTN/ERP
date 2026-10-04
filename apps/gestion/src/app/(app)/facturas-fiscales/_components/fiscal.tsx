@@ -14,6 +14,7 @@ import {
   type FiscalTaxTreatment,
 } from '@erp/shared';
 import { FiscalAuthorizationPanel } from './authorization';
+import { FiscalIdentityRefresh } from './identity-refresh';
 import { Button } from '@/components/ui/button';
 import {
   authClient,
@@ -344,6 +345,7 @@ export function FiscalDetailPage() {
   const { id } = useParams<{ id: string }>();
   const access = useAccess();
   const query = useFiscalDraft(id, access.read);
+  const { activeCompanyId } = useActiveCompany();
   if (access.loading) return <p>Cargando permisos…</p>;
   if (!access.read) return <p>No tenés permiso para consultar borradores fiscales.</p>;
   return (
@@ -354,21 +356,57 @@ export function FiscalDetailPage() {
       <h1 className="text-2xl font-semibold">Borrador fiscal</h1>
       <Notice />
       <QueryState query={query} />
-      {!query.isError && query.data && (
-        <>
-          <p>
-            Venta {query.data.draft.source.saleNumber} · {query.data.draft.source.recipient.legalName} ·
-            Revisión {query.data.draft.revision}
-          </p>
-          <FiscalAuthorizationPanel
-            key={`${query.data.draft.id}:${query.data.draft.revision}`}
-            draft={query.data.draft}
-            canPrepare={access.prepare}
-          />
-          <Breakdown preview={query.data.draft} />
-        </>
+      {query.data && (
+        <FiscalDetail
+          key={`${activeCompanyId}:${id}`}
+          remote={query.data.draft}
+          available={!query.isError && !query.isFetching && !query.isPending}
+          canPrepare={access.prepare}
+        />
       )}
     </div>
+  );
+}
+function FiscalDetail({
+  remote,
+  available,
+  canPrepare,
+}: {
+  remote: FiscalDraftDto;
+  available: boolean;
+  canPrepare: boolean;
+}) {
+  const [refreshed, setRefreshed] = useState<FiscalDraftDto | null>(null);
+  const [refreshingRevision, setRefreshingRevision] = useState<number | null>(null);
+  const draft =
+    refreshed && refreshed.id === remote.id && refreshed.revision > remote.revision ? refreshed : remote;
+  const busy = refreshingRevision === draft.revision;
+  return (
+    <>
+      <p>
+        Venta {draft.source.saleNumber} · {draft.source.recipient.legalName} · Revisión {draft.revision}
+      </p>
+      <FiscalIdentityRefresh
+        key={`identity:${draft.id}:${draft.revision}`}
+        draft={draft}
+        available={available}
+        onBusyChange={(value) => setRefreshingRevision(value ? draft.revision : null)}
+        onRefreshed={(result) => {
+          setRefreshed(result);
+          setRefreshingRevision(null);
+        }}
+      />
+      {refreshed && (
+        <p role="status">Datos fiscales actualizados. Revisá la clase y el IVA antes de autorizar.</p>
+      )}
+      <FiscalAuthorizationPanel
+        key={`authorization:${draft.id}:${draft.revision}`}
+        draft={draft}
+        canPrepare={canPrepare}
+        available={available && !busy}
+      />
+      <Breakdown preview={draft} />
+    </>
   );
 }
 export function FiscalPreparePage() {
