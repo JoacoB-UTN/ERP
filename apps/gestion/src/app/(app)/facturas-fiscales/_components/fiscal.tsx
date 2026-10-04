@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import {
   FISCAL_TAX_TREATMENT_LABELS,
   type FiscalDraftDto,
+  type FiscalDraftFilter,
   type FiscalDraftListItem,
   type FiscalDraftInput,
   type FiscalInvoiceType,
@@ -153,7 +154,8 @@ function CreditNoteSummary({
 export function FiscalListPage() {
   const access = useAccess();
   const [page, setPage] = useState(1);
-  const query = useFiscalDrafts(page, access.read);
+  const [filter, setFilter] = useState<FiscalDraftFilter>('ALL');
+  const query = useFiscalDrafts(page, access.read, filter);
   if (access.loading) return <p>Cargando permisos…</p>;
   if (!access.read) return <p>No tenés permiso para consultar borradores fiscales.</p>;
   return (
@@ -170,6 +172,28 @@ export function FiscalListPage() {
         <Link className={linkClass} href="/facturas-fiscales/nueva">
           Preparar desde una venta
         </Link>
+      )}
+      <label className="flex max-w-sm flex-col gap-2">
+        Mostrar comprobantes
+        <select
+          className={selectClass}
+          value={filter}
+          onChange={(event) => {
+            setFilter(event.target.value as FiscalDraftFilter);
+            setPage(1);
+          }}
+        >
+          <option value="ALL">Todos</option>
+          <option value="PENDING">Todos por consultar</option>
+          <option value="INVOICE_PENDING">Facturas por consultar</option>
+          <option value="CREDIT_NOTE_PENDING">Notas por consultar</option>
+        </select>
+      </label>
+      {filter !== 'ALL' && (
+        <p className="text-sm">
+          Envíos pendientes de confirmar o con resultado desconocido. Abrí el detalle para consultar su
+          resultado.
+        </p>
       )}
       <QueryState query={query} />
       {!query.isError && query.data && (
@@ -219,7 +243,18 @@ export function FiscalListPage() {
               </tbody>
             </table>
           </div>
-          {query.data.items.length === 0 && <p>Todavía no hay borradores fiscales.</p>}
+          {query.data.items.length === 0 && (
+            <p role="status">
+              {
+                {
+                  ALL: 'Todavía no hay borradores fiscales.',
+                  PENDING: 'No hay facturas ni notas de crédito por consultar.',
+                  INVOICE_PENDING: 'No hay facturas por consultar.',
+                  CREDIT_NOTE_PENDING: 'No hay notas de crédito por consultar.',
+                }[filter]
+              }
+            </p>
+          )}
           <Pager page={page} totalPages={query.data.pagination.totalPages} setPage={setPage} />
         </>
       )}
