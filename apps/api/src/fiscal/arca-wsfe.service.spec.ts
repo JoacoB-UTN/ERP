@@ -1,7 +1,10 @@
 import { ArcaWsfeService } from './arca-wsfe.service';
 import { ArcaWsaaService } from './arca-wsaa.service';
 import { parseXml, soapRequest } from './arca-soap';
-import type { ArcaInvoiceRequest } from './fiscal-request';
+import type {
+  ArcaCreditNoteRequest,
+  ArcaInvoiceRequest,
+} from './fiscal-request';
 jest.mock('./arca-soap', () => ({
   ...jest.requireActual<typeof import('./arca-soap')>('./arca-soap'),
   soapRequest: jest.fn(),
@@ -330,4 +333,204 @@ describe('WSFE homologation protocol', () => {
       await expect(service.consult('company', request)).rejects.toThrow();
     }
   });
+});
+
+function creditRequest(type: 3 | 8 | 13 = 3): ArcaCreditNoteRequest {
+  return {
+    ...request,
+    voucherType: type,
+    recipientVatConditionId: type === 8 ? 5 : 1,
+    ...(type === 13 ? { net: '121.00', vat: '0.00', iva: [] } : {}),
+    associated: {
+      voucherType: ({ 3: 1, 8: 6, 13: 11 } as const)[type],
+      pointOfSale: 1,
+      voucherNumber: 9,
+      issuerCuit: request.issuerCuit,
+      date: '20261003',
+    },
+  };
+}
+function associationXml(type: 3 | 8 | 13 = 3): string {
+  return `<CbtesAsoc><CbteAsoc><Tipo>${creditRequest(type).associated.voucherType}</Tipo><PtoVta>1</PtoVta><Nro>9</Nro><Cuit>20123456786</Cuit><CbteFch>20261003</CbteFch></CbteAsoc></CbtesAsoc>`;
+}
+function creditConsulted(type: 3 | 8 | 13 = 3): string {
+  let result = consulted
+    .replace('<CbteTipo>1</CbteTipo>', `<CbteTipo>${type}</CbteTipo>`)
+    .replace('</ResultGet>', `${associationXml(type)}</ResultGet>`);
+  if (type === 8)
+    result = result.replace(
+      '<CondicionIVAReceptorId>1</CondicionIVAReceptorId>',
+      '<CondicionIVAReceptorId>5</CondicionIVAReceptorId>',
+    );
+  if (type === 13)
+    result = result
+      .replace('<ImpNeto>100</ImpNeto>', '<ImpNeto>121</ImpNeto>')
+      .replace('<ImpIVA>21</ImpIVA>', '<ImpIVA>0</ImpIVA>')
+      .replace(/<Iva>.*?<\/Iva>/, '');
+  return result;
+}
+describe('WSFE credit-note homologation protocol', () => {
+  it.each([3, 8, 13] as const)(
+    'encodes NC %s with one complete original association in WSDL order',
+    async (type) => {
+      send.mockResolvedValue(
+        answer(
+          'FECAESolicitar',
+          authorized.replace(
+            '<CbteTipo>1</CbteTipo>',
+            `<CbteTipo>${type}</CbteTipo>`,
+          ),
+        ),
+      );
+      await expect(
+        service.authorize('company', creditRequest(type)),
+      ).resolves.toMatchObject({ status: 'AUTHORIZED', cae: '12345678901234' });
+      const xml = send.mock.calls[0][2];
+      expect(xml).toContain(associationXml(type));
+      expect(xml.match(/<CbteAsoc>/g)).toHaveLength(1);
+      expect(xml.indexOf('<CbtesAsoc>')).toBeGreaterThan(
+        xml.indexOf('</CondicionIVAReceptorId>'),
+      );
+      if (type !== 13)
+        expect(xml.indexOf('</CbtesAsoc>')).toBeLessThan(xml.indexOf('<Iva>'));
+      expect(send).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each([3, 8, 13] as const)(
+    'reconciles NC %s only with its original full association',
+    async (type) => {
+      send.mockResolvedValue(answer('FECompConsultar', creditConsulted(type)));
+      await expect(
+        service.consult('company', creditRequest(type)),
+      ).resolves.toMatchObject({ status: 'AUTHORIZED', cae: '12345678901234' });
+      expect(send.mock.calls[0][2]).toContain(
+        `<CbteTipo>${type}</CbteTipo><CbteNro>4</CbteNro><PtoVta>1</PtoVta>`,
+      );
+    },
+  );
+  it.each([
+    ['Tipo', '1', '6'],
+    ['PtoVta', '1', '2'],
+    ['Nro', '9', '10'],
+    ['Cuit', '20123456786', '20123456787'],
+    ['CbteFch', '20261003', '20261002'],
+  ])(
+    'does not reconcile a different original %s',
+    async (field, before, after) => {
+      const wrong = associationXml().replace(
+        `<${field}>${before}</${field}>`,
+        `<${field}>${after}</${field}>`,
+      );
+      send.mockResolvedValue(
+        answer(
+          'FECompConsultar',
+          creditConsulted().replace(associationXml(), wrong),
+        ),
+      );
+      await expect(service.consult('company', creditRequest())).rejects.toThrow(
+        'No se pudo verificar',
+      );
+    },
+  );
+  it.each([
+    '',
+    '<CbtesAsoc/>',
+    associationXml().replace('<Cuit>20123456786</Cuit>', ''),
+    associationXml().replace('<CbteFch>20261003</CbteFch>', ''),
+    associationXml() + associationXml(),
+    associationXml().replace(
+      '</CbtesAsoc>',
+      '<CbteAsoc><Tipo>1</Tipo></CbteAsoc></CbtesAsoc>',
+    ),
+    associationXml().replace('</CbteAsoc>', '<PtoVta>1</PtoVta></CbteAsoc>'),
+    associationXml().replace(
+      '</CbteAsoc>',
+      '<Unexpected>1</Unexpected></CbteAsoc>',
+    ),
+    associationXml().replace('<Cuit>', '<Cuit xmlns="urn:wrong">'),
+    associationXml().replace('<CbtesAsoc>', '<CbtesAsoc>text'),
+  ])(
+    'rejects incomplete, duplicate or malformed associations %#',
+    async (xml) => {
+      send.mockResolvedValue(
+        answer(
+          'FECompConsultar',
+          creditConsulted().replace(associationXml(), xml),
+        ),
+      );
+      await expect(
+        service.consult('company', creditRequest()),
+      ).rejects.toThrow();
+    },
+  );
+  it('still rejects associations on invoices', async () => {
+    send.mockResolvedValue(
+      answer(
+        'FECompConsultar',
+        consulted.replace('</ResultGet>', associationXml() + '</ResultGet>'),
+      ),
+    );
+    await expect(service.consult('company', request)).rejects.toThrow();
+    await expect(
+      service.authorize('company', {
+        ...request,
+        associated: creditRequest().associated,
+      } as unknown as ArcaInvoiceRequest),
+    ).rejects.toThrow();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    ['voucherType', 6],
+    ['pointOfSale', 2],
+    ['voucherNumber', 0],
+    ['issuerCuit', '20123456787'],
+    ['date', '20261005'],
+  ])(
+    'blocks a malformed saved original %s before network activity',
+    async (field, value) => {
+      const r = creditRequest();
+      Object.assign(r.associated, { [field]: value });
+      await expect(service.authorize('company', r)).rejects.toThrow();
+      await expect(service.consult('company', r)).rejects.toThrow();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+  it.each([3, 8, 13] as const)(
+    'validates the correct letter and number series for NC %s',
+    async (type) => {
+      const r = creditRequest(type);
+      const letter = ({ 3: 'A', 8: 'B', 13: 'C' } as const)[type];
+      send
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetPtosVenta',
+            '<ResultGet><PtoVenta><Nro>1</Nro><EmisionTipo>CAE</EmisionTipo><Bloqueado>N</Bloqueado></PtoVenta></ResultGet>',
+          ),
+        )
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetCondicionIvaReceptor',
+            `<ResultGet><CondicionIvaReceptor><Id>${r.recipientVatConditionId}</Id><Cmp_Clase>${letter}</Cmp_Clase></CondicionIvaReceptor></ResultGet>`,
+          ),
+        );
+      if (r.iva.length)
+        send.mockResolvedValueOnce(
+          answer(
+            'FEParamGetTiposIva',
+            '<ResultGet><IvaTipo><Id>5</Id><FchDesde>20090101</FchDesde></IvaTipo></ResultGet>',
+          ),
+        );
+      await expect(service.validate('company', r)).resolves.toBeUndefined();
+      expect(send.mock.calls[1][2]).toContain(`<ClaseCmp>${letter}</ClaseCmp>`);
+      send.mockResolvedValueOnce(
+        answer(
+          'FECompUltimoAutorizado',
+          `<PtoVta>1</PtoVta><CbteTipo>${type}</CbteTipo><CbteNro>3</CbteNro>`,
+        ),
+      );
+      expect(await service.lastNumber('company', r.issuerCuit, 1, type)).toBe(
+        3,
+      );
+    },
+  );
 });
