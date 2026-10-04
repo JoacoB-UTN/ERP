@@ -185,8 +185,9 @@ Treasury
 
 Fiscal / ARCA — PARTIAL
   Persisted preparation drafts from confirmed ARS sales with explicit IVA
-  breakdown now exist; see docs/fiscal.md. Next: issuer/recipient profiles,
-  homologation setup, WSAA/WSFE authorization and reconciliation, CAE/QR.
+  breakdown, declared issuer/test-PV settings and a public availability probe
+  now exist; see docs/fiscal.md. Next: secure credentials, authenticated fiscal
+  profile/catalog validation, WSAA/WSFE authorization and reconciliation, CAE/QR.
   No authorized electronic invoicing yet.
 
 Taxes

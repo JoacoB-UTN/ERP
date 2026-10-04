@@ -931,8 +931,9 @@ and `apps/api/src/fiscal` prepare and persist one audited `FiscalDraft` per
 confirmed ARS sale, with explicit proposed class and per-line VAT treatment,
 Decimal-safe breakdown, immutable source snapshots and revision conflicts.
 Drafts have no fiscal validity and do not change sales or ledger balances.
-Issuer/recipient eligibility is not inferred. No ARCA connection, fiscal
-number, CAE, QR or fiscal printing exists. See [fiscal.md](fiscal.md) for the
+Issuer/recipient eligibility is not inferred. Company-scoped homologation
+settings and a public FEDummy availability probe now exist; there is no
+authenticated ARCA connection, fiscal number, CAE, QR or fiscal printing. See [fiscal.md](fiscal.md) for the
 exact supported scope and pending homologation setup.
 
 ## Not implemented
@@ -948,7 +949,8 @@ before any of these.
 ### Tax / Fiscal authorization (ARCA)
 **Status: NOT IMPLEMENTED.** `PriceList.includesTax` is stored metadata
 only. A separate explicit draft breakdown calculator now exists (see
-[fiscal.md](fiscal.md)); no ARCA/AFIP integration or authorized invoice exists.
+[fiscal.md](fiscal.md)); only a public homologation availability probe exists; authenticated
+ARCA/AFIP integration and authorized invoices remain pending.
 
 ### Accounting
 **Status: NOT IMPLEMENTED.** No chart of accounts, journal entries, or

@@ -111,6 +111,7 @@ function SidebarContent({
       label: 'Operación',
       items: [
         { href: '/ventas', label: 'Ventas', icon: ShoppingCart, visible: allowed('sales.documents.read') },
+        { href: '/facturas-fiscales/configuracion', label: 'Configuración fiscal', icon: FileClock, visible: allowed('configuration.manage') },
         { href: '/facturas-fiscales', label: 'Borradores fiscales', icon: FileClock, visible: allowed('sales.invoices.read') },
       ],
     },
