@@ -1,6 +1,6 @@
 # 031 — Fiscal authorization status in the list
 
-Status: IMPLEMENTED / VERIFIED — human review pending.
+Status: DONE — PR #69 merged after successful CI; user authorized automatic merges.
 Owner: coordinator owns API, shared contract and integration tests; UI worker
 owns only fiscal.tsx/fiscal.test.tsx. No overlapping sensitive ownership.
 Base: main c7a9815 (PR #68 merged).
@@ -31,3 +31,6 @@ pass. API/Gestión lint, typecheck and production builds pass; one pre-existing
 Gestión navigation warning. Shared packages build. Disposable DB migration
 verification reports no drift; double seed preserves 12 business tables.
 No manual browser acceptance claimed for this slice.
+
+CI initially exposed a parallel-fixture ledger race; fixture creation now posts
+its account charge atomically. Re-run CI passed all checks before merge.

@@ -132,4 +132,138 @@ describe('ArcaCredentialsService', () => {
     await symlink(root, join(root, COMPANY));
     await expect(service.load(COMPANY, CUIT)).rejects.toThrow('credenciales');
   });
+  (process.platform === 'win32' ? it.skip : it).each([
+    ['root', 0o777],
+    ['root', 0o775],
+    ['company', 0o777],
+    ['company', 0o775],
+  ])(
+    'rejects writable credential directory %s mode %s',
+    async (directory, mode) => {
+      await chmod(directory === 'root' ? root : join(root, COMPANY), mode);
+      await expect(service.load(COMPANY, CUIT)).rejects.toThrow('credenciales');
+    },
+  );
+  describe('explicit company representation', () => {
+    const ISSUER = '30712345671';
+    const OTHER = '30987654321';
+    const representation = () => join(root, COMPANY, 'representation.json');
+    async function provision(
+      value: unknown = { issuerCuit: ISSUER, certificateCuit: CUIT },
+    ) {
+      await writeFile(representation(), JSON.stringify(value), { mode: 0o600 });
+    }
+    it('accepts an explicit relation and retains certificate identity', async () => {
+      await provision();
+      await expect(service.load(COMPANY, ISSUER)).resolves.toHaveProperty(
+        'fingerprint',
+      );
+    });
+    it('rejects a different valid issuer without representation', async () => {
+      await expect(service.load(COMPANY, ISSUER)).rejects.toThrow(
+        'credenciales',
+      );
+    });
+    it('accepts an explicit valid same-CUIT relation', async () => {
+      await provision({ issuerCuit: CUIT, certificateCuit: CUIT });
+      await expect(service.load(COMPANY, CUIT)).resolves.toHaveProperty(
+        'fingerprint',
+      );
+    });
+    it.each([
+      { issuerCuit: OTHER, certificateCuit: CUIT },
+      { issuerCuit: ISSUER, certificateCuit: OTHER },
+      { issuerCuit: CUIT, certificateCuit: ISSUER },
+      { issuerCuit: '30712345670', certificateCuit: CUIT },
+      { issuerCuit: ISSUER, certificateCuit: '20123456780' },
+      { issuerCuit: '30-71234567-1', certificateCuit: CUIT },
+      { issuerCuit: 30712345671, certificateCuit: CUIT },
+      { issuerCuit: ISSUER, certificateCuit: CUIT, allowAny: true },
+      { issuerCuit: ISSUER },
+      null,
+      [],
+    ])('rejects invalid or mismatched declaration %#', async (value) => {
+      await provision(value);
+      await expect(service.load(COMPANY, ISSUER)).rejects.toThrow(
+        'credenciales',
+      );
+    });
+    it('does not ignore malformed existing JSON even for same CUIT', async () => {
+      await writeFile(representation(), '{');
+      await expect(service.load(COMPANY, CUIT)).rejects.toThrow('credenciales');
+    });
+    it('rejects oversized declarations', async () => {
+      await writeFile(representation(), ' '.repeat(32_769));
+      await expect(service.load(COMPANY, CUIT)).rejects.toThrow('credenciales');
+    });
+    it('rejects symlinks including dangling links', async () => {
+      const target = join(root, 'relation.json');
+      await writeFile(
+        target,
+        JSON.stringify({ issuerCuit: ISSUER, certificateCuit: CUIT }),
+      );
+      await symlink(target, representation());
+      await expect(service.load(COMPANY, ISSUER)).rejects.toThrow(
+        'credenciales',
+      );
+      await rm(target);
+      await expect(service.load(COMPANY, CUIT)).rejects.toThrow('credenciales');
+    });
+    it('rejects a directory at declaration path', async () => {
+      await mkdir(representation());
+      await expect(service.load(COMPANY, CUIT)).rejects.toThrow('credenciales');
+    });
+    (process.platform === 'win32' ? it.skip : it)(
+      'rejects declarations writable by another user',
+      async () => {
+        await provision();
+        await chmod(representation(), 0o666);
+        await expect(service.load(COMPANY, ISSUER)).rejects.toThrow(
+          'credenciales',
+        );
+      },
+    );
+    it('revokes represented access on next load after deletion or mutation', async () => {
+      await provision();
+      await service.load(COMPANY, ISSUER);
+      await rm(representation());
+      await expect(service.load(COMPANY, ISSUER)).rejects.toThrow(
+        'credenciales',
+      );
+      await provision();
+      await service.load(COMPANY, ISSUER);
+      await provision({ issuerCuit: OTHER, certificateCuit: CUIT });
+      await expect(service.load(COMPANY, ISSUER)).rejects.toThrow(
+        'credenciales',
+      );
+    });
+    it('does not use another company directory declaration', async () => {
+      await provision();
+      const companyB = 'b1111111-1111-4111-8111-111111111111';
+      await mkdir(join(root, companyB));
+      await writeFile(join(root, companyB, 'certificate.pem'), cert());
+      await writeFile(
+        join(root, companyB, 'private-key.pem'),
+        forge.pki.privateKeyToPem(keys.privateKey),
+        { mode: 0o600 },
+      );
+      await expect(service.load(companyB, ISSUER)).rejects.toThrow(
+        'credenciales',
+      );
+      await writeFile(
+        join(root, companyB, 'representation.json'),
+        JSON.stringify({ issuerCuit: ISSUER, certificateCuit: CUIT }),
+      );
+      await expect(service.load(companyB, OTHER)).rejects.toThrow(
+        'credenciales',
+      );
+    });
+    it('rejects invalid certificate CUIT checksum despite matching declaration', async () => {
+      await writeFile(certificate, cert(undefined, undefined, '20123456780'));
+      await provision({ issuerCuit: ISSUER, certificateCuit: '20123456780' });
+      await expect(service.load(COMPANY, ISSUER)).rejects.toThrow(
+        'credenciales',
+      );
+    });
+  });
 });

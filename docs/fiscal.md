@@ -189,14 +189,38 @@ endpoint or production toggle. Provision files through server administration,
 never Git or chat. The loader rejects symlinked directories/files, nonregular
 files, oversized PEMs, expired/not-yet-valid certificates, RSA keys below 2048
 bits, key/certificate mismatch and a certificate subject `serialNumber` that
-does not equal `CUIT <issuerCuit>`. This first implementation requires the
-certificate CUIT to equal the issuing company's CUIT; delegated certificates
-for another CUIT are not supported. The private key must be an unencrypted PEM.
+does not identify a valid CUIT. By default that CUIT must equal the issuing
+company's CUIT. A delegated personal certificate requires an explicit
+`representation.json` in the same company folder, with exactly these fields:
+
+```json
+{"issuerCuit":"<company CUIT, 11 digits>","certificateCuit":"<certificate CUIT, 11 digits>"}
+```
+
+Replace both placeholders with valid checksum-bearing CUITs. The requested
+issuer must match issuerCuit, and the certificate subject must match
+certificateCuit. This file is a local operator binding, not evidence of ARCA
+authorization: the certificate must also be authorized in WSASS to represent
+that issuer for `wsfe`. Only server administrators may provision this file;
+there is no client upload or API to change it. Invalid/present files fail closed,
+even when both CUITs are the same. Removing the binding or changing either CUIT
+prevents the next delegated request, including use of a cached ticket. It cannot
+recall an HTTP request already in flight. WSFE Auth.Cuit remains the issuer CUIT;
+the personal certificate's CUIT never replaces the invoice issuer.
+
+Provision a dedicated certificate/alias per ERP company for this initial cache
+model. Sharing one certificate across companies can trigger WSAA's existing-ticket
+restriction because tickets remain cached separately per company; this change
+does not introduce a cross-company ticket cache. The private key must be an unencrypted PEM.
 Local validation does not establish that ARCA trusts the certificate or that
 its WSASS association with `wsfe` is correct.
 
 On POSIX, use owner-only permissions (`0600` or `0400`) for the private key;
 keep the credential directory writable only by the trusted server administrator.
+The loader rejects group/world-writable root and company folders on POSIX.
+The representation file also rejects group/world write permissions on POSIX;
+use `0600` or `0644` with a trusted owner. Apply equivalent restricted write ACLs
+on Windows, including to `representation.json`.
 On Windows, remove inherited broad access and explicitly grant read access only
 to the actual ERP API service account, with administration restricted to trusted
 administrators/SYSTEM. Apply ACLs to the company folder and private-key file and
