@@ -15,6 +15,7 @@ const mock = vi.hoisted(() => ({
   bySale: vi.fn(),
   detail: vi.fn(),
   listError: false,
+  listItems: [] as unknown[],
   sourceData: undefined as unknown,
   draftData: undefined as unknown,
   refetchError: false,
@@ -34,7 +35,10 @@ vi.mock('@/lib/auth-client', () => ({
   useFiscalDrafts: (...args: unknown[]) => {
     mock.list(...args);
     return {
-      ...result({ items: [], pagination: { page: 1, pageSize: 25, total: 0, totalPages: 0 } }),
+      ...result({
+        items: mock.listItems,
+        pagination: { page: 1, pageSize: 25, total: mock.listItems.length, totalPages: 1 },
+      }),
       isError: mock.listError,
       error: mock.listError ? new Error('Sin conexión') : null,
     };
@@ -121,6 +125,7 @@ beforeEach(() => {
   mock.company = 'company-a';
   mock.permissions = new Set(['sales.invoices.read', 'sales.invoices.create', 'sales.documents.read']);
   mock.listError = false;
+  mock.listItems = [];
   mock.sourceData = undefined;
   mock.draftData = undefined;
   mock.refetchError = false;
@@ -307,5 +312,68 @@ describe('Fiscal permissions and read paths', () => {
     render(<FiscalListPage />);
     expect(screen.getByRole('alert').textContent).toBe('Sin conexión');
     expect(screen.queryByText('Todavía no hay borradores fiscales.')).toBeNull();
+  });
+});
+
+describe('Homologation status list', () => {
+  it.each([
+    [null, 'Sin enviar'],
+    ['SENDING', 'Envío pendiente de confirmar'],
+    ['UNKNOWN', 'Resultado desconocido'],
+    ['AUTHORIZED', 'Autorizado en pruebas'],
+    ['REJECTED', 'Rechazado en pruebas'],
+  ])('shows the persisted latest status %s and test number', (status, label) => {
+    mock.listItems = [
+      {
+        ...draft,
+        authorization: status === null ? null : { status, pointOfSale: 3, voucherType: 6, voucherNumber: 42 },
+      },
+    ];
+    render(<FiscalListPage />);
+    expect(screen.getByRole('heading', { name: 'Comprobantes de prueba' })).toBeTruthy();
+    expect(screen.getByText(label!)).toBeTruthy();
+    expect(screen.getByText('Homologación de ARCA · Sin validez fiscal')).toBeTruthy();
+    if (status) expect(screen.getByText('00003-00000042')).toBeTruthy();
+    else expect(screen.queryByText('00003-00000042')).toBeNull();
+    const link = screen.getByRole('link', {
+      name: status === 'SENDING' || status === 'UNKNOWN' ? 'Consultar resultado' : 'Ver detalle',
+    });
+    expect(link.getAttribute('href')).toBe('/facturas-fiscales/draft-a');
+    expect(mock.save).not.toHaveBeenCalled();
+  });
+  it('never interprets a missing status field as unsent', () => {
+    mock.listItems = [draft];
+    render(<FiscalListPage />);
+    expect(screen.getByText('Datos no disponibles')).toBeTruthy();
+    expect(screen.queryByText('Sin enviar')).toBeNull();
+  });
+  it('hides cached status and links when a background request fails', () => {
+    mock.listItems = [
+      {
+        ...draft,
+        authorization: { status: 'AUTHORIZED', pointOfSale: 3, voucherNumber: 42, voucherType: 6 },
+      },
+    ];
+    const view = render(<FiscalListPage />);
+    expect(screen.getByText('Autorizado en pruebas')).toBeTruthy();
+    mock.listError = true;
+    view.rerender(<FiscalListPage />);
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(screen.queryByText('Autorizado en pruebas')).toBeNull();
+    expect(screen.queryByText('00003-00000042')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Ver detalle' })).toBeNull();
+  });
+  it('allows read-only operators to inspect pending results without preparation actions', () => {
+    mock.permissions = new Set(['sales.invoices.read']);
+    mock.listItems = [
+      { ...draft, authorization: { status: 'UNKNOWN', pointOfSale: 3, voucherNumber: 42, voucherType: 6 } },
+    ];
+    render(<FiscalListPage />);
+    expect(mock.list).toHaveBeenCalledWith(1, true);
+    expect(screen.getByRole('link', { name: 'Consultar resultado' }).getAttribute('href')).toBe(
+      '/facturas-fiscales/draft-a',
+    );
+    expect(screen.queryByRole('link', { name: 'Preparar desde una venta' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Autorizar|Consultar/ })).toBeNull();
   });
 });

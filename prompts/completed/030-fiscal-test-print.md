@@ -1,6 +1,6 @@
 # 030 — Print authorized homologation vouchers
 
-Status: IMPLEMENTED — pending review.
+Status: DONE — PR #68 merged.
 Owner: Codex coordinator, Gestión fiscal UI only.
 Base: main 32d2eac, including merged PR #67 (same verified tree as af2141f).
 Branch: agent/codex-fiscal-test-print.

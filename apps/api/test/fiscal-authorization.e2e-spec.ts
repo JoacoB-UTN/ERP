@@ -13,6 +13,7 @@ import * as argon2 from 'argon2';
 import {
   COMPANY_ID_HEADER,
   type FiscalDraftResponse,
+  type FiscalDraftsResponse,
   type FiscalLatestAuthorizationResponse,
   type FiscalAuthorizationResponse,
   type SaveFiscalDraftInput,
@@ -399,6 +400,52 @@ describe('Fiscal authorization (e2e)', () => {
       .post(`/api/v1/fiscal/authorizations/${id}/reconcile`)
       .set(COMPANY_ID_HEADER, company)
       .send({});
+  async function listed(id: string) {
+    const response = await reader
+      .get('/api/v1/fiscal/drafts?pageSize=100')
+      .set(COMPANY_ID_HEADER, companyId)
+      .expect(200);
+    return (response.body as FiscalDraftsResponse).items.find(
+      (row) => row.id === id,
+    )?.authorization;
+  }
+  it('lists only the latest company-scoped attempt without request or credential details', async () => {
+    const { draft } = await makeDraft();
+    expect(await listed(draft.id)).toBeNull();
+    wsfe.authorize.mockResolvedValueOnce({
+      status: 'REJECTED',
+      cae: null,
+      expiresAt: null,
+      message: 'Rejected',
+    });
+    await authorize(draft.id).expect(201);
+    expect(await listed(draft.id)).toEqual({
+      status: 'REJECTED',
+      pointOfSale: 12,
+      voucherType: 1,
+      voucherNumber: 1,
+    });
+    await authorize(draft.id).expect(201);
+    expect(await listed(draft.id)).toEqual({
+      status: 'AUTHORIZED',
+      pointOfSale: 12,
+      voucherType: 1,
+      voucherNumber: 1,
+    });
+    const foreign = await editor
+      .get('/api/v1/fiscal/drafts?pageSize=100')
+      .set(COMPANY_ID_HEADER, foreignCompanyId)
+      .expect(200);
+    expect(
+      (foreign.body as FiscalDraftsResponse).items.some(
+        (row) => row.id === draft.id,
+      ),
+    ).toBe(false);
+    await noFiscal
+      .get('/api/v1/fiscal/drafts')
+      .set(COMPANY_ID_HEADER, companyId)
+      .expect(403);
+  });
   it('requires explicit acknowledgements, revision and correct scoped permissions', async () => {
     const { draft } = await makeDraft();
     await authorize(draft.id, acknowledgement, reader).expect(403);
@@ -453,6 +500,7 @@ describe('Fiscal authorization (e2e)', () => {
           where: { companyId, draftId: draft.id },
         }),
       ).toMatchObject({ status: 'SENDING', voucherNumber: 1 });
+      expect(await listed(draft.id)).toMatchObject({ status: 'SENDING' });
       return accepted;
     });
     const requests = await Promise.all([
@@ -484,6 +532,7 @@ describe('Fiscal authorization (e2e)', () => {
     const attempt = (response.body as FiscalAuthorizationResponse)
       .authorization;
     expect(attempt.status).toBe('UNKNOWN');
+    expect(await listed(first.draft.id)).toMatchObject({ status: 'UNKNOWN' });
     await authorize(second.draft.id).expect(409);
     await save(first.sale.id, input(first.sale.lines[0].id, 1)).expect(409);
     const missing = await reconcile(attempt.id).expect(201);

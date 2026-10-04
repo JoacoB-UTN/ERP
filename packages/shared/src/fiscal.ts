@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { FiscalAuthorizationDto } from './fiscal-authorization';
 
 export const fiscalInvoiceTypeSchema = z.enum(['A', 'B', 'C']);
 export const fiscalTaxTreatmentSchema = z.enum([
@@ -101,8 +102,14 @@ export interface FiscalDraftResponse {
 export interface FiscalDraftForSaleResponse {
   draft: FiscalDraftDto | null;
 }
+export interface FiscalDraftListItem extends FiscalDraftDto {
+  authorization: Pick<
+    FiscalAuthorizationDto,
+    'status' | 'pointOfSale' | 'voucherType' | 'voucherNumber'
+  > | null;
+}
 export interface FiscalDraftsResponse {
-  items: FiscalDraftDto[];
+  items: FiscalDraftListItem[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
 }
 export const FISCAL_TAX_TREATMENT_LABELS: Record<FiscalTaxTreatment, string> = {

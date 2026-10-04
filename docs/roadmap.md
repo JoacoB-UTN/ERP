@@ -185,9 +185,10 @@ Treasury
 
 Fiscal / ARCA — PARTIAL
   Drafts (PR #65) and issuer/test-PV settings plus public availability (PR #66)
-  are merged. The current branch implements server-only WSAA credentials,
-  authenticated catalogs, durable test authorization and consult-only recovery;
-  local verification passes; human review and real-certificate acceptance remain pending.
+  are merged. PR #67 adds WSAA credentials, authenticated catalogs, durable test
+  authorization and consult-only recovery; PR #68 adds non-fiscal test printing.
+  The list surfaces the latest test status and pending consultations.
+  Real-certificate acceptance remains pending.
   Next: define issuer, provision homologation credentials and exclusive test PV,
   validate a real test invoice and recovery, then separately review production,
   QR/printing and credit/debit notes. See docs/fiscal.md. No production issuance.
