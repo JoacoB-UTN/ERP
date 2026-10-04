@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   FiscalDraftInput,
+  RefreshFiscalIdentityInput,
   FiscalCreditNoteResponse,
   SaveFiscalCreditNoteInput,
   AuthorizeFiscalDraftInput,
@@ -161,6 +162,15 @@ export function createFiscalClient({ apiFetch, useActiveCompanyId, getActiveComp
       retry: false,
     });
   }
+  function useRefreshFiscalIdentity() {
+    return useAuthorizationWrite(
+      ({ draftId, input }: { draftId: string; input: RefreshFiscalIdentityInput }, companyId) =>
+        apiFetch<FiscalDraftResponse>(`/fiscal/drafts/${draftId}/refresh-identity`, {
+          json: input,
+          expectedCompanyId: companyId,
+        }),
+    );
+  }
   function useAuthorizeFiscalDraft() {
     return useAuthorizationWrite(
       ({ draftId, input }: { draftId: string; input: AuthorizeFiscalDraftInput }, companyId) =>
@@ -227,6 +237,7 @@ export function createFiscalClient({ apiFetch, useActiveCompanyId, getActiveComp
     );
   }
   return {
+    useRefreshFiscalIdentity,
     useFiscalCreditNoteAuthorization,
     useAuthorizeFiscalCreditNote,
     useReconcileFiscalCreditNote,
