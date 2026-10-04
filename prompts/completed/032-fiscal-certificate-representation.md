@@ -1,6 +1,6 @@
 # 032 — Explicit company representation by a personal ARCA certificate
 
-Status: IMPLEMENTED / VERIFIED LOCALLY — CI pending.
+Status: DONE — PR #70 merged after passing CI and independent review.
 Owner: credential worker owns credential loader and its tests; coordinator owns
 WSAA integration test and docs. Independent security review before merge.
 Base: main 6a79bc4, merged PR #69 (same tree as 94600ca). Branch: agent/codex-fiscal-representation.

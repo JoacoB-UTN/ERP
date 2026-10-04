@@ -27,3 +27,5 @@ export * from './runtime-url';
 export * from './fiscal';
 export * from './fiscal-settings';
 export * from './fiscal-authorization';
+
+export * from './fiscal-credit-note';

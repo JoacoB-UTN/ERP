@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { FiscalDraftDto } from '@erp/shared';
 import { FiscalAuthorizationPanel } from './authorization';
+vi.mock('./test-print', () => ({ FiscalTestPrint: () => null }));
+vi.mock('./credit-note', () => ({ FiscalCreditNotePanel: () => <div>Credit note preparation</div> }));
 const mock = vi.hoisted(() => ({
   company: 'a',
   write: true,
@@ -133,3 +135,25 @@ it('blocks actions when a background query failed even with cached data', () => 
   expect(screen.queryByRole('checkbox')).toBeNull();
   expect(screen.queryByText('Continuar preparación')).toBeNull();
 });
+
+it.each([
+  ['AUTHORIZED', 'HOMOLOGATION', 'draft', 3, true],
+  ['UNKNOWN', 'HOMOLOGATION', 'draft', 3, false],
+  ['SENDING', 'HOMOLOGATION', 'draft', 3, false],
+  ['REJECTED', 'HOMOLOGATION', 'draft', 3, false],
+  ['AUTHORIZED', 'PRODUCTION', 'draft', 3, false],
+  ['AUTHORIZED', 'HOMOLOGATION', 'other', 3, false],
+  ['AUTHORIZED', 'HOMOLOGATION', 'draft', 2, false],
+])(
+  'mounts credit preparation only for a matching homologation authorization (%s/%s/%s/%s)',
+  (status, environment, draftId, draftRevision, visible) => {
+    mock.query.mockReturnValue({
+      data: { authorization: { ...attempt, status, environment, draftId, draftRevision } },
+      isError: false,
+      isPending: false,
+      isFetching: false,
+    });
+    render(<FiscalAuthorizationPanel draft={draft} canPrepare />);
+    expect(Boolean(screen.queryByText('Credit note preparation'))).toBe(visible);
+  },
+);

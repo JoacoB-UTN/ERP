@@ -55,6 +55,7 @@ model Tenant {
   priceLists               PriceList[]
   priceListItems           PriceListItem[]
   priceHistory             PriceHistory[]
+  fiscalCreditNoteDrafts   FiscalCreditNoteDraft[]
   fiscalAuthorizations     FiscalAuthorization[]
   fiscalSettings           FiscalSettings[]
   fiscalDrafts             FiscalDraft[]
@@ -116,6 +117,7 @@ model Company {
   priceLists                 PriceList[]
   priceListItems             PriceListItem[]
   priceHistory               PriceHistory[]
+  fiscalCreditNoteDrafts     FiscalCreditNoteDraft[]
   fiscalAuthorizations       FiscalAuthorization[]
   fiscalSettings             FiscalSettings?
   fiscalDrafts               FiscalDraft[]
@@ -2759,8 +2761,35 @@ model FiscalAuthorization {
   company       Company     @relation(fields: [companyId], references: [id])
   draft         FiscalDraft @relation(fields: [companyId, draftId], references: [companyId, id])
 
+  creditNoteDraft FiscalCreditNoteDraft?
+
+  @@unique([companyId, id])
   @@index([companyId, draftId, createdAt])
   @@index([issuerCuit, pointOfSale, voucherType, status])
   @@index([tenantId])
   @@map("fiscal_authorizations")
+}
+
+/// Preparation only; no fiscal authorization or commercial reversal.
+model FiscalCreditNoteDraft {
+  id                      String              @id @default(uuid()) @db.Uuid
+  tenantId                String              @db.Uuid
+  companyId               String              @db.Uuid
+  originalAuthorizationId String              @db.Uuid
+  environment             String              @default("HOMOLOGATION")
+  status                  String              @default("DRAFT")
+  revision                Int                 @default(1)
+  reason                  String
+  snapshot                Json
+  createdBy               String              @db.Uuid
+  updatedBy               String              @db.Uuid
+  createdAt               DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt               DateTime            @updatedAt @db.Timestamptz(6)
+  company                 Company             @relation(fields: [companyId], references: [id])
+  tenant                  Tenant              @relation(fields: [tenantId], references: [id])
+  original                FiscalAuthorization @relation(fields: [companyId, originalAuthorizationId], references: [companyId, id])
+
+  @@unique([companyId, originalAuthorizationId])
+  @@index([tenantId])
+  @@map("fiscal_credit_note_drafts")
 }

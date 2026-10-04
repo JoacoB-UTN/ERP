@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { FiscalCreditNotePanel } from './credit-note';
 import { FiscalTestPrint } from './test-print';
 import type { FiscalAuthorizationDto, FiscalDraftDto } from '@erp/shared';
 import { Button } from '@/components/ui/button';
@@ -117,6 +118,12 @@ export function FiscalAuthorizationPanel({
         </div>
       )}
       {known && attempt && <FiscalTestPrint draft={draft} authorization={attempt} canPrint={stillHere} />}
+      {attempt?.status === 'AUTHORIZED' &&
+        attempt.environment === 'HOMOLOGATION' &&
+        attempt.draftId === draft.id &&
+        attempt.draftRevision === draft.revision && (
+          <FiscalCreditNotePanel key={attempt.id} originalId={attempt.id} invoice={draft} available={known} />
+        )}
       {pending && (
         <p>No envíes nuevamente. Consultá el comprobante original para resolver el resultado pendiente.</p>
       )}

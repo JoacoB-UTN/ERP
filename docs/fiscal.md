@@ -327,3 +327,39 @@ Gestión shows unsent, sending, unknown, authorized and rejected test states.
 Pending/unknown rows link to the existing detail for manual consultation without
 automatic calls to ARCA. A failed list refresh does not display cached rows as
 current results, and missing summary data is not labeled as an unsent draft.
+
+## Total credit-note preparation
+
+An authorized homologation invoice can have one `FiscalCreditNoteDraft`, uniquely
+bound by company and original authorization ID. GET/POST
+`/fiscal/authorizations/:originalId/credit-note-draft` use invoice read and
+read+create permissions respectively. POST accepts only a reason (5–500 trimmed
+characters) and expectedRevision (0 creates; the stored revision updates).
+Concurrent stale writes conflict. Audit and persistence share one transaction.
+
+This is **preparation only**: the note has no number or CAE of its own and is not
+sent to ARCA. It remains DRAFT/HOMOLOGATION. Identity and source lines come from
+the immutable authorized invoice snapshot; amounts and grouped IVA are copied
+from the original persisted request and retain positive signs. Totals must match.
+Invoice types 1/6/11 map to NC types 3/8/13. The original type, point of sale,
+number, issuer CUIT, date and CAE are saved as references. Only the reason is
+editable; no current product price or changed customer/company master data is
+used to reprice or replace the original snapshot.
+
+Gestión displays the preparation inside the authorized invoice detail, preserves
+unsaved reason/revision across refetches and requires explicit reload after a
+conflict. Read-only operators can read the saved note. Preparing a note does not
+cancel a sale/invoice, return goods or refund money. Sales, tenders, stock,
+customer accounts, collections/applications and Treasury remain unchanged.
+
+The following authorization slice must serialize the NC series, persist its exact
+request before sending, include and verify the original CbtesAsoc association,
+and preserve consult-only recovery for uncertainty. The current invoice-only
+WSFE parser must not simply receive new voucher type IDs. Partial notes and
+commercial reversal posting need separate cumulative/application designs: the
+current outstanding-sale calculation does not apply arbitrary CREDIT_NOTE ledger
+rows to invoices, and a cash refund is not the same event as a fiscal correction.
+
+References: [WSFEv1 manual](https://www.arca.gob.ar/ws/documentacion/manuales/manual-desarrollador-ARCA-COMPG.pdf)
+and [RG 4540](https://biblioteca.afip.gob.ar/search/query/norma.aspx?p=t%3ARAG%7Cn%3A4540%7Co%3A3%7Ca%3A2019%7Cf%3A31%2F07%2F2019).
+No live homologation or legal eligibility validation is claimed by saving a draft.
