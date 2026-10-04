@@ -102,11 +102,16 @@ export interface FiscalDraftResponse {
 export interface FiscalDraftForSaleResponse {
   draft: FiscalDraftDto | null;
 }
+export type FiscalAuthorizationSummary = Pick<
+  FiscalAuthorizationDto,
+  'status' | 'pointOfSale' | 'voucherType' | 'voucherNumber'
+>;
 export interface FiscalDraftListItem extends FiscalDraftDto {
-  authorization: Pick<
-    FiscalAuthorizationDto,
-    'status' | 'pointOfSale' | 'voucherType' | 'voucherNumber'
-  > | null;
+  authorization: FiscalAuthorizationSummary | null;
+  creditNote: {
+    id: string;
+    authorization: FiscalAuthorizationSummary | null;
+  } | null;
 }
 export interface FiscalDraftsResponse {
   items: FiscalDraftListItem[];

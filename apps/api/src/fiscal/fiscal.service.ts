@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import type {
   FiscalDraftDto,
-  FiscalDraftListItem,
+  FiscalAuthorizationSummary,
   FiscalDraftInput,
   FiscalDraftsQuery,
   FiscalDraftsResponse,
@@ -38,6 +38,25 @@ function dto(row: FiscalDraft): FiscalDraftDto {
     authorizationAvailable: false,
     pendingRequirements: [...PENDING],
   };
+}
+function authorizationSummary(
+  row:
+    | {
+        status: string;
+        pointOfSale: number;
+        voucherType: number;
+        voucherNumber: number;
+      }
+    | undefined,
+): FiscalAuthorizationSummary | null {
+  return row
+    ? {
+        status: row.status as FiscalAuthorizationSummary['status'],
+        pointOfSale: row.pointOfSale,
+        voucherType: row.voucherType,
+        voucherNumber: row.voucherNumber,
+      }
+    : null;
 }
 @Injectable()
 export class FiscalService {
@@ -166,6 +185,23 @@ export class FiscalService {
               pointOfSale: true,
               voucherType: true,
               voucherNumber: true,
+              creditNoteDraft: {
+                where: { companyId },
+                select: {
+                  id: true,
+                  authorizations: {
+                    where: { companyId },
+                    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                    take: 1,
+                    select: {
+                      status: true,
+                      pointOfSale: true,
+                      voucherType: true,
+                      voucherNumber: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -173,11 +209,20 @@ export class FiscalService {
       this.prisma.fiscalDraft.count({ where: { companyId } }),
     ]);
     return {
-      items: rows.map((row) => ({
-        ...dto(row),
-        authorization: (row.authorizations[0] ??
-          null) as FiscalDraftListItem['authorization'],
-      })),
+      items: rows.map((row) => {
+        const original = row.authorizations[0];
+        const note = original?.creditNoteDraft;
+        return {
+          ...dto(row),
+          authorization: authorizationSummary(original),
+          creditNote: note
+            ? {
+                id: note.id,
+                authorization: authorizationSummary(note.authorizations[0]),
+              }
+            : null,
+        };
+      }),
       pagination: {
         ...query,
         total,

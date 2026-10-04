@@ -1,6 +1,6 @@
 # Primera prueba de facturación con ARCA
 
-Guía operativa del PR [#67](https://github.com/JoacoB-UTN/ERP/pull/67).
+Guía operativa de facturas y notas de crédito totales de homologación.
 Estado: implementación verificada localmente; prueba autenticada con ARCA pendiente.
 Fuentes oficiales consultadas el 4 de octubre de 2026. Las pantallas del portal
 pueden cambiar; seguir sus nombres actuales y el manual enlazado.
@@ -89,7 +89,37 @@ el número. La consulta que no encuentra el comprobante mantiene el bloqueo y
 requiere investigación; no habilita automáticamente un nuevo envío. Un rechazo
 concluyente permite una corrección y un nuevo intento explícito.
 
-## 5. Registrar el resultado sin secretos
+## 5. Probar una nota de crédito total
+
+Desde el detalle de una factura autorizada en homologación, abrir **Nota de
+crédito total**. Revisar la factura asociada y el importe completo, ingresar el
+motivo y guardar. Esta preparación no envía un comprobante. La nota conserva
+los importes y datos originales; no toma precios nuevos ni permite una nota
+parcial en esta etapa.
+
+Con la nota guardada y sin cambios pendientes, confirmar explícitamente el uso
+de homologación y el punto de venta exclusivo, y autorizar una vez. La nota usa
+su propia serie y número: puede tener el mismo número que una factura porque
+son tipos de comprobante diferentes. Verificar su estado y CAE de prueba por
+separado del resultado de la factura original.
+
+Si la nota queda pendiente o con resultado desconocido, usar **Consultar
+resultado de la nota**. No reenviarla ni crear otra para reemplazarla. Un resultado
+incierto bloquea nuevos envíos de esa serie hasta resolverlo; la factura original
+conserva su propio estado autorizado. La edición del motivo queda bloqueada con
+un intento pendiente o autorizado.
+
+En **Comprobantes de prueba**, el seguimiento de la nota permite regresar a su
+detalle. La impresión muestra el número y CAE de la nota, la referencia a la
+factura original, el motivo y la leyenda **SIN VALIDEZ FISCAL — SOLO PRUEBAS**.
+Seleccionar factura o nota imprime únicamente ese documento. También puede
+usarse la opción del navegador para guardar esa impresión como PDF de prueba.
+
+Una NC autorizada en este entorno no devuelve dinero, no ingresa mercadería ni
+reduce la deuda comercial. No registrar una devolución real suponiendo que este
+ensayo la aplica automáticamente.
+
+## 6. Registrar el resultado sin secretos
 
 Anotar la versión del ERP, fecha, empresa de prueba, punto de venta, tipo y número,
 estado final y resultado de la consulta. Conservar la evidencia en el entorno
@@ -101,4 +131,5 @@ comerciales nuevos a los de la venta ya confirmada.
 La compatibilidad real de la firma y el circuito sólo queda validada tras esta
 prueba. Un reinicio del servidor pierde el ticket guardado en memoria y puede
 requerir esperar su vencimiento antes de volver a autenticarse. La activación de
-producción, impresión fiscal/QR y notas de crédito siguen siendo etapas separadas.
+producción, impresión fiscal/QR, notas parciales y devoluciones comerciales siguen
+siendo etapas separadas. Registrar la evidencia de factura y NC por separado.
