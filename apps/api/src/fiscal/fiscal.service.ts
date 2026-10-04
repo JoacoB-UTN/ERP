@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type {
   FiscalDraftDto,
+  FiscalDraftListItem,
   FiscalDraftInput,
   FiscalDraftsQuery,
   FiscalDraftsResponse,
@@ -155,11 +156,28 @@ export class FiscalService {
         orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
+        include: {
+          authorizations: {
+            where: { companyId },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: 1,
+            select: {
+              status: true,
+              pointOfSale: true,
+              voucherType: true,
+              voucherNumber: true,
+            },
+          },
+        },
       }),
       this.prisma.fiscalDraft.count({ where: { companyId } }),
     ]);
     return {
-      items: rows.map(dto),
+      items: rows.map((row) => ({
+        ...dto(row),
+        authorization: (row.authorizations[0] ??
+          null) as FiscalDraftListItem['authorization'],
+      })),
       pagination: {
         ...query,
         total,

@@ -930,11 +930,13 @@ revision.)
 Gestión `/facturas-fiscales` and the shared API persist audited fiscal drafts
 from confirmed ARS sales. PR #65 introduced drafts; PR #66 added issuer/test-PV
 settings and the public availability probe and is merged in main `897349a`.
-The current authorization branch adds server-only certificate loading, WSAA
-login, authenticated catalogs, persisted WSFE requests and reconciliation.
+Merged PR #67 adds server-only certificate loading, WSAA login, authenticated
+catalogs, persisted WSFE requests and reconciliation. PR #68 adds explicitly
+non-fiscal printing of authorized test results. The fiscal list now displays
+the latest attempt status and test number without opening each draft.
 Local tests, lint/typecheck, production builds and disposable migration/seed
-verification pass (see fiscal.md). Human review and authenticated ARCA acceptance
-remain pending; this is not production readiness.
+verification pass for those merged slices (see fiscal.md). Authenticated ARCA
+acceptance remains pending; this is not production readiness.
 
 The supported test circuit is products, ARS, recipient CUIT, explicit A/B/C
 selection and an exclusive test point of sale. `SENDING`/`UNKNOWN` reserve the

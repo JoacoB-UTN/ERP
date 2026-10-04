@@ -290,3 +290,16 @@ headers across detail pages. The client rechecks the active company at print tim
 No server mutation occurs, and pending, unknown or rejected requests have no
 print action. This is test-result printing only; production fiscal layout and
 legal invoice compliance remain unimplemented.
+
+## Latest authorization status in the list
+
+GET `/fiscal/drafts` adds `authorization` to each item: null when no attempt
+exists, otherwise the latest status, voucher type, point of sale and number.
+The bounded latest-attempt selection uses the same company scope as the draft;
+ordering is creation time descending then ID descending. No request JSON,
+credential or certificate data is returned in the summary.
+
+Gestión shows unsent, sending, unknown, authorized and rejected test states.
+Pending/unknown rows link to the existing detail for manual consultation without
+automatic calls to ARCA. A failed list refresh does not display cached rows as
+current results, and missing summary data is not labeled as an unsent draft.

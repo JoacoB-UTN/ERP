@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import {
   FISCAL_TAX_TREATMENT_LABELS,
   type FiscalDraftDto,
+  type FiscalDraftListItem,
   type FiscalDraftInput,
   type FiscalInvoiceType,
   type FiscalPreview,
@@ -99,6 +100,18 @@ function useAccess() {
       !isLoading && can('sales.invoices.read') && can('sales.invoices.create') && can('sales.documents.read'),
   };
 }
+function authorizationLabel(authorization: FiscalDraftListItem['authorization'] | undefined) {
+  if (authorization === null) return 'Sin enviar';
+  if (!authorization) return 'Datos no disponibles';
+  return (
+    {
+      SENDING: 'Envío pendiente de confirmar',
+      UNKNOWN: 'Resultado desconocido',
+      AUTHORIZED: 'Autorizado en pruebas',
+      REJECTED: 'Rechazado en pruebas',
+    }[authorization.status] ?? 'Datos no disponibles'
+  );
+}
 export function FiscalListPage() {
   const access = useAccess();
   const [page, setPage] = useState(1);
@@ -107,8 +120,14 @@ export function FiscalListPage() {
   if (!access.read) return <p>No tenés permiso para consultar borradores fiscales.</p>;
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Borradores fiscales</h1>
-      <Notice />
+      <h1 className="text-2xl font-semibold">Comprobantes de prueba</h1>
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+        <strong>Homologación de ARCA · Sin validez fiscal</strong>
+        <p>
+          Revisá los borradores y el último resultado de cada envío de prueba. Los comprobantes autorizados en
+          este entorno no tienen validez para ventas reales.
+        </p>
+      </div>
       {access.prepare && (
         <Link className={linkClass} href="/facturas-fiscales/nueva">
           Preparar desde una venta
@@ -126,6 +145,8 @@ export function FiscalListPage() {
                   <th>Clase propuesta</th>
                   <th>Total</th>
                   <th>Revisión</th>
+                  <th>Estado del último intento</th>
+                  <th>Número de prueba</th>
                   <th>Detalle</th>
                 </tr>
               </thead>
@@ -137,9 +158,18 @@ export function FiscalListPage() {
                     <td>{draft.invoiceType}</td>
                     <td>{money(draft.totals.finalAmount)}</td>
                     <td>{draft.revision}</td>
+                    <td>{authorizationLabel(draft.authorization)}</td>
+                    <td>
+                      {draft.authorization
+                        ? `${String(draft.authorization.pointOfSale).padStart(5, '0')}-${String(draft.authorization.voucherNumber).padStart(8, '0')}`
+                        : '—'}
+                    </td>
                     <td>
                       <Link className={linkClass} href={`/facturas-fiscales/${draft.id}`}>
-                        Ver borrador
+                        {draft.authorization?.status === 'UNKNOWN' ||
+                        draft.authorization?.status === 'SENDING'
+                          ? 'Consultar resultado'
+                          : 'Ver detalle'}
                       </Link>
                     </td>
                   </tr>
