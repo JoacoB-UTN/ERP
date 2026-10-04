@@ -25,6 +25,7 @@ import { createSalesClient } from './sales-hooks';
 import { createSuppliersClient } from './suppliers-hooks';
 import { createPurchaseOrdersClient } from './purchase-orders-hooks';
 import { createPurchaseReceiptsClient } from './purchase-receipts-hooks';
+import { createFiscalClient } from './fiscal-hooks';
 import { createTreasuryClient } from './treasury-hooks';
 import { createAccountsClient } from './accounts-hooks';
 import { createDashboardClient } from './dashboard-hooks';
@@ -128,6 +129,11 @@ export function createAuthClient(config: ApiClientConfig) {
     useActiveCompanyId: companyContext.useActiveCompanyId,
   });
   const treasuryClient = createTreasuryClient({
+    apiFetch,
+    useActiveCompanyId: companyContext.useActiveCompanyId,
+    getActiveCompanyId: companyContextStore.getActiveCompanyId,
+  });
+  const fiscalClient = createFiscalClient({
     apiFetch,
     useActiveCompanyId: companyContext.useActiveCompanyId,
     getActiveCompanyId: companyContextStore.getActiveCompanyId,
@@ -272,6 +278,7 @@ export function createAuthClient(config: ApiClientConfig) {
     ...purchaseReceiptsClient,
     ...accountsClient,
     ...treasuryClient,
+    ...fiscalClient,
     ...dashboardClient,
     ...systemClient,
     ...realtimeClient,
