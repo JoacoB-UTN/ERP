@@ -140,6 +140,7 @@ describe('Fiscal settings client context', () => {
     });
     expect(fetcher).not.toHaveBeenCalled();
     company = 'a';
+    view.rerender();
     await act(async () => {
       await view.result.current.mutateAsync();
     });
@@ -147,5 +148,113 @@ describe('Fiscal settings client context', () => {
       json: {},
       expectedCompanyId: 'a',
     });
+  });
+});
+
+describe('Homologation authorization client safety', () => {
+  const authorizationInput = {
+    expectedRevision: 4,
+    confirmHomologation: true as const,
+    exclusivePointOfSale: true as const,
+  };
+  it('never retries issuance even when global mutation defaults enable retries', async () => {
+    client.setDefaultOptions({ mutations: { retry: 3, retryDelay: 0 } });
+    fetcher.mockRejectedValue(new Error('Network interrupted after send'));
+    const invalidation = vi.spyOn(client, 'invalidateQueries');
+    const view = renderHook(() => hooks.useAuthorizeFiscalDraft(), { wrapper: Wrapper });
+    await act(async () => {
+      await expect(
+        view.result.current.mutateAsync({ draftId: 'draft', input: authorizationInput }),
+      ).rejects.toThrow('Network interrupted');
+    });
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith('/fiscal/drafts/draft/authorize', {
+      json: authorizationInput,
+      expectedCompanyId: 'a',
+    });
+    expect(invalidation).toHaveBeenCalledExactlyOnceWith({ queryKey: ['company', 'a', 'fiscal'] });
+  });
+  it('invalidates the original company after a late failed request, not the selected company', async () => {
+    let reject!: (error: Error) => void;
+    fetcher.mockImplementation(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    const invalidation = vi.spyOn(client, 'invalidateQueries');
+    const view = renderHook(() => hooks.useAuthorizeFiscalDraft(), { wrapper: Wrapper });
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = view.result.current
+        .mutateAsync({ draftId: 'draft', input: authorizationInput })
+        .catch((error) => error);
+    });
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    company = 'b';
+    view.rerender();
+    await act(async () => {
+      reject(new Error('Timeout'));
+      await pending;
+    });
+    expect(invalidation).toHaveBeenCalledExactlyOnceWith({ queryKey: ['company', 'a', 'fiscal'] });
+  });
+  it('blocks stale authorization before any network request', async () => {
+    const view = renderHook(() => hooks.useAuthorizeFiscalDraft(), { wrapper: Wrapper });
+    company = 'b';
+    await act(async () => {
+      await expect(
+        view.result.current.mutateAsync({ draftId: 'draft', input: authorizationInput }),
+      ).rejects.toThrow('La empresa cambió');
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('queries only scoped persisted state and clears the old result after switching company', async () => {
+    fetcher.mockResolvedValueOnce({ authorization: { id: 'old-attempt', status: 'UNKNOWN' } });
+    const view = renderHook(() => hooks.useFiscalAuthorization('draft'), { wrapper: Wrapper });
+    await waitFor(() => expect(view.result.current.isSuccess).toBe(true));
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith('/fiscal/drafts/draft/authorization', {
+      expectedCompanyId: 'a',
+    });
+    fetcher.mockImplementation(() => new Promise(() => {}));
+    company = 'b';
+    view.rerender();
+    expect(view.result.current.data).toBeUndefined();
+  });
+  it('does not query authorization without permission or a draft', () => {
+    renderHook(() => hooks.useFiscalAuthorization('draft', false), { wrapper: Wrapper });
+    renderHook(() => hooks.useFiscalAuthorization(null), { wrapper: Wrapper });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('reconciles explicitly with an empty body, no retries, and refreshes after failure', async () => {
+    client.setDefaultOptions({ mutations: { retry: 2, retryDelay: 0 } });
+    fetcher.mockRejectedValue(new Error('Consultation failed'));
+    const invalidation = vi.spyOn(client, 'invalidateQueries');
+    const view = renderHook(() => hooks.useReconcileFiscalAuthorization(), { wrapper: Wrapper });
+    expect(fetcher).not.toHaveBeenCalled();
+    await act(async () => {
+      await expect(view.result.current.mutateAsync('attempt')).rejects.toThrow('Consultation failed');
+    });
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith('/fiscal/authorizations/attempt/reconcile', {
+      json: {},
+      expectedCompanyId: 'a',
+    });
+    expect(invalidation).toHaveBeenCalledExactlyOnceWith({ queryKey: ['company', 'a', 'fiscal'] });
+  });
+  it('sends no credential material when manually checking authentication and rejects a stale check', async () => {
+    fetcher.mockResolvedValue({ status: 'UNAVAILABLE' });
+    const view = renderHook(() => hooks.useCheckFiscalAuthentication(), { wrapper: Wrapper });
+    expect(fetcher).not.toHaveBeenCalled();
+    await act(async () => {
+      await view.result.current.mutateAsync();
+    });
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith('/fiscal/settings/authentication', {
+      json: {},
+      expectedCompanyId: 'a',
+    });
+    company = 'b';
+    await act(async () => {
+      await expect(view.result.current.mutateAsync()).rejects.toThrow('La empresa cambió');
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

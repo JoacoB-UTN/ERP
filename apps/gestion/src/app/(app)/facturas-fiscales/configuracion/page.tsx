@@ -8,6 +8,7 @@ import {
   type FiscalSettings,
   type FiscalIssuerVatCondition,
   type FiscalConnectivityResponse,
+  type FiscalAuthenticationResponse,
 } from '@erp/shared';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,6 +18,7 @@ import {
   useFiscalSettings,
   useSaveFiscalSettings,
   useCheckFiscalConnectivity,
+  useCheckFiscalAuthentication,
 } from '@/lib/auth-client';
 
 const linkClass = 'text-primary underline underline-offset-4';
@@ -38,8 +40,8 @@ export default function FiscalSettingsPage() {
     <div className="max-w-3xl space-y-6">
       <h1 className="text-2xl font-semibold">Configuración fiscal de pruebas</h1>
       <p>
-        Entorno: <strong>Homologación de ARCA</strong>. Esta preparación no habilita la emisión de
-        comprobantes.
+        Entorno: <strong>Homologación de ARCA</strong>. La autorización de comprobantes de prueba requiere
+        credenciales y datos fiscales verificados.
       </p>
       {can('sales.invoices.read') && (
         <Link className={linkClass} href="/facturas-fiscales">
@@ -68,6 +70,10 @@ export function SettingsForm({ initial }: { initial: FiscalSettings }) {
   const [checking, setChecking] = useState(false);
   const save = useSaveFiscalSettings();
   const check = useCheckFiscalConnectivity();
+  const authenticate = useCheckFiscalAuthentication();
+  const [authentication, setAuthentication] = useState<FiscalAuthenticationResponse | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const authLock = useRef(false);
   const { activeCompanyId } = useActiveCompany();
   const mounted = useRef(true);
   const saving = useRef(false);
@@ -103,7 +109,8 @@ export function SettingsForm({ initial }: { initial: FiscalSettings }) {
       const response = await save.mutateAsync(parsed.data);
       if (stillHere()) {
         setSettings(response.settings);
-        setMessage('Configuración guardada. La emisión continúa pendiente.');
+        setMessage('Configuración guardada. Verificá los requisitos antes de autorizar una prueba.');
+        setAuthentication(null);
       }
     } catch (cause) {
       if (stillHere()) setError(cause);
@@ -125,6 +132,22 @@ export function SettingsForm({ initial }: { initial: FiscalSettings }) {
     } finally {
       probing.current = false;
       if (stillHere()) setChecking(false);
+    }
+  }
+  async function testAuthentication() {
+    if (authLock.current || !stillHere()) return;
+    authLock.current = true;
+    setAuthBusy(true);
+    setAuthentication(null);
+    setError(null);
+    try {
+      const response = await authenticate.mutateAsync();
+      if (stillHere()) setAuthentication(response);
+    } catch (cause) {
+      if (stillHere()) setError(cause);
+    } finally {
+      authLock.current = false;
+      if (stillHere()) setAuthBusy(false);
     }
   }
   return (
@@ -220,6 +243,27 @@ export function SettingsForm({ initial }: { initial: FiscalSettings }) {
           </div>
         )}
       </section>
+      <section className="space-y-3 rounded-lg border p-4">
+        <h2 className="font-semibold">Autenticación con certificados de pruebas</h2>
+        <p className="text-sm">
+          Usa la configuración guardada y las credenciales instaladas en el servidor. Esta comprobación no
+          envía facturas.
+        </p>
+        <Button variant="outline" disabled={authBusy || busy} onClick={() => void testAuthentication()}>
+          {authBusy ? 'Autenticando…' : 'Probar autenticación de homologación'}
+        </Button>
+        {authentication && (
+          <div role="status">
+            <p>
+              {authentication.status === 'READY' ? 'Autenticación disponible' : 'Autenticación no disponible'}
+            </p>
+            <p>{authentication.message}</p>
+            {authentication.expiresAt && (
+              <p>Sesión válida hasta: {new Date(authentication.expiresAt).toLocaleString('es-AR')}</p>
+            )}
+          </div>
+        )}
+      </section>
       <section className="space-y-2">
         <h2 className="font-semibold">Pendientes según la configuración guardada</h2>
         <ul className="list-disc pl-5">
@@ -228,8 +272,8 @@ export function SettingsForm({ initial }: { initial: FiscalSettings }) {
           ))}
         </ul>
         <p className="text-sm">
-          Los certificados y sus claves privadas no se cargan aquí ni se comparten por chat. La conexión
-          autenticada se implementará en la próxima etapa.
+          Los certificados y sus claves privadas no se cargan aquí ni se comparten por chat. Un administrador
+          debe instalarlos de forma segura en el servidor para habilitar la autenticación de homologación.
         </p>
         <a
           className={linkClass}

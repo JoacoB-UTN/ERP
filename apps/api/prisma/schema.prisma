@@ -55,6 +55,7 @@ model Tenant {
   priceLists               PriceList[]
   priceListItems           PriceListItem[]
   priceHistory             PriceHistory[]
+  fiscalAuthorizations     FiscalAuthorization[]
   fiscalSettings           FiscalSettings[]
   fiscalDrafts             FiscalDraft[]
   salesDocuments           SalesDocument[]
@@ -115,6 +116,7 @@ model Company {
   priceLists                 PriceList[]
   priceListItems             PriceListItem[]
   priceHistory               PriceHistory[]
+  fiscalAuthorizations       FiscalAuthorization[]
   fiscalSettings             FiscalSettings?
   fiscalDrafts               FiscalDraft[]
   salesDocuments             SalesDocument[]
@@ -2705,6 +2707,9 @@ model FiscalDraft {
   company Company       @relation(fields: [companyId], references: [id])
   sale    SalesDocument @relation(fields: [companyId, salesDocumentId], references: [companyId, id])
 
+  authorizations FiscalAuthorization[]
+
+  @@unique([companyId, id])
   @@unique([companyId, salesDocumentId])
   @@index([companyId, createdAt])
   @@index([tenantId])
@@ -2728,4 +2733,34 @@ model FiscalSettings {
 
   @@index([tenantId])
   @@map("fiscal_settings")
+}
+
+/// Immutable request snapshot for one homologation attempt. Credentials never persisted.
+model FiscalAuthorization {
+  id            String      @id @default(uuid()) @db.Uuid
+  tenantId      String      @db.Uuid
+  companyId     String      @db.Uuid
+  draftId       String      @db.Uuid
+  draftRevision Int
+  environment   String      @default("HOMOLOGATION")
+  issuerCuit    String
+  pointOfSale   Int
+  voucherType   Int
+  voucherNumber Int
+  status        String      @default("SENDING")
+  request       Json
+  cae           String?
+  expiresAt     String?
+  message       String
+  createdBy     String      @db.Uuid
+  createdAt     DateTime    @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime    @updatedAt @db.Timestamptz(6)
+  tenant        Tenant      @relation(fields: [tenantId], references: [id])
+  company       Company     @relation(fields: [companyId], references: [id])
+  draft         FiscalDraft @relation(fields: [companyId, draftId], references: [companyId, id])
+
+  @@index([companyId, draftId, createdAt])
+  @@index([issuerCuit, pointOfSale, voucherType, status])
+  @@index([tenantId])
+  @@map("fiscal_authorizations")
 }

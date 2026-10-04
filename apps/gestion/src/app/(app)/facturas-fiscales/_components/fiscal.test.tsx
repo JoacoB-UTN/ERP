@@ -25,6 +25,9 @@ vi.mock('next/navigation', () => ({ useParams: () => ({ saleId: 'sale-a', id: 'd
 vi.mock('@/lib/auth-client', () => ({
   authClient: { companyContextStore: { getActiveCompanyId: () => mock.company } },
   useActiveCompany: () => ({ activeCompanyId: mock.company }),
+  useFiscalAuthorization: () => ({ data: { authorization: null }, isError: false, isPending: false }),
+  useAuthorizeFiscalDraft: () => ({ mutateAsync: vi.fn() }),
+  useReconcileFiscalAuthorization: () => ({ mutateAsync: vi.fn() }),
   usePermissions: () => ({ can: (p: string) => mock.permissions.has(p), isLoading: false }),
   usePreviewFiscalDraft: () => ({ mutateAsync: mock.preview }),
   useSaveFiscalDraft: () => ({ mutateAsync: mock.save }),

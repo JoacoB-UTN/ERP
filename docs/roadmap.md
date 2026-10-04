@@ -184,11 +184,13 @@ Treasury
   Gestión screens are integrated in PR #62 with core browser acceptance; cheques, reconciliation and FX are not started.
 
 Fiscal / ARCA — PARTIAL
-  Persisted preparation drafts from confirmed ARS sales with explicit IVA
-  breakdown, declared issuer/test-PV settings and a public availability probe
-  now exist; see docs/fiscal.md. Next: secure credentials, authenticated fiscal
-  profile/catalog validation, WSAA/WSFE authorization and reconciliation, CAE/QR.
-  No authorized electronic invoicing yet.
+  Drafts (PR #65) and issuer/test-PV settings plus public availability (PR #66)
+  are merged. The current branch implements server-only WSAA credentials,
+  authenticated catalogs, durable test authorization and consult-only recovery;
+  local verification passes; human review and real-certificate acceptance remain pending.
+  Next: define issuer, provision homologation credentials and exclusive test PV,
+  validate a real test invoice and recovery, then separately review production,
+  QR/printing and credit/debit notes. See docs/fiscal.md. No production issuance.
 
 Taxes
   Explicit draft VAT breakdown implemented; PriceList.includesTax remains

@@ -1,11 +1,14 @@
-# Fiscal draft preparation
+# Fiscal preparation and homologation
 
 The first fiscal slice is preparation only: Gestión `/facturas-fiscales`
 selects a confirmed internal sale, previews its tax breakdown and saves a
 company-scoped `FiscalDraft`. Every view identifies it as **Sin validez fiscal**
-and **No enviado a ARCA**. There is no authorization endpoint, invoice number,
-CAE, QR, fiscal receipt or WSAA client. A public homologation availability
-probe is available separately; it does not authenticate or issue invoices.
+and **No enviado a ARCA** until a separate, explicit homologation request is
+registered. The authorization slice described below adds WSAA authentication
+and WSFE test authorization, with separate persisted status and test CAE.
+Neither drafts nor homologation results have fiscal validity. Production, QR
+and fiscal printing remain unavailable. The public availability probe is
+separate from authentication and invoice authorization.
 
 ## Operator flow
 
@@ -70,31 +73,41 @@ company identity, issuer snapshot, authorization status or revision result.
 Queries/mutations bind to the company at request creation, including retries
 after authentication refresh. Changing company resets the preparation UI.
 
-## Next stage: actual homologation
+## Homologation preparation and limits
 
-Issuer identity and VAT condition have not yet been defined by the operator.
-There is no homologation certificate or Web Services point of sale configured.
-Drafts therefore always report `authorizationAvailable: false` and pending
-issuer/recipient validation and homologation configuration.
+Issuer identity, VAT condition, certificate and Web Services test point of sale
+must be supplied before the real authenticated circuit can be tested. The
+operator has not supplied that configuration yet. Draft DTOs continue to report
+`authorizationAvailable: false`: this legacy preparation field never asserts
+eligibility; the separate authorization resource records explicit test requests.
 
-Before issuing even a homologation invoice, validate the declared issuer profile,
-implement recipient identification/VAT-condition validation and service catalog checks,
-WSAA credentials, point-of-sale configuration, WSFEv1 request building and
-persistent authorization state. Allocate numbers durably per point of sale
-and voucher type. Handle an uncertain send by querying the original voucher
-(`FECompConsultar`), not blindly allocating another number. Live homologation,
-production configuration, CAE/QR/printing, credit/debit notes and contingency
-operation are separate work. Do not paste certificates/private keys in chat
-or commit them to Git.
+This slice supports WSFE concept 1 (products), ARS/PES with exchange rate 1,
+A/B/C invoices and a recipient explicitly identified by CUIT. Services, foreign
+currencies, other document identifiers, credit/debit notes and production are
+outside this slice. Both CUITs must pass local syntax/checksum checks. The
+issuer's declared VAT condition and recipient condition must match a supported
+class; current recipient identity/condition and issuer CUIT must still match
+the saved draft. This is not an ARCA registry check or a general eligibility
+engine. The server rechecks the confirmed sale and recalculates saved amounts.
+VAT groups must reconcile exactly with the supported aggregate rounding rule;
+inconsistent draft rounding is rejected rather than changing the sale total.
+
+The authenticated WSFE checks verify the test point of sale, compatible recipient
+VAT condition and applicable VAT catalog entries. The operator must explicitly
+confirm a point of sale reserved for this ERP and the homologation environment.
+External software using the same series is not coordinated by database locks;
+an exclusive test point of sale is a prerequisite.
 
 Primary references checked 2026-10-03:
 
 - [ARCA electronic invoice services and WSFEv1 manual 4.7](https://www.arca.gob.ar/ws/documentacion/ws-factura-electronica.asp)
 - [WSFEv1 developer manual](https://www.arca.gob.ar/ws/documentacion/manuales/manual-desarrollador-ARCA-COMPG.pdf)
 - [WSAA certificates and service association](https://www.arca.gob.ar/ws/documentacion/wsaa.asp)
+- [WSAA technical specification](https://www.arca.gob.ar/ws/WSAA/Especificacion_Tecnica_WSAA_1.2.2.pdf)
 
-No authenticated ARCA homologation or invoice authorization has been tested.
-Only the public availability probe documented below has been exercised live.
+No authenticated ARCA homologation or invoice authorization has been tested
+with a real certificate. Only the public availability probe documented below
+has been exercised live. Local tests use ephemeral keys and simulated responses.
 
 ## Verification for this slice
 
@@ -148,10 +161,116 @@ are on demand and display their timestamp; no monitoring is scheduled.
 was checked for endpoint, namespace and SOAPAction. A live public-only probe
 from this development host at **2026-10-04 02:52 UTC** returned all three
 services OK. This was not a WSAA login, certificate validation or invoice
-homologation test. Secure credential provisioning, authenticated service
-catalog/point-of-sale validation and fiscal issuance remain future work.
+homologation test. The separate authenticated implementation below is pending real-certificate
+homologation acceptance. Production fiscal issuance remains future work.
 
 Settings verification adds seven real-database integration cases, 20 public
 transport/parser cases, 13 configuration UI cases and three client cases.
 The new migration and both fiscal suites pass on disposable PostgreSQL/Redis;
 schema comparison remains empty and double seed preserves business data.
+
+
+## Server-only credentials and WSAA authentication
+
+The server reads `ERP_ARCA_CREDENTIALS_DIR`, an absolute canonical directory
+path without symlink aliases. Under it, provision one directory named with the
+validated ERP company UUID, containing exactly the expected credential filenames:
+
+```text
+<ERP_ARCA_CREDENTIALS_DIR>/<companyId>/certificate.pem
+<ERP_ARCA_CREDENTIALS_DIR>/<companyId>/private-key.pem
+```
+
+For example, `/srv/erp/arca-credentials` on Linux or
+`C:\ERP\arca-credentials` on Windows. Resolve the actual directory path first;
+macOS aliases such as `/tmp` pointing elsewhere are deliberately rejected.
+The application accepts no credential upload, client-supplied path, alternate
+endpoint or production toggle. Provision files through server administration,
+never Git or chat. The loader rejects symlinked directories/files, nonregular
+files, oversized PEMs, expired/not-yet-valid certificates, RSA keys below 2048
+bits, key/certificate mismatch and a certificate subject `serialNumber` that
+does not equal `CUIT <issuerCuit>`. This first implementation requires the
+certificate CUIT to equal the issuing company's CUIT; delegated certificates
+for another CUIT are not supported. The private key must be an unencrypted PEM.
+Local validation does not establish that ARCA trusts the certificate or that
+its WSASS association with `wsfe` is correct.
+
+On POSIX, use owner-only permissions (`0600` or `0400`) for the private key;
+keep the credential directory writable only by the trusted server administrator.
+On Windows, remove inherited broad access and explicitly grant read access only
+to the actual ERP API service account, with administration restricted to trusted
+administrators/SYSTEM. Apply ACLs to the company folder and private-key file and
+verify them under the service identity. POSIX mode checks do not validate Windows
+ACLs; secure Windows provisioning remains an operator responsibility.
+
+WSAA receives an attached CMS containing a short-lived `wsfe` access request,
+signed using RSA/SHA256 in process. No installed OpenSSL executable is required.
+The official published WSAA specification still describes SHA1/RSA; SHA256
+signatures have been verified locally, but acceptance by live ARCA with the
+operator's certificate remains **unverified**. Do not claim real authentication
+until that acceptance test succeeds.
+
+Tickets are kept only in process memory, scoped by company, CUIT and certificate
+fingerprint, with bounded caches, coalesced concurrent requests and an expiration
+margin. No token/sign/private key is returned to the browser, audit log or
+persisted authorization record. Restarting the server loses the local ticket;
+ARCA may reject a replacement while the previous ticket remains valid, requiring
+an operator to wait for expiry. Requests are not retried automatically. Failures
+use a short cooldown and sanitized messages, without upstream bodies or secrets.
+
+POST `/fiscal/settings/authentication` requires `configuration.manage`, an empty
+strict body, and returns only readiness, expiration and a safe message. A successful
+login alone does not validate the issuer's fiscal situation or authorize a voucher.
+Fixed official HTTPS endpoints, no redirects, a 12-second request deadline, a
+256 KiB response cap and strict XML/namespace parsing bound authenticated calls.
+
+## Durable test authorization and uncertain results
+
+GET `/fiscal/drafts/:id/authorization` requires `sales.invoices.read`.
+POST `/fiscal/drafts/:id/authorize` and POST
+`/fiscal/authorizations/:id/reconcile` require both invoice read/create permissions.
+The authorize body contains the expected draft revision and explicit
+`confirmHomologation: true` / `exclusivePointOfSale: true` declarations; reconcile
+accepts only an empty body. All resources use the validated company context.
+
+Before sending, a transaction freezes the draft revision and persists the exact
+business request, point of sale, voucher type and reserved number as `SENDING`,
+with its audit entry. Tokens/signatures are assembled separately in memory.
+Global issuer/point-of-sale/type uniqueness protects a legal series even if two
+ERP companies share a CUIT. One unresolved send blocks that series; a draft with
+an unresolved or authorized request cannot be edited. This does not alter sales,
+inventory, customer accounts, Treasury, prices or the internal sale number.
+
+The resulting states are:
+
+- `SENDING`: the durable request exists; delivery or response may still be pending.
+- `AUTHORIZED`: a matching homologation response carries a validated-format test
+  CAE and expiration. This has no fiscal validity.
+- `REJECTED`: a conclusive matched rejection permits correction and a new explicit
+  attempt; no automatic retry occurs.
+- `UNKNOWN`: timeout, malformed/mismatched response or other uncertainty. The
+  original number stays reserved and the series remains blocked.
+
+Reconciliation uses `FECompConsultar` for the persisted original request and
+verifies its identity and amounts before accepting a recovered authorization.
+It never resends, allocates a replacement number or interprets “not found” as
+permission to retry. The conservative block also applies if the process crashes
+**after persisting but before sending**: the system cannot prove non-delivery.
+If repeated consultation cannot establish the result, manual operational review
+is required; this slice has no force-unlock/reuse endpoint. A failed result/audit
+transaction leaves the durable pending record available for consultation.
+
+Authorization verification completed locally: 288 API unit tests, 167 Gestión
+tests and 71 Facturación tests pass. The three fiscal integration suites pass
+24 tests on disposable PostgreSQL 16/Redis, including persisted-before-send,
+audit failure recovery, duplicate/concurrent requests and two tenants sharing
+a legal issuer series. All migrations deploy without schema drift; repeated
+seed preserves identical business snapshots across 12 tables. Repository lint
+(with only the two existing navigation warnings), typecheck and all three
+production builds pass. Independent agent reviews identified and corrected the
+nullable CAE constraint, sale locking and originating-company cache refresh.
+No manual browser acceptance or authenticated live ARCA run is claimed. Production activation, issuer registry
+validation, complete tax catalogs, fiscal printing/QR and credit/debit notes
+remain separate reviewed work.
+
+Operator walkthrough: [Primera prueba de facturación con ARCA](fiscal-homologation-guide.md).

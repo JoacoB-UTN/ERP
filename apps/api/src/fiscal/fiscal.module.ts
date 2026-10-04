@@ -8,9 +8,26 @@ import { FiscalService } from './fiscal.service';
 import { FiscalSettingsService } from './fiscal-settings.service';
 import { FiscalSettingsController } from './fiscal-settings.controller';
 import { ArcaConnectivityService } from './arca-connectivity.service';
+import { FiscalAuthorizationController } from './fiscal-authorization.controller';
+import { FiscalAuthorizationService } from './fiscal-authorization.service';
+import { ArcaCredentialsService } from './arca-credentials.service';
+import { ArcaWsaaService } from './arca-wsaa.service';
+import { ArcaWsfeService } from './arca-wsfe.service';
 @Module({
   imports: [AuthModule, CompanyContextModule, AuthorizationModule, AuditModule],
-  controllers: [FiscalController, FiscalSettingsController],
-  providers: [FiscalService, FiscalSettingsService, ArcaConnectivityService],
+  controllers: [
+    FiscalController,
+    FiscalSettingsController,
+    FiscalAuthorizationController,
+  ],
+  providers: [
+    FiscalService,
+    FiscalSettingsService,
+    ArcaConnectivityService,
+    FiscalAuthorizationService,
+    ArcaCredentialsService,
+    ArcaWsaaService,
+    ArcaWsfeService,
+  ],
 })
 export class FiscalModule {}

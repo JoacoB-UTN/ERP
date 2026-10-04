@@ -1,0 +1,333 @@
+import { ArcaWsfeService } from './arca-wsfe.service';
+import { ArcaWsaaService } from './arca-wsaa.service';
+import { parseXml, soapRequest } from './arca-soap';
+import type { ArcaInvoiceRequest } from './fiscal-request';
+jest.mock('./arca-soap', () => ({
+  ...jest.requireActual<typeof import('./arca-soap')>('./arca-soap'),
+  soapRequest: jest.fn(),
+}));
+const request: ArcaInvoiceRequest = {
+  issuerCuit: '20123456786',
+  pointOfSale: 1,
+  voucherType: 1,
+  voucherNumber: 4,
+  date: '20261004',
+  recipientCuit: '20123456786',
+  recipientVatConditionId: 1,
+  total: '121.00',
+  net: '100.00',
+  vat: '21.00',
+  exempt: '0.00',
+  notTaxed: '0.00',
+  iva: [{ id: 5, base: '100.00', amount: '21.00' }],
+};
+const detail =
+  '<Concepto>1</Concepto><DocTipo>80</DocTipo><DocNro>20123456786</DocNro><CbteDesde>4</CbteDesde><CbteHasta>4</CbteHasta><CbteFch>20261004</CbteFch>';
+const authorized = `<FeCabResp><Cuit>20123456786</Cuit><PtoVta>1</PtoVta><CbteTipo>1</CbteTipo><CantReg>1</CantReg><Resultado>A</Resultado></FeCabResp><FeDetResp><FECAEDetResponse>${detail}<Resultado>A</Resultado><CAE>12345678901234</CAE><CAEFchVto>20261014</CAEFchVto></FECAEDetResponse></FeDetResp>`;
+const consulted = `<ResultGet>${detail}<PtoVta>1</PtoVta><CbteTipo>1</CbteTipo><Resultado>A</Resultado><EmisionTipo>CAE</EmisionTipo><MonId>PES</MonId><MonCotiz>1.000000</MonCotiz><CondicionIVAReceptorId>1</CondicionIVAReceptorId><ImpTotal>121</ImpTotal><ImpTotConc>0</ImpTotConc><ImpNeto>100</ImpNeto><ImpOpEx>0</ImpOpEx><ImpTrib>0</ImpTrib><ImpIVA>21</ImpIVA><Iva><AlicIva><Id>5</Id><BaseImp>100</BaseImp><Importe>21</Importe></AlicIva></Iva><CodAutorizacion>12345678901234</CodAutorizacion><FchVto>20261014</FchVto></ResultGet>`;
+const answer = (method: string, xml: string) =>
+  parseXml(
+    `<Body><${method}Response xmlns="http://ar.gov.afip.dif.FEV1/"><${method}Result>${xml}</${method}Result></${method}Response></Body>`,
+  );
+const send = jest.mocked(soapRequest);
+let service: ArcaWsfeService;
+beforeEach(() => {
+  jest.clearAllMocks();
+  service = new ArcaWsfeService({
+    getTicket: jest.fn().mockResolvedValue({
+      token: 'token<&',
+      sign: 'secret-sign',
+      expiresAt: new Date(),
+    }),
+  } as unknown as ArcaWsaaService);
+});
+describe('WSFE homologation protocol', () => {
+  it('sends exactly one request with escaped credentials and returns verified CAE', async () => {
+    send.mockResolvedValue(answer('FECAESolicitar', authorized));
+    expect(await service.authorize('company', request)).toMatchObject({
+      status: 'AUTHORIZED',
+      cae: '12345678901234',
+      expiresAt: '20261014',
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][2]).toContain('<Token>token&lt;&amp;</Token>');
+    expect(send.mock.calls[0][2]).toContain(
+      '<CondicionIVAReceptorId>1</CondicionIVAReceptorId>',
+    );
+    expect(send.mock.calls[0][2]).toContain('<ImpNeto>100.00</ImpNeto>');
+  });
+  it('accepts only an explicit correlated rejection and never exposes upstream messages', async () => {
+    send.mockResolvedValue(
+      answer(
+        'FECAESolicitar',
+        authorized
+          .replaceAll('<Resultado>A</Resultado>', '<Resultado>R</Resultado>')
+          .replace(
+            '<CAE>12345678901234</CAE><CAEFchVto>20261014</CAEFchVto>',
+            '<Observaciones><Obs><Code>100</Code><Msg>secret-sign</Msg></Obs></Observaciones>',
+          ),
+      ),
+    );
+    const result = await service.authorize('company', request);
+    expect(result.status).toBe('REJECTED');
+    expect(result.message).not.toContain('secret-sign');
+  });
+  it.each([
+    ['Cuit', '20123456786', '20123456787'],
+    ['PtoVta', '1', '2'],
+    ['CbteTipo', '1', '6'],
+    ['CantReg', '1', '2'],
+    ['DocTipo', '80', '99'],
+    ['DocNro', '20123456786', '20123456787'],
+    ['CbteDesde', '4', '5'],
+    ['CbteFch', '20261004', '20261005'],
+    ['CAE', '12345678901234', '123'],
+    ['CAEFchVto', '20261014', '20260230'],
+  ])('keeps mismatched %s uncertain', async (field, before, after) => {
+    send.mockResolvedValue(
+      answer(
+        'FECAESolicitar',
+        authorized.replace(
+          `<${field}>${before}</${field}>`,
+          `<${field}>${after}</${field}>`,
+        ),
+      ),
+    );
+    await expect(service.authorize('company', request)).rejects.toThrow();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+  it('does not treat top-level errors as a definitive rejection', async () => {
+    send.mockResolvedValue(
+      answer(
+        'FECAESolicitar',
+        '<Errors><Err><Code>500</Code><Msg>secret</Msg></Err></Errors>',
+      ),
+    );
+    await expect(service.authorize('company', request)).rejects.toThrow(
+      'No se pudo verificar',
+    );
+  });
+  it('never retries ambiguous transport failures or exposes secrets', async () => {
+    send.mockRejectedValue(new Error('secret-sign'));
+    await expect(service.authorize('company', request)).rejects.toThrow(
+      'No se pudo verificar',
+    );
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+  it('reconciles an exact authorized invoice, accepting equivalent decimal formatting', async () => {
+    send.mockResolvedValue(answer('FECompConsultar', consulted));
+    expect(await service.consult('company', request)).toMatchObject({
+      status: 'AUTHORIZED',
+      cae: '12345678901234',
+    });
+  });
+  it.each([
+    ['ImpTotal', '121', '122'],
+    ['ImpTrib', '0', '1'],
+    ['ImpNeto', '100', '99'],
+    ['ImpIVA', '21', '22'],
+    ['MonId', 'PES', 'DOL'],
+    ['MonCotiz', '1.000000', '2'],
+    ['CondicionIVAReceptorId', '1', '6'],
+    ['EmisionTipo', 'CAE', 'CAEA'],
+    ['BaseImp', '100', '101'],
+    ['Importe', '21', '22'],
+    ['Id', '5', '4'],
+  ])('rejects consultation collision in %s', async (field, before, after) => {
+    send.mockResolvedValue(
+      answer(
+        'FECompConsultar',
+        consulted.replace(
+          `<${field}>${before}</${field}>`,
+          `<${field}>${after}</${field}>`,
+        ),
+      ),
+    );
+    await expect(service.consult('company', request)).rejects.toThrow();
+  });
+  it('rejects duplicate VAT rows and missing receiver condition', async () => {
+    send.mockResolvedValue(
+      answer(
+        'FECompConsultar',
+        consulted.replace(
+          '</Iva>',
+          '<AlicIva><Id>5</Id><BaseImp>100</BaseImp><Importe>21</Importe></AlicIva></Iva>',
+        ),
+      ),
+    );
+    await expect(service.consult('company', request)).rejects.toThrow();
+    send.mockResolvedValue(
+      answer(
+        'FECompConsultar',
+        consulted.replace(
+          '<CondicionIVAReceptorId>1</CondicionIVAReceptorId>',
+          '',
+        ),
+      ),
+    );
+    await expect(service.consult('company', request)).rejects.toThrow();
+  });
+  it('returns not-found only for sole official 602 with no invoice', async () => {
+    const error =
+      '<Errors><Err><Code>602</Code><Msg>No existen datos</Msg></Err></Errors>';
+    send.mockResolvedValue(answer('FECompConsultar', error));
+    expect(await service.consult('company', request)).toBeNull();
+    send.mockResolvedValue(answer('FECompConsultar', error + consulted));
+    await expect(service.consult('company', request)).rejects.toThrow();
+    send.mockResolvedValue(
+      answer('FECompConsultar', error.replace('602', '500')),
+    );
+    await expect(service.consult('company', request)).rejects.toThrow();
+  });
+  it('verifies series identity and bounds the last number', async () => {
+    send.mockResolvedValue(
+      answer(
+        'FECompUltimoAutorizado',
+        '<PtoVta>1</PtoVta><CbteTipo>1</CbteTipo><CbteNro>3</CbteNro>',
+      ),
+    );
+    expect(await service.lastNumber('company', request.issuerCuit, 1, 1)).toBe(
+      3,
+    );
+    await expect(
+      service.lastNumber('company', request.issuerCuit, 2, 1),
+    ).rejects.toThrow();
+  });
+  it('validates active CAE point of sale, class-specific receiver catalog and VAT date', async () => {
+    send
+      .mockResolvedValueOnce(
+        answer(
+          'FEParamGetPtosVenta',
+          '<ResultGet><PtoVenta><Nro>1</Nro><EmisionTipo>CAE</EmisionTipo><Bloqueado>N</Bloqueado><FchBaja>NULL</FchBaja></PtoVenta></ResultGet>',
+        ),
+      )
+      .mockResolvedValueOnce(
+        answer(
+          'FEParamGetCondicionIvaReceptor',
+          '<ResultGet><CondicionIvaReceptor><Id>1</Id><Cmp_Clase>A</Cmp_Clase></CondicionIvaReceptor></ResultGet>',
+        ),
+      )
+      .mockResolvedValueOnce(
+        answer(
+          'FEParamGetTiposIva',
+          '<ResultGet><IvaTipo><Id>5</Id><FchDesde>20090101</FchDesde><FchHasta>NULL</FchHasta></IvaTipo></ResultGet>',
+        ),
+      );
+    await expect(service.validate('company', request)).resolves.toBeUndefined();
+    expect(send).toHaveBeenCalledTimes(3);
+  });
+  it.each([
+    '<Bloqueado>S</Bloqueado>',
+    '<EmisionTipo>CAEA</EmisionTipo>',
+    '<FchBaja>20200101</FchBaja>',
+  ])('blocks invalid point-of-sale state %s', async (field) => {
+    let xml =
+      '<ResultGet><PtoVenta><Nro>1</Nro><EmisionTipo>CAE</EmisionTipo><Bloqueado>N</Bloqueado><FchBaja></FchBaja></PtoVenta></ResultGet>';
+    const name = field.match(/^<([^>]+)>/)![1];
+    xml = xml.replace(new RegExp(`<${name}>.*?</${name}>`), field);
+    send.mockResolvedValue(answer('FEParamGetPtosVenta', xml));
+    await expect(service.validate('company', request)).rejects.toThrow();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+  it.each(['A/M/C', 'A/ALEY/C'])(
+    'accepts canonical combined classes %s',
+    async (classes) => {
+      send
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetPtosVenta',
+            '<ResultGet><PtoVenta><Nro>1</Nro><EmisionTipo>CAE</EmisionTipo><Bloqueado>N</Bloqueado></PtoVenta></ResultGet>',
+          ),
+        )
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetCondicionIvaReceptor',
+            `<ResultGet><CondicionIvaReceptor><Id>1</Id><Cmp_Clase>${classes}</Cmp_Clase></CondicionIvaReceptor></ResultGet>`,
+          ),
+        )
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetTiposIva',
+            '<ResultGet><IvaTipo><Id>5</Id><FchDesde>20090101</FchDesde></IvaTipo></ResultGet>',
+          ),
+        );
+      await expect(
+        service.validate('company', request),
+      ).resolves.toBeUndefined();
+    },
+  );
+  it.each(['B/C', 'UNKNOWN/A', 'A/A', 'ALEY'])(
+    'rejects incompatible or malformed classes %s',
+    async (classes) => {
+      send
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetPtosVenta',
+            '<ResultGet><PtoVenta><Nro>1</Nro><EmisionTipo>CAE</EmisionTipo><Bloqueado>N</Bloqueado></PtoVenta></ResultGet>',
+          ),
+        )
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetCondicionIvaReceptor',
+            `<ResultGet><CondicionIvaReceptor><Id>1</Id><Cmp_Clase>${classes}</Cmp_Clase></CondicionIvaReceptor></ResultGet>`,
+          ),
+        );
+      await expect(service.validate('company', request)).rejects.toThrow();
+    },
+  );
+  it.each(['<FchDesde>20270101</FchDesde>', '<FchHasta>20260101</FchHasta>'])(
+    'rejects an inactive VAT catalog entry %s',
+    async (range) => {
+      send
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetPtosVenta',
+            '<ResultGet><PtoVenta><Nro>1</Nro><EmisionTipo>CAE</EmisionTipo><Bloqueado>N</Bloqueado></PtoVenta></ResultGet>',
+          ),
+        )
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetCondicionIvaReceptor',
+            '<ResultGet><CondicionIvaReceptor><Id>1</Id><Cmp_Clase>A/C</Cmp_Clase></CondicionIvaReceptor></ResultGet>',
+          ),
+        )
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetTiposIva',
+            `<ResultGet><IvaTipo><Id>5</Id>${range.startsWith('<FchHasta>') ? '<FchDesde>20090101</FchDesde>' : ''}${range}</IvaTipo></ResultGet>`,
+          ),
+        );
+      await expect(service.validate('company', request)).rejects.toThrow();
+    },
+  );
+  it('rejects duplicate result fields and incorrect namespaces', async () => {
+    send.mockResolvedValue(
+      answer(
+        'FECAESolicitar',
+        authorized.replace('<CAE>', '<CAE>12345678901234</CAE><CAE>'),
+      ),
+    );
+    await expect(service.authorize('company', request)).rejects.toThrow();
+    send.mockResolvedValue(
+      answer(
+        'FECAESolicitar',
+        authorized.replace('<CAE>', '<CAE xmlns="urn:wrong">'),
+      ),
+    );
+    await expect(service.authorize('company', request)).rejects.toThrow();
+  });
+  it('rejects reconciliation with extra tax and non-product fields', async () => {
+    for (const extra of [
+      '<Tributos><Tributo><Id>1</Id></Tributo></Tributos>',
+      '<FchServDesde>20261001</FchServDesde>',
+    ]) {
+      send.mockResolvedValue(
+        answer(
+          'FECompConsultar',
+          consulted.replace('</ResultGet>', extra + '</ResultGet>'),
+        ),
+      );
+      await expect(service.consult('company', request)).rejects.toThrow();
+    }
+  });
+});
