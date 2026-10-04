@@ -4,15 +4,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type {
-  FiscalDraftDto,
-  FiscalAuthorizationSummary,
-  FiscalDraftInput,
-  FiscalDraftsQuery,
-  FiscalDraftsResponse,
-  FiscalPreview,
-  FiscalSource,
-  SaveFiscalDraftInput,
+import {
+  isValidCuitChecksum,
+  type FiscalDraftDto,
+  type FiscalAuthorizationSummary,
+  type FiscalDraftInput,
+  type FiscalDraftsQuery,
+  type FiscalDraftsResponse,
+  type FiscalPreview,
+  type FiscalSource,
+  type RefreshFiscalIdentityInput,
+  type SaveFiscalDraftInput,
 } from '@erp/shared';
 import { Prisma, type FiscalDraft } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
@@ -164,6 +166,147 @@ export class FiscalService {
       },
     });
     return { draft: row ? dto(row) : null };
+  }
+  async refreshIdentity(
+    ctx: RequestContext,
+    id: string,
+    input: RefreshFiscalIdentityInput,
+  ) {
+    const scope = { companyId: ctx.companyId, tenantId: ctx.tenantId };
+    const target = await this.prisma.fiscalDraft.findFirst({
+      where: { id, ...scope },
+      select: { salesDocumentId: true },
+    });
+    if (!target)
+      throw new NotFoundException({
+        code: 'FISCAL_DRAFT_NOT_FOUND',
+        message: 'No se encontró el borrador fiscal.',
+      });
+    return this.prisma.$transaction(async (tx) => {
+      // Use the same lock order as save/authorize so the first submission freezes identity.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`fiscal-draft:${ctx.companyId}:${target.salesDocumentId}`}, 0))`;
+      await tx.$queryRaw`SELECT id FROM sales_documents WHERE id = ${target.salesDocumentId}::uuid AND "companyId" = ${ctx.companyId}::uuid AND "tenantId" = ${ctx.tenantId}::uuid FOR SHARE`;
+      const existing = await tx.fiscalDraft.findFirst({
+        where: { id, ...scope },
+      });
+      if (!existing)
+        throw new NotFoundException({
+          code: 'FISCAL_DRAFT_NOT_FOUND',
+          message: 'No se encontró el borrador fiscal.',
+        });
+      if (
+        existing.salesDocumentId !== target.salesDocumentId ||
+        existing.revision !== input.expectedRevision
+      )
+        throw new ConflictException({
+          code: 'FISCAL_DRAFT_REVISION_CONFLICT',
+          message:
+            'El borrador cambió. Recargalo antes de actualizar la identidad fiscal.',
+        });
+      const attempted = await tx.fiscalAuthorization.findFirst({
+        where: { draftId: existing.id, ...scope },
+        select: { id: true },
+      });
+      if (attempted)
+        throw new ConflictException(
+          'El borrador ya tiene un intento de autorización. No se puede actualizar su identidad fiscal, incluso si fue rechazado.',
+        );
+      const sale = await tx.salesDocument.findFirst({
+        where: { id: existing.salesDocumentId, ...scope },
+        select: {
+          id: true,
+          status: true,
+          customerId: true,
+          taxTotal: true,
+          currency: { select: { code: true } },
+          lines: { select: { taxAmount: true } },
+        },
+      });
+      if (
+        !sale ||
+        sale.status !== 'CONFIRMED' ||
+        sale.currency.code !== 'ARS' ||
+        !sale.taxTotal.isZero() ||
+        sale.lines.some((line) => !line.taxAmount.isZero())
+      )
+        throw new BadRequestException(
+          'La venta no está disponible para este circuito de pruebas.',
+        );
+      const [company, customer] = await Promise.all([
+        tx.company.findFirst({
+          where: { id: ctx.companyId, tenantId: ctx.tenantId },
+          select: { legalName: true, taxId: true },
+        }),
+        tx.customer.findFirst({
+          where: { id: sale.customerId, ...scope },
+          select: {
+            legalName: true,
+            taxId: true,
+            documentType: true,
+            taxCondition: true,
+          },
+        }),
+      ]);
+      if (
+        !company ||
+        !customer ||
+        !isValidCuitChecksum(company.taxId.replace(/[-\s]/g, '')) ||
+        customer.documentType !== 'CUIT' ||
+        !isValidCuitChecksum((customer.taxId ?? '').replace(/[-\s]/g, '')) ||
+        !customer.taxCondition ||
+        ![
+          'RESPONSABLE_INSCRIPTO',
+          'MONOTRIBUTO',
+          'EXENTO',
+          'CONSUMIDOR_FINAL',
+        ].includes(customer.taxCondition)
+      )
+        throw new BadRequestException(
+          'Completá los CUIT válidos de la empresa y del cliente, el tipo de documento CUIT y una condición de IVA compatible con homologación antes de actualizar el borrador.',
+        );
+      const saved = existing.snapshot as unknown as FiscalPreview;
+      if (saved.source.saleId !== sale.id)
+        throw new BadRequestException(
+          'El borrador no coincide con su venta de origen.',
+        );
+      // Copy only master identity; preserve every commercial/tax value from the saved snapshot.
+      const snapshot = {
+        ...saved,
+        source: {
+          ...saved.source,
+          issuer: { legalName: company.legalName, taxId: company.taxId },
+          recipient: {
+            legalName: customer.legalName,
+            taxId: customer.taxId,
+            taxCondition: customer.taxCondition,
+          },
+        },
+      };
+      const row = await tx.fiscalDraft.update({
+        where: { id: existing.id, ...scope },
+        data: {
+          snapshot: snapshot as unknown as Prisma.InputJsonValue,
+          revision: { increment: 1 },
+          updatedBy: ctx.userId,
+        },
+      });
+      await this.audit.recordFromContext(
+        ctx,
+        {
+          action: 'UPDATE',
+          entityType: 'FiscalDraft',
+          entityId: row.id,
+          before: { revision: existing.revision },
+          after: {
+            operation: 'REFRESH_IDENTITY',
+            salesDocumentId: existing.salesDocumentId,
+            revision: row.revision,
+          },
+        },
+        tx,
+      );
+      return { draft: dto(row) };
+    });
   }
   async list(
     companyId: string,

@@ -10,9 +10,11 @@ import {
 import {
   fiscalDraftInputSchema,
   fiscalDraftsQuerySchema,
+  refreshFiscalIdentitySchema,
   saveFiscalDraftSchema,
   type FiscalDraftInput,
   type FiscalDraftsQuery,
+  type RefreshFiscalIdentityInput,
   type SaveFiscalDraftInput,
 } from '@erp/shared';
 import { RequirePermissions } from '../authorization/decorators/require-permissions.decorator';
@@ -40,6 +42,20 @@ export class FiscalController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.fiscal.getById(ctx.companyId, id);
+  }
+  @Post('drafts/:id/refresh-identity')
+  @RequirePermissions(
+    'sales.invoices.read',
+    'sales.invoices.create',
+    'sales.documents.read',
+  )
+  refreshIdentity(
+    @CurrentRequestContext() ctx: RequestContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(refreshFiscalIdentitySchema))
+    input: RefreshFiscalIdentityInput,
+  ) {
+    return this.fiscal.refreshIdentity(ctx, id, input);
   }
   @Get('sales/:saleId/draft')
   @RequirePermissions('sales.invoices.read')

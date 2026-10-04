@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ArcaWsfeService } from '../src/fiscal/arca-wsfe.service';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
@@ -8,6 +9,7 @@ import * as argon2 from 'argon2';
 import {
   COMPANY_ID_HEADER,
   type FiscalDraftResponse,
+  type FiscalPreview,
   type FiscalDraftsResponse,
   type SaveFiscalDraftInput,
 } from '@erp/shared';
@@ -20,6 +22,18 @@ import type { SalesDocumentStatus } from '../src/generated/prisma/client';
 
 /** Isolated fixtures; run only against a disposable migrated database. */
 describe('Fiscal drafts (e2e)', () => {
+  const accepted = {
+    status: 'AUTHORIZED',
+    cae: '12345678901234',
+    expiresAt: '20991231',
+    message: 'Autorizado en pruebas',
+  };
+  const wsfe = {
+    validate: jest.fn(),
+    lastNumber: jest.fn(),
+    authorize: jest.fn(),
+    consult: jest.fn(),
+  };
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let tenantId: string;
@@ -36,6 +50,8 @@ describe('Fiscal drafts (e2e)', () => {
   let reader: request.Agent;
   let noSalesRead: request.Agent;
   let noFiscal: request.Agent;
+  let noInvoiceRead: request.Agent;
+  let noInvoiceCreate: request.Agent;
   const users: string[] = [];
   const suffix = randomUUID();
   const password = 'Fiscal-e2e-password-1234';
@@ -112,7 +128,10 @@ describe('Fiscal drafts (e2e)', () => {
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(ArcaWsfeService)
+      .useValue(wsfe)
+      .compile();
     app = module.createNestApplication();
     app.use(cookieParser());
     app.setGlobalPrefix('api/v1');
@@ -206,8 +225,10 @@ describe('Fiscal drafts (e2e)', () => {
     const bundles = [
       ['sales.invoices.read', 'sales.invoices.create', 'sales.documents.read'],
       ['sales.invoices.read'],
-      ['sales.invoices.create'],
+      ['sales.invoices.read', 'sales.invoices.create'],
       ['sales.documents.read'],
+      ['sales.invoices.create', 'sales.documents.read'],
+      ['sales.invoices.read', 'sales.documents.read'],
     ];
     const agents: request.Agent[] = [];
     for (const [index, codes] of bundles.entries()) {
@@ -263,11 +284,14 @@ describe('Fiscal drafts (e2e)', () => {
         .expect(200);
       agents.push(agent);
     }
-    [editor, reader, noSalesRead, noFiscal] = agents;
+    [editor, reader, noSalesRead, noFiscal, noInvoiceRead, noInvoiceCreate] =
+      agents;
   });
   afterAll(async () => {
     jest.restoreAllMocks();
     if (prisma && tenantId) {
+      await prisma.fiscalAuthorization.deleteMany({ where: { tenantId } });
+      await prisma.fiscalSettings.deleteMany({ where: { tenantId } });
       await prisma.fiscalDraft.deleteMany({ where: { tenantId } });
       await prisma.salesTender.deleteMany({
         where: { salesDocument: { tenantId } },
@@ -563,5 +587,487 @@ describe('Fiscal drafts (e2e)', () => {
         where: { companyId, salesDocumentId: s.id },
       }),
     ).toBe(0);
+  });
+
+  describe('Explicit fiscal identity refresh', () => {
+    const validIssuer = {
+      legalName: 'Corrected issuer',
+      taxId: '30-71234567-1',
+    };
+    const validRecipient = {
+      legalName: 'Corrected recipient',
+      taxId: '20-12345678-6',
+      documentType: 'CUIT' as const,
+      taxCondition: 'RESPONSABLE_INSCRIPTO' as const,
+    };
+    const refreshBody = { expectedRevision: 1, confirmIdentityRefresh: true };
+    const refresh = (
+      id: string,
+      body: object = refreshBody,
+      agent = editor,
+      company = companyId,
+    ) =>
+      agent
+        .post(`/api/v1/fiscal/drafts/${id}/refresh-identity`)
+        .set(COMPANY_ID_HEADER, company)
+        .send(body);
+    const authorize = (id: string) =>
+      editor
+        .post(`/api/v1/fiscal/drafts/${id}/authorize`)
+        .set(COMPANY_ID_HEADER, companyId)
+        .send({
+          expectedRevision: 1,
+          confirmHomologation: true,
+          exclusivePointOfSale: true,
+        });
+    const row = (id: string) =>
+      prisma.fiscalDraft.findFirstOrThrow({ where: { id, companyId } });
+    function noArca() {
+      expect(wsfe.validate).not.toHaveBeenCalled();
+      expect(wsfe.lastNumber).not.toHaveBeenCalled();
+      expect(wsfe.authorize).not.toHaveBeenCalled();
+      expect(wsfe.consult).not.toHaveBeenCalled();
+    }
+    async function correctedMasters() {
+      await prisma.company.update({
+        where: { id: companyId },
+        data: validIssuer,
+      });
+      await prisma.customer.update({
+        where: { id: customerId },
+        data: validRecipient,
+      });
+    }
+    async function prepared(real = false) {
+      const document = await sale('121', real ? 'DRAFT' : 'CONFIRMED');
+      if (real)
+        await app
+          .get(SalesService)
+          .confirm({ companyId, tenantId, userId: users[0] }, document.id, {
+            method: 'CASH',
+            amountReceived: '150',
+          });
+      const response = await save(
+        document.id,
+        input(document.lines[0].id),
+      ).expect(201);
+      return { document, draft: (response.body as FiscalDraftResponse).draft };
+    }
+    beforeEach(async () => {
+      await prisma.fiscalAuthorization.deleteMany({ where: { tenantId } });
+      await prisma.company.update({
+        where: { id: companyId },
+        data: { legalName: 'Original issuer', taxId: '20123456786' },
+      });
+      await prisma.customer.update({
+        where: { id: customerId },
+        data: {
+          legalName: 'Original recipient',
+          taxId: '20123456786',
+          documentType: 'CUIT',
+          taxCondition: 'RESPONSABLE_INSCRIPTO',
+        },
+      });
+      await prisma.fiscalSettings.upsert({
+        where: { companyId },
+        create: {
+          companyId,
+          tenantId,
+          vatCondition: 'RESPONSABLE_INSCRIPTO',
+          testPointOfSale: 12,
+          createdBy: users[0],
+          updatedBy: users[0],
+        },
+        update: { vatCondition: 'RESPONSABLE_INSCRIPTO', testPointOfSale: 12 },
+      });
+      wsfe.validate.mockReset().mockResolvedValue(undefined);
+      wsfe.lastNumber.mockReset().mockResolvedValue(0);
+      wsfe.authorize.mockReset().mockResolvedValue(accepted);
+      wsfe.consult.mockReset().mockResolvedValue(null);
+    });
+    it('repairs incomplete saved identity only through an explicit refresh and preserves the complete monetary snapshot and commercial ledgers', async () => {
+      await prisma.company.update({
+        where: { id: companyId },
+        data: { legalName: 'Pending issuer', taxId: 'pending' },
+      });
+      await prisma.customer.update({
+        where: { id: customerId },
+        data: {
+          legalName: 'Pending recipient',
+          taxId: null,
+          documentType: 'OTHER',
+          taxCondition: null,
+        },
+      });
+      const { document, draft } = await prepared(true);
+      const beforeDraft = await row(draft.id);
+      const beforeSnapshot = beforeDraft.snapshot as unknown as FiscalPreview;
+      await correctedMasters();
+      const unchanged = await editor
+        .get(`/api/v1/fiscal/drafts/${draft.id}`)
+        .set(COMPANY_ID_HEADER, companyId)
+        .expect(200);
+      expect((unchanged.body as FiscalDraftResponse).draft.source).toEqual(
+        draft.source,
+      );
+      const ledgers = () =>
+        Promise.all([
+          prisma.salesDocument.findFirst({
+            where: { companyId, id: document.id },
+            include: { lines: true, tender: true },
+          }),
+          prisma.stockMovement.findMany({
+            where: { companyId },
+            orderBy: { id: 'asc' },
+          }),
+          prisma.inventoryBalance.findMany({
+            where: { companyId },
+            orderBy: { productVariantId: 'asc' },
+          }),
+          prisma.customerAccountMovement.findMany({
+            where: { companyId },
+            orderBy: { id: 'asc' },
+          }),
+          prisma.customerCollection.findMany({
+            where: { companyId },
+            orderBy: { id: 'asc' },
+            include: { applications: true },
+          }),
+          prisma.treasuryMovement.findMany({
+            where: { companyId },
+            orderBy: { id: 'asc' },
+          }),
+          prisma.treasuryAccount.findMany({
+            where: { companyId },
+            orderBy: { id: 'asc' },
+          }),
+        ]);
+      const beforeLedgers = await ledgers();
+      const response = await refresh(draft.id).expect(201);
+      expect((response.body as FiscalDraftResponse).draft).toMatchObject({
+        id: draft.id,
+        revision: 2,
+        source: {
+          issuer: validIssuer,
+          recipient: {
+            legalName: validRecipient.legalName,
+            taxId: validRecipient.taxId,
+            taxCondition: validRecipient.taxCondition,
+          },
+        },
+      });
+      const afterDraft = await row(draft.id);
+      expect(afterDraft.snapshot).toEqual({
+        ...beforeSnapshot,
+        source: {
+          ...beforeSnapshot.source,
+          issuer: validIssuer,
+          recipient: {
+            legalName: validRecipient.legalName,
+            taxId: validRecipient.taxId,
+            taxCondition: validRecipient.taxCondition,
+          },
+        },
+      });
+      expect(afterDraft).toMatchObject({
+        id: beforeDraft.id,
+        salesDocumentId: beforeDraft.salesDocumentId,
+        createdBy: beforeDraft.createdBy,
+        createdAt: beforeDraft.createdAt,
+        revision: 2,
+      });
+      expect(await ledgers()).toEqual(beforeLedgers);
+      expect(
+        await prisma.auditLog.findFirst({
+          where: {
+            companyId,
+            entityType: 'FiscalDraft',
+            entityId: draft.id,
+            action: 'UPDATE',
+          },
+        }),
+      ).toMatchObject({
+        afterData: { operation: 'REFRESH_IDENTITY', revision: 2 },
+      });
+      expect(
+        await prisma.fiscalAuthorization.count({
+          where: { companyId, draftId: draft.id },
+        }),
+      ).toBe(0);
+      noArca();
+    });
+    it('requires authentication and each of invoice read/create and sales read permissions', async () => {
+      const { draft } = await prepared();
+      const before = await row(draft.id);
+      await request(app.getHttpServer())
+        .post(`/api/v1/fiscal/drafts/${draft.id}/refresh-identity`)
+        .send(refreshBody)
+        .expect(401);
+      for (const agent of [
+        reader,
+        noSalesRead,
+        noFiscal,
+        noInvoiceRead,
+        noInvoiceCreate,
+      ])
+        await refresh(draft.id, refreshBody, agent).expect(403);
+      expect(await row(draft.id)).toEqual(before);
+      noArca();
+    });
+    it('rejects foreign identities, stale revisions and payload fields that could overwrite fiscal or commercial data', async () => {
+      const { draft } = await prepared();
+      const before = await row(draft.id);
+      await refresh(draft.id, refreshBody, editor, foreignCompanyId).expect(
+        404,
+      );
+      await refresh(randomUUID()).expect(404);
+      await refresh('not-a-uuid').expect(400);
+      await refresh(draft.id, { ...refreshBody, expectedRevision: 5 }).expect(
+        409,
+      );
+      for (const body of [
+        {},
+        { expectedRevision: 1 },
+        { ...refreshBody, confirmIdentityRefresh: false },
+        { ...refreshBody, expectedRevision: 0 },
+        { ...refreshBody, expectedRevision: 1.5 },
+        { ...refreshBody, companyId: foreignCompanyId },
+        { ...refreshBody, tenantId: foreignTenantId },
+        { ...refreshBody, issuer: validIssuer },
+        { ...refreshBody, recipient: validRecipient },
+        { ...refreshBody, source: { total: '0.01' } },
+        { ...refreshBody, invoiceType: 'C' },
+      ])
+        await refresh(draft.id, body).expect(400);
+      expect(await row(draft.id)).toEqual(before);
+      noArca();
+    });
+    it.each([
+      ['issuer checksum', { taxId: '20123456780' }, {}],
+      ['issuer format', { taxId: 'CUIT20123456786' }, {}],
+      ['recipient missing CUIT', {}, { taxId: null }],
+      ['recipient checksum', {}, { taxId: '20123456780' }],
+      ['recipient document type', {}, { documentType: 'DNI' }],
+      ['recipient unknown IVA', {}, { taxCondition: null }],
+    ] as const)(
+      'rejects incomplete or invalid current %s without changing the saved draft',
+      async (_name, issuer, recipient) => {
+        const { draft } = await prepared();
+        const before = await row(draft.id);
+        await prisma.company.update({ where: { id: companyId }, data: issuer });
+        await prisma.customer.update({
+          where: { id: customerId },
+          data: recipient,
+        });
+        await refresh(draft.id).expect(400);
+        expect(await row(draft.id)).toEqual(before);
+        noArca();
+      },
+    );
+    it.each(['CANCELLED', 'DRAFT'] as const)(
+      'rejects a source sale in %s state',
+      async (status) => {
+        const { draft, document } = await prepared();
+        const before = await row(draft.id);
+        await prisma.salesDocument.update({
+          where: { id: document.id },
+          data: { status },
+        });
+        await refresh(draft.id).expect(400);
+        expect(await row(draft.id)).toEqual(before);
+        noArca();
+      },
+    );
+    it('rejects an unsupported source currency or existing tax instead of refreshing an ineligible sale', async () => {
+      const { draft, document } = await prepared();
+      const before = await row(draft.id);
+      await prisma.salesDocument.update({
+        where: { id: document.id },
+        data: { currencyId: foreignCurrencyId },
+      });
+      await refresh(draft.id).expect(400);
+      await prisma.salesDocument.update({
+        where: { id: document.id },
+        data: { currencyId, taxTotal: '1.00' },
+      });
+      await refresh(draft.id).expect(400);
+      expect(await row(draft.id)).toEqual(before);
+      noArca();
+    });
+    it('rolls back both identity and revision when its audit fails', async () => {
+      const { draft } = await prepared();
+      const before = await row(draft.id);
+      const beforeAudits = await prisma.auditLog.count({
+        where: { companyId, entityType: 'FiscalDraft', entityId: draft.id },
+      });
+      await correctedMasters();
+      const audit = jest
+        .spyOn(app.get(AuditService), 'recordFromContext')
+        .mockRejectedValueOnce(new Error('Refresh audit unavailable'));
+      try {
+        await refresh(draft.id).expect(500);
+      } finally {
+        audit.mockRestore();
+      }
+      expect(await row(draft.id)).toEqual(before);
+      expect(
+        await prisma.auditLog.count({
+          where: { companyId, entityType: 'FiscalDraft', entityId: draft.id },
+        }),
+      ).toBe(beforeAudits);
+      noArca();
+    });
+    it('serializes concurrent refreshes and a refresh racing an ordinary draft edit', async () => {
+      const first = await prepared();
+      await correctedMasters();
+      const refreshes = await Promise.all([
+        refresh(first.draft.id),
+        refresh(first.draft.id),
+      ]);
+      expect(refreshes.map((response) => response.status).sort()).toEqual([
+        201, 409,
+      ]);
+      expect((await row(first.draft.id)).revision).toBe(2);
+      const second = await prepared();
+      const edits = await Promise.all([
+        refresh(second.draft.id),
+        save(second.document.id, {
+          ...input(second.document.lines[0].id, 1),
+          invoiceType: 'B',
+        }),
+      ]);
+      expect(edits.map((response) => response.status).sort()).toEqual([
+        201, 409,
+      ]);
+      expect((await row(second.draft.id)).revision).toBe(2);
+      expect(
+        await prisma.auditLog.count({
+          where: {
+            companyId,
+            entityType: 'FiscalDraft',
+            entityId: second.draft.id,
+            action: 'UPDATE',
+          },
+        }),
+      ).toBe(1);
+      noArca();
+    });
+    it.each(['SENDING', 'UNKNOWN', 'AUTHORIZED', 'REJECTED'])(
+      'preserves the historical identity when any %s authorization already exists',
+      async (status) => {
+        const { draft } = await prepared();
+        const existing = await prisma.fiscalAuthorization.create({
+          data: {
+            tenantId,
+            companyId,
+            draftId: draft.id,
+            draftRevision: 1,
+            issuerCuit: '20123456786',
+            pointOfSale: 12,
+            voucherType: 1,
+            voucherNumber: 1,
+            status,
+            request: {},
+            message: 'Existing attempt',
+            createdBy: users[0],
+            cae: status === 'AUTHORIZED' ? accepted.cae : null,
+            expiresAt: status === 'AUTHORIZED' ? accepted.expiresAt : null,
+          },
+        });
+        const before = await row(draft.id);
+        await correctedMasters();
+        await refresh(draft.id).expect(409);
+        expect(await row(draft.id)).toEqual(before);
+        expect(
+          await prisma.fiscalAuthorization.findFirst({
+            where: { companyId, id: existing.id },
+          }),
+        ).toEqual(existing);
+        noArca();
+      },
+    );
+    it('invalidates an authorization preflight when identity refresh wins the draft lock', async () => {
+      const { draft } = await prepared();
+      let entered!: () => void;
+      let release!: () => void;
+      const atPreflight = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      wsfe.validate.mockImplementationOnce(async () => {
+        entered();
+        await gate;
+      });
+      const sending = authorize(draft.id).then((response) => response);
+      try {
+        await Promise.race([
+          atPreflight,
+          sending.then((response) => {
+            throw new Error(
+              `Authorization finished before preflight: ${response.status}`,
+            );
+          }),
+        ]);
+        await correctedMasters();
+        await refresh(draft.id).expect(201);
+      } finally {
+        release();
+      }
+      expect((await sending).status).toBe(409);
+      expect((await row(draft.id)).revision).toBe(2);
+      expect(
+        await prisma.fiscalAuthorization.count({
+          where: { companyId, draftId: draft.id },
+        }),
+      ).toBe(0);
+      expect(wsfe.authorize).not.toHaveBeenCalled();
+    });
+    it('refuses refresh after authorization has claimed the draft, while the external response is still pending', async () => {
+      const { draft } = await prepared();
+      const before = await row(draft.id);
+      let entered!: () => void;
+      let release!: () => void;
+      const atSend = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      wsfe.authorize.mockImplementationOnce(async () => {
+        entered();
+        await gate;
+        return accepted;
+      });
+      const sending = authorize(draft.id).then((response) => response);
+      try {
+        await Promise.race([
+          atSend,
+          sending.then((response) => {
+            throw new Error(
+              `Authorization finished before sending: ${response.status}`,
+            );
+          }),
+        ]);
+        expect(
+          await prisma.fiscalAuthorization.findFirst({
+            where: { companyId, draftId: draft.id },
+          }),
+        ).toMatchObject({ status: 'SENDING' });
+        await correctedMasters();
+        await refresh(draft.id).expect(409);
+        expect(await row(draft.id)).toEqual(before);
+      } finally {
+        release();
+      }
+      expect((await sending).status).toBe(201);
+      expect(wsfe.authorize).toHaveBeenCalledTimes(1);
+      expect(
+        await prisma.fiscalAuthorization.findFirst({
+          where: { companyId, draftId: draft.id },
+        }),
+      ).toMatchObject({ status: 'AUTHORIZED', draftRevision: 1 });
+    });
   });
 });
