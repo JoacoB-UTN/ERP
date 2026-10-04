@@ -1,6 +1,6 @@
 # 029 — Authenticated fiscal homologation and durable authorization
 
-Status: IMPLEMENTED / VERIFIED LOCALLY — PR #67 pending human review
+Status: DONE — PR #67 merged; real homologation acceptance still pending
 Base: main 897349a, including merged PR #66.
 Branch: agent/codex-fiscal-authorization.
 Owner: coordinator owns Prisma/migration/shared contracts/client/dependencies and

@@ -274,3 +274,19 @@ validation, complete tax catalogs, fiscal printing/QR and credit/debit notes
 remain separate reviewed work.
 
 Operator walkthrough: [Primera prueba de facturación con ARCA](fiscal-homologation-guide.md).
+
+## Printing the homologation result
+
+Gestión offers **Imprimir comprobante de prueba** on a readable, successfully
+loaded authorization whose status is AUTHORIZED in HOMOLOGATION and whose draft
+ID, revision and invoice type match the saved draft. CAE and expiry are required.
+The browser print dialog can print or save a PDF; repeated **SIN VALIDEZ FISCAL**
+notices identify this as a test document. It uses saved issuer/recipient identity,
+line amounts, treatments and totals, plus the stored number and test CAE. It does
+not infer an issue date from timestamps or generate a production QR.
+
+The print stylesheet hides app navigation and repeats the warning in table
+headers across detail pages. The client rechecks the active company at print time.
+No server mutation occurs, and pending, unknown or rejected requests have no
+print action. This is test-result printing only; production fiscal layout and
+legal invoice compliance remain unimplemented.

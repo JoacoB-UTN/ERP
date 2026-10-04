@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { FiscalTestPrint } from './test-print';
 import type { FiscalAuthorizationDto, FiscalDraftDto } from '@erp/shared';
 import { Button } from '@/components/ui/button';
 import {
@@ -115,6 +116,7 @@ export function FiscalAuthorizationPanel({
           )}
         </div>
       )}
+      {known && attempt && <FiscalTestPrint draft={draft} authorization={attempt} canPrint={stillHere} />}
       {pending && (
         <p>No envíes nuevamente. Consultá el comprobante original para resolver el resultado pendiente.</p>
       )}
