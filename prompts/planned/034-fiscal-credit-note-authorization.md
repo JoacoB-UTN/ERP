@@ -1,6 +1,6 @@
 # 034 — Authorize and reconcile total homologation credit notes
 
-Status: IMPLEMENTED — local verification passed; additional global-series regression and CI pending.
+Status: IMPLEMENTED — local verification and independent review passed; CI pending.
 Base: merged PR71 / main26e3f43. Branch agent/codex-credit-note-authorization.
 Coordinator owns Prisma/migration/services/sharedclient/docs. Isolated protocol
 worktree owns WSFE request/parser/builder files; UI worker owns note panels;
@@ -31,8 +31,8 @@ UI dirtyreason/stalecontext/permissions/confirmations/uncertainresult tests.
 Full applicable lint/types/tests/builds; migrations/schema-drift/double seed.
 No real ARCA credentials provisioned; do not claim live acceptance or production.
 
-Local verification: 374 API unit tests, 215 Gestión tests and 44 fiscal integration
+Local verification: 374 API unit tests, 215 Gestión tests and 45 fiscal integration
 tests passed; all workspace typechecks, applicable lint and production builds
 passed. Fresh migrations match Prisma, double seed leaves business rows unchanged.
 Two independent reviews found no blockers. Additional cross-company legal-series
-regression added after initial harness run; final run pending.
+regression passed in the final 30-test authorization suite.
