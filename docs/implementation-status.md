@@ -418,14 +418,17 @@ the statement endpoint returns `excludesPosSales` for the UI to state
 next to the number. Also absent: cheques, bank reconciliation, Mercado
 Pago, exchange rates and arqueo de caja.
 
-**Gestión Treasury UI: implemented on the review branch, awaiting human
-review and browser acceptance.** Account list/create/edit/status, opening
+**Gestión Treasury UI: integrated in PR #62; core browser acceptance passed
+on 2026-10-03.** Account list/create/edit/status, opening
 balance, dated/paginated statement with backend running balances, and
 transfer draft/edit/confirm/cancel screens are present under `/tesoreria`.
 POS exclusion stays visible; currency values stay decimal strings.
 `GET /treasury/accounts/currencies` lets account creators read active
 reference currencies without a Pricing permission. See task 025 and
-[treasury.md](treasury.md).
+[treasury.md](treasury.md). A disposable browser rehearsal covered account
+creation, opening/refusal, transfer confirmation/reversal, balances, statement
+history, company switching and POS exclusion; see
+[acceptance evidence](acceptance-2026-10-03.md).
 
 **Corrective deficit recovery:** positive movements may reduce a balance
 left negative by a linked Cobro reversal even before it reaches zero; new
@@ -1083,6 +1086,7 @@ here:
    management system into one that can invoice — designed around ARCA's
    CAEA, since shops must invoice without internet.
 
-Current priority confirmed on 2026-10-03: complete the Gestión Treasury
-screens using the existing ledger and contracts before resuming central
-sync. Accounting and broader reporting remain separate milestones.
+Current priority after PR #62 and core browser acceptance (2026-10-03):
+prepare the read-only central/local catalog adoption diagnostic before
+implementing replication. Empty versus existing first-shop data is not yet
+decided. Accounting and broader reporting remain separate milestones.

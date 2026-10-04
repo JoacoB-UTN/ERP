@@ -80,22 +80,24 @@ account loop a PyME runs day to day is complete — see
 [implementation-status.md](implementation-status.md) for what each of those
 does and does not cover.
 
-**Current priority (2026-10-03): complete Gestión Treasury screens.**
+**Current priority (2026-10-03): prepare central/local catalog adoption.**
 The clean Windows validation is already recorded as DONE in PR #51, and
 current-account backfill already runs on API startup. They are not open
 prerequisites for this work; see [server-installer.md](server-installer.md)
 and [implementation-status.md](implementation-status.md).
 
-The review branch adds account/statement/transfer screens against the
-existing ledger, alongside a correction allowing positive receipts to
-reduce a deficit caused by a Cobro reversal. Review and browser acceptance
-remain pending. POS settlement, reconciliation, cheques and FX are separate
+PR #62 integrated account/statement/transfer screens against the existing
+ledger and corrective-deficit recovery. A subsequent core browser rehearsal
+passed; see [acceptance evidence](acceptance-2026-10-03.md). POS settlement, reconciliation, cheques and FX are separate
 future decisions, not implied by these screens.
 
-After this stage, resume central/local sync (020) once its adoption and
-identity decisions are resolved, then Tango migration planning and fiscal
-work. Demo task 015 has an implemented dataset. Guide reconciliation is prepared
-separately; a new disposable-environment rehearsal remains pending.
+Next, start central/local sync (020) with a read-only catalog adoption
+diagnostic. Whether the first shop starts empty or preserves existing data
+is not yet decided; the diagnostic can cover both without enabling replication
+or changing local records. Identity/ownership and actual replication follow
+in separate reviewed changes. Tango migration and fiscal work remain later stages.
+Demo task 015 has passed double-seed and core sale/POS rehearsal; the timed
+presentation, optional card sale and print checks remain pending.
 
 ### Suggested upcoming milestones
 
@@ -133,7 +135,7 @@ each.
                                  copy fixes, and a real date-formatting
                                  consistency fix across five screens.
 15  Demo data + presentation flow   — PARTIAL: dataset and guide exist;
-                                       new runtime rehearsal pending.
+                                       core runtime rehearsal passed; timed/optional checks pending.
 16  Warehouse transfers      — DONE (see prompts/completed/, docs/inventory.md).
                                  StockTransfer/StockTransferLine, DRAFT/
                                  CONFIRMED/CANCELLED, TRANSFER_OUT+TRANSFER_IN
@@ -178,8 +180,7 @@ Treasury
   docs/treasury.md. The ledger, accounts, opening balance and statement
   exist, plus transfers between accounts and automatic posting/reversals
   from Cobros/Pagos. POS settlement remains deliberately excluded.
-  Gestión screens are implemented on the review branch, pending review
-  and browser acceptance; cheques, reconciliation and FX are not started.
+  Gestión screens are integrated in PR #62 with core browser acceptance; cheques, reconciliation and FX are not started.
 
 Fiscal / ARCA
   Argentine tax authority integration, electronic invoicing

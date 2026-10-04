@@ -101,7 +101,7 @@ export class TreasuryOpeningBalanceAlreadySetException extends ConflictException
   constructor() {
     super({
       message:
-        'Esta cuenta ya tiene movimientos. Para corregir el saldo, registrá un ajuste.',
+        'Esta cuenta ya tiene movimientos. El saldo inicial solo puede registrarse antes del primer movimiento.',
       code: 'TREASURY_OPENING_BALANCE_ALREADY_SET',
     });
   }

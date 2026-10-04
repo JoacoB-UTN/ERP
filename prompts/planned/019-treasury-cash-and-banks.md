@@ -1,11 +1,11 @@
 # Task 019 — Treasury: cash boxes, bank accounts and the movement ledger
 
-Status: PARTIAL — backend integrated; Gestión UI implemented on review branch; acceptance pending
+Status: PARTIAL — backend/UI integrated (#62); core browser acceptance passed; broader Treasury scope remains deferred
 Depends on: — (see "Relationship to the installer" below)
 Agent: Codex, coordinated Treasury implementation
 Base branch: main
 Branch: agent/codex-treasury-delivery
-PR: backend through #60; this review branch is unpublished
+PR: backend through #60; UI and deficit recovery #62 (merged)
 
 Before making changes:
 
@@ -18,14 +18,13 @@ Before making changes:
 - Inspect the current implementation — treat repository state as source
   of truth, not this file or any prior conversation.
 
-**Current handoff (2026-10-03).** The backend and Cobro/Pago wiring are
-already integrated through PR #60. Do not rebuild them. The review branch
-adds the missing Gestión UI and corrects partial recovery of a balance left
-negative by a linked Cobro reversal. See [task 025](025-treasury-ui.md),
-[treasury.md](../../docs/treasury.md) and implementation-status for tests
-and remaining acceptance. Keep this task open until human review and the
-browser walkthrough are recorded; do not present POS settlement or other
-explicitly excluded financial features as implemented.
+**Current handoff (2026-10-03).** Backend/Cobro/Pago wiring is integrated
+through PR #60; PR #62 adds Gestión UI and corrective-deficit recovery.
+Core browser acceptance passed against `1c2e7e8` in a disposable environment;
+see [acceptance evidence](../../docs/acceptance-2026-10-03.md).
+This broader task remains PARTIAL: POS settlement and the financial features
+explicitly deferred in treasury.md are not implemented. Task 025 records the
+separate, delivered screen scope.
 
 **Relationship to the installer.** Windows clean-install verification was
 completed in PR #51. This task changes no installer/payload/deployment
