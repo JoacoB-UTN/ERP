@@ -26,3 +26,4 @@ export * from './backups';
 export * from './runtime-url';
 export * from './fiscal';
 export * from './fiscal-settings';
+export * from './fiscal-authorization';

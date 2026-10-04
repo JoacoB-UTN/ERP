@@ -62,9 +62,9 @@ export class FiscalSettingsService {
         'Definir el punto de venta de pruebas para Web Services.',
       );
     pendingRequirements.push(
-      'Las credenciales de homologación y el servicio de autenticación todavía no están conectados.',
+      'Configurar las credenciales en el servidor y probar la autenticación de homologación.',
       'Validar con ARCA la inscripción del emisor, su condición fiscal y la habilitación del punto de venta.',
-      'La emisión y autorización de comprobantes todavía no están implementadas.',
+      'Revisar cada borrador antes de solicitar su autorización de homologación; no habilita facturación real.',
     );
     return {
       settings: {

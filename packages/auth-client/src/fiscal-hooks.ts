@@ -3,6 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   FiscalDraftInput,
+  AuthorizeFiscalDraftInput,
+  FiscalAuthorizationResponse,
+  FiscalLatestAuthorizationResponse,
+  FiscalAuthenticationResponse,
   SaveFiscalDraftInput,
   FiscalDraftResponse,
   FiscalDraftForSaleResponse,
@@ -129,7 +133,62 @@ export function createFiscalClient({ apiFetch, useActiveCompanyId, getActiveComp
       },
     });
   }
+  function useFiscalAuthorization(draftId: string | null, enabled = true) {
+    return useFiscalQuery<FiscalLatestAuthorizationResponse>(
+      ['authorization', draftId],
+      `/fiscal/drafts/${draftId}/authorization`,
+      !!draftId && enabled,
+    );
+  }
+  function useAuthorizationWrite<TInput, TResult>(
+    request: (input: TInput, companyId: string) => Promise<TResult>,
+  ) {
+    const companyId = useActiveCompanyId();
+    const client = useQueryClient();
+    return useMutation({
+      mutationFn: async (input: TInput) => {
+        assertCompany(companyId);
+        try {
+          return await request(input, companyId);
+        } finally {
+          // Refresh the company that sent the request, including uncertain failures.
+          // A rerender may already have selected another company when this settles.
+          void client.invalidateQueries({ queryKey: ['company', companyId, 'fiscal'] });
+        }
+      },
+      retry: false,
+    });
+  }
+  function useAuthorizeFiscalDraft() {
+    return useAuthorizationWrite(
+      ({ draftId, input }: { draftId: string; input: AuthorizeFiscalDraftInput }, companyId) =>
+        apiFetch<FiscalAuthorizationResponse>(`/fiscal/drafts/${draftId}/authorize`, {
+          json: input,
+          expectedCompanyId: companyId,
+        }),
+    );
+  }
+  function useReconcileFiscalAuthorization() {
+    return useAuthorizationWrite((id: string, companyId) =>
+      apiFetch<FiscalAuthorizationResponse>(`/fiscal/authorizations/${id}/reconcile`, {
+        json: {},
+        expectedCompanyId: companyId,
+      }),
+    );
+  }
+  function useCheckFiscalAuthentication() {
+    return useAuthorizationWrite((_input: void, companyId) =>
+      apiFetch<FiscalAuthenticationResponse>('/fiscal/settings/authentication', {
+        json: {},
+        expectedCompanyId: companyId,
+      }),
+    );
+  }
   return {
+    useFiscalAuthorization,
+    useAuthorizeFiscalDraft,
+    useReconcileFiscalAuthorization,
+    useCheckFiscalAuthentication,
     useFiscalSettings,
     useSaveFiscalSettings,
     useCheckFiscalConnectivity,

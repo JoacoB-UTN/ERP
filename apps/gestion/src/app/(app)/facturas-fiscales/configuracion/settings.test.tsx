@@ -9,6 +9,7 @@ const mock = vi.hoisted(() => ({
   allowed: true,
   save: vi.fn(),
   probe: vi.fn(),
+  authenticate: vi.fn(),
   query: vi.fn(),
 }));
 vi.mock('@/lib/auth-client', () => ({
@@ -18,6 +19,7 @@ vi.mock('@/lib/auth-client', () => ({
   useFiscalSettings: (enabled: boolean) => mock.query(enabled),
   useSaveFiscalSettings: () => ({ mutateAsync: mock.save }),
   useCheckFiscalConnectivity: () => ({ mutateAsync: mock.probe }),
+  useCheckFiscalAuthentication: () => ({ mutateAsync: mock.authenticate }),
 }));
 const initial: FiscalSettings = {
   environment: 'HOMOLOGATION',
@@ -38,19 +40,20 @@ const available = {
   message: 'Servicio disponible; no habilita emisión.',
 };
 beforeEach(() => {
+  mock.authenticate
+    .mockReset()
+    .mockResolvedValue({ status: 'UNAVAILABLE', message: 'Certificado vencido.', expiresAt: null });
   mock.company = 'a';
   mock.allowed = true;
   mock.save.mockReset().mockResolvedValue({ settings: { ...initial, revision: 1 } });
   mock.probe.mockReset().mockResolvedValue(available);
-  mock.query
-    .mockReset()
-    .mockReturnValue({
-      data: { settings: initial },
-      isError: false,
-      isPending: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+  mock.query.mockReset().mockReturnValue({
+    data: { settings: initial },
+    isError: false,
+    isPending: false,
+    error: null,
+    refetch: vi.fn(),
+  });
 });
 afterEach(cleanup);
 describe('Homologation setup', () => {
@@ -161,4 +164,26 @@ describe('Homologation setup', () => {
     );
     expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('');
   });
+});
+
+it('checks credentials explicitly and shows safe expired-certificate status', async () => {
+  render(<SettingsForm initial={initial} />);
+  expect(mock.authenticate).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Probar autenticación de homologación' }));
+  expect(await screen.findByText('Certificado vencido.')).toBeTruthy();
+  expect(screen.getByText('Autenticación no disponible')).toBeTruthy();
+});
+it('discards late authentication results after changing company', async () => {
+  let resolve!: (value: unknown) => void;
+  mock.authenticate.mockImplementation(
+    () =>
+      new Promise((r) => {
+        resolve = r;
+      }),
+  );
+  render(<SettingsForm initial={initial} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Probar autenticación de homologación' }));
+  mock.company = 'b';
+  await act(async () => resolve({ status: 'READY', message: 'Old company auth', expiresAt: null }));
+  expect(screen.queryByText('Old company auth')).toBeNull();
 });

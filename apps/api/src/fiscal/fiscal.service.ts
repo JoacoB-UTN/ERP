@@ -169,7 +169,7 @@ export class FiscalService {
   }
   async save(ctx: RequestContext, saleId: string, input: SaveFiscalDraftInput) {
     return this.prisma.$transaction(async (tx) => {
-      // Serialize only this sale's draft; number allocation/ARCA is deliberately absent.
+      // Serialize only this sale's draft; authorization uses this same lock to freeze the submitted revision.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`fiscal-draft:${ctx.companyId}:${saleId}`}, 0))`;
       // A row lock also prevents a concurrent sales cancellation/status change.
       await tx.$queryRaw`SELECT id FROM sales_documents WHERE id = ${saleId}::uuid AND "companyId" = ${ctx.companyId}::uuid FOR SHARE`;
@@ -187,6 +187,20 @@ export class FiscalService {
           message:
             'El borrador cambió. Recargalo antes de guardar para no sobrescribir otra edición.',
         });
+      if (
+        existing &&
+        (await tx.fiscalAuthorization.findFirst({
+          where: {
+            companyId: ctx.companyId,
+            draftId: existing.id,
+            status: { not: 'REJECTED' },
+          },
+        }))
+      ) {
+        throw new ConflictException(
+          'El borrador tiene una solicitud de homologación registrada y no puede editarse. Consultá su estado.',
+        );
+      }
       const source = await this.source(ctx.companyId, saleId, tx);
       const { expectedRevision: _revision, ...calculationInput } = input;
       const preview = this.previewFrom(source, calculationInput);

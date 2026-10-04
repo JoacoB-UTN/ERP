@@ -924,33 +924,39 @@ was true when it was written and had been false since Prompts #10 and the
 Purchases milestone; it is the specific staleness that prompted this
 revision.)
 
-## Fiscal preparation (partial)
+## Fiscal preparation and homologation (partial)
 
-**Status: PARTIAL — drafts only.** Gestión `/facturas-fiscales`, shared hooks,
-and `apps/api/src/fiscal` prepare and persist one audited `FiscalDraft` per
-confirmed ARS sale, with explicit proposed class and per-line VAT treatment,
-Decimal-safe breakdown, immutable source snapshots and revision conflicts.
-Drafts have no fiscal validity and do not change sales or ledger balances.
-Issuer/recipient eligibility is not inferred. Company-scoped homologation
-settings and a public FEDummy availability probe now exist; there is no
-authenticated ARCA connection, fiscal number, CAE, QR or fiscal printing. See [fiscal.md](fiscal.md) for the
-exact supported scope and pending homologation setup.
+**Status: PARTIAL — authenticated implementation pending real homologation acceptance.**
+Gestión `/facturas-fiscales` and the shared API persist audited fiscal drafts
+from confirmed ARS sales. PR #65 introduced drafts; PR #66 added issuer/test-PV
+settings and the public availability probe and is merged in main `897349a`.
+The current authorization branch adds server-only certificate loading, WSAA
+login, authenticated catalogs, persisted WSFE requests and reconciliation.
+Local tests, lint/typecheck, production builds and disposable migration/seed
+verification pass (see fiscal.md). Human review and authenticated ARCA acceptance
+remain pending; this is not production readiness.
+
+The supported test circuit is products, ARS, recipient CUIT, explicit A/B/C
+selection and an exclusive test point of sale. `SENDING`/`UNKNOWN` reserve the
+original number and block the series; consultation never blindly resends.
+Confirmed sales and ledger balances remain unchanged. Real certificate setup,
+issuer definition and live homologation acceptance are still missing. Production,
+QR, fiscal printing and credit/debit notes are not implemented. See
+[fiscal.md](fiscal.md) for credential provisioning, limits and recovery behavior.
 
 ## Not implemented
 
-### Fiscal invoicing, sales orders/quotes, credit/debit notes, delivery notes
+### Sales orders/quotes, credit/debit notes, delivery notes
 **Status: NOT IMPLEMENTED.** The demo `SalesDocument`/`SALE` core exists
-(see Sales above) and both Gestión and Facturación can build/confirm one,
-but no `SalesOrder`/`SalesQuote`/fiscal `Invoice`/`CreditNote`/`DebitNote`/
-`DeliveryNote` model, service, or route exists anywhere. See
-[roadmap.md](roadmap.md) for what comes next (end-to-end hardening)
-before any of these.
+and both Gestión and Facturación can build/confirm it. Fiscal preparation and
+limited test authorization are separate resources described above; no
+`SalesOrder`/`SalesQuote`/`CreditNote`/`DebitNote`/`DeliveryNote` domain exists.
 
-### Tax / Fiscal authorization (ARCA)
-**Status: NOT IMPLEMENTED.** `PriceList.includesTax` is stored metadata
-only. A separate explicit draft breakdown calculator now exists (see
-[fiscal.md](fiscal.md)); only a public homologation availability probe exists; authenticated
-ARCA/AFIP integration and authorized invoices remain pending.
+### Production tax / fiscal authorization (ARCA)
+**Status: NOT IMPLEMENTED.** `PriceList.includesTax` remains stored metadata;
+explicit draft calculations and the limited homologation branch do not provide
+production fiscal invoicing or automatic tax determination. No real authenticated
+homologation has been completed with the operator's certificate.
 
 ### Accounting
 **Status: NOT IMPLEMENTED.** No chart of accounts, journal entries, or

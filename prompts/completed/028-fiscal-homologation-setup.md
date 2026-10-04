@@ -1,10 +1,10 @@
 # 028 — Fiscal issuer setup and public homologation connectivity
 
-Status: IMPLEMENTED — pending human review
+Status: DONE — merged in PR #66 (main 897349a)
 Owner: coordinator owns final schema/migration/contracts/client/dependencies,
 backend, transport and UI integration. No overlapping sensitive ownership.
 Base: main 9982743, after the user merged PR #65.
-Branch: agent/codex-fiscal-homologation-setup. PR targets main.
+Branch: agent/codex-fiscal-homologation-setup. PR #66 merged by human.
 
 ## Scope
 

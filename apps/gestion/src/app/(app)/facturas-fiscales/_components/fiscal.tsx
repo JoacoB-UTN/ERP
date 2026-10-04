@@ -12,6 +12,7 @@ import {
   type FiscalSource,
   type FiscalTaxTreatment,
 } from '@erp/shared';
+import { FiscalAuthorizationPanel } from './authorization';
 import { Button } from '@/components/ui/button';
 import {
   authClient,
@@ -36,7 +37,7 @@ function money(amount: string) {
 function Notice() {
   return (
     <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-      <strong>Borrador · Sin validez fiscal · No enviado a ARCA</strong>
+      <strong>Borrador · Sin validez fiscal</strong>
       <p>
         Prepará el desglose sin cambiar la venta, el stock ni la deuda. La empresa emisora, su condición
         fiscal y la conexión con ARCA todavía requieren configuración y verificación.
@@ -288,14 +289,11 @@ export function FiscalDetailPage() {
             Venta {query.data.draft.source.saleNumber} · {query.data.draft.source.recipient.legalName} ·
             Revisión {query.data.draft.revision}
           </p>
-          {access.prepare && (
-            <Link
-              className={linkClass}
-              href={`/facturas-fiscales/preparar/${query.data.draft.source.saleId}`}
-            >
-              Continuar preparación
-            </Link>
-          )}
+          <FiscalAuthorizationPanel
+            key={`${query.data.draft.id}:${query.data.draft.revision}`}
+            draft={query.data.draft}
+            canPrepare={access.prepare}
+          />
           <Breakdown preview={query.data.draft} />
         </>
       )}
