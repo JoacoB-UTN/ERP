@@ -32,6 +32,14 @@ This task adds a **central**, deployed in the cloud, that owns the shared
 master data and hands it down to every shop, and collects a periodic stock
 snapshot from each shop so any shop can look up the others.
 
+## Preparatory diagnostic (task 026)
+
+[Task 026](026-catalog-adoption-diagnostic.md) adds an offline, read-only
+catalog comparison utility on its own review branch. It supports synthetic
+empty/existing local catalogs without deciding the first real shop's adoption
+policy. It does not implement identity, ownership, credentials, feeds,
+replication or a production exporter; this task remains PLANNED.
+
 ## Scope
 
 It is large enough to land as several PRs. A suggested order, each one

@@ -1086,7 +1086,19 @@ here:
    management system into one that can invoice — designed around ARCA's
    CAEA, since shops must invoice without internet.
 
+### Central/local catalog adoption diagnostic
+
+**Status: implemented on the review branch — task 026; replication remains
+NOT IMPLEMENTED.** A standalone offline utility compares explicitly supplied
+catalog JSON files and optional scoped correspondences. It reports invalid
+inputs, conflicts, candidates and unresolved dependencies without inferring
+identity from names/IDs, adopting records or writing to an ERP database.
+Strict field projections exclude prices, customers, stock and transactions.
+See [central-sync-diagnostics.md](central-sync-diagnostics.md) for usage,
+synthetic examples, limitations and status codes. No exporter, endpoint,
+schema, credentials or sync transport is added.
+
 Current priority after PR #62 and core browser acceptance (2026-10-03):
-prepare the read-only central/local catalog adoption diagnostic before
-implementing replication. Empty versus existing first-shop data is not yet
-decided. Accounting and broader reporting remain separate milestones.
+review the read-only central/local catalog adoption diagnostic, then
+define stable identity and replicated-record ownership before transport.
+Empty versus existing first-shop data is not yet decided. Accounting and broader reporting remain separate milestones.

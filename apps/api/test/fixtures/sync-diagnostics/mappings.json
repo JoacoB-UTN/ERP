@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "central": {
+    "installationId": "central-synthetic",
+    "companyId": "company-parent"
+  },
+  "local": {
+    "installationId": "shop-synthetic",
+    "companyId": "company-shop"
+  },
+  "entries": [
+    {
+      "entity": "unit",
+      "centralId": "c-unit",
+      "localId": "l-unit"
+    },
+    {
+      "entity": "line",
+      "centralId": "c-line",
+      "localId": "l-line"
+    },
+    {
+      "entity": "category",
+      "centralId": "c-category",
+      "localId": "l-category"
+    },
+    {
+      "entity": "product",
+      "centralId": "c-product",
+      "localId": "l-product"
+    },
+    {
+      "entity": "variant",
+      "centralId": "c-variant",
+      "localId": "l-variant"
+    },
+    {
+      "entity": "code",
+      "centralId": "c-code",
+      "localId": "l-code"
+    }
+  ]
+}

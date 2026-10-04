@@ -80,7 +80,7 @@ account loop a PyME runs day to day is complete — see
 [implementation-status.md](implementation-status.md) for what each of those
 does and does not cover.
 
-**Current priority (2026-10-03): prepare central/local catalog adoption.**
+**Current priority (2026-10-03): review the catalog adoption diagnostic.**
 The clean Windows validation is already recorded as DONE in PR #51, and
 current-account backfill already runs on API startup. They are not open
 prerequisites for this work; see [server-installer.md](server-installer.md)
@@ -91,8 +91,9 @@ ledger and corrective-deficit recovery. A subsequent core browser rehearsal
 passed; see [acceptance evidence](acceptance-2026-10-03.md). POS settlement, reconciliation, cheques and FX are separate
 future decisions, not implied by these screens.
 
-Next, start central/local sync (020) with a read-only catalog adoption
-diagnostic. Whether the first shop starts empty or preserves existing data
+Task 026 implements a read-only catalog adoption diagnostic on the review
+branch; see [central-sync-diagnostics.md](central-sync-diagnostics.md).
+Whether the first shop starts empty or preserves existing data
 is not yet decided; the diagnostic can cover both without enabling replication
 or changing local records. Identity/ownership and actual replication follow
 in separate reviewed changes. Tango migration and fiscal work remain later stages.

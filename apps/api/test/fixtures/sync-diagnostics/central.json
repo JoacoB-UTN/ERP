@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "installationId": "central-synthetic",
+  "companyId": "company-parent",
+  "capturedAt": "2026-10-03T12:00:00Z",
+  "units": [
+    {
+      "id": "c-unit",
+      "code": "UN"
+    }
+  ],
+  "lines": [
+    {
+      "id": "c-line",
+      "name": "Línea de prueba"
+    }
+  ],
+  "categories": [
+    {
+      "id": "c-category",
+      "name": "Alimentos",
+      "parentId": null
+    }
+  ],
+  "products": [
+    {
+      "id": "c-product",
+      "code": "CAFE",
+      "name": "Café sintético",
+      "type": "PRODUCT",
+      "active": true,
+      "unitId": "c-unit",
+      "lineId": "c-line",
+      "categoryId": "c-category"
+    }
+  ],
+  "variants": [
+    {
+      "id": "c-variant",
+      "productId": "c-product",
+      "sku": "CAFE-1KG",
+      "active": true
+    }
+  ],
+  "codes": [
+    {
+      "id": "c-code",
+      "variantId": "c-variant",
+      "type": "BARCODE",
+      "code": "0001234567890",
+      "active": true
+    }
+  ]
+}
