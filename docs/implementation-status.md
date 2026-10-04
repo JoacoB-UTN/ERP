@@ -954,7 +954,10 @@ Durable attempts, global series/number uniqueness, frozen drafts and consult-onl
 recovery prevent blind retries. A test CAE never changes stock, sales, accounts
 or Treasury balances. The fiscal list also shows the saved note and its latest
 status/number, with access to manual consultation. Authorized NC test printing
-uses the original snapshot and prints only the explicitly selected document. See
+uses the original snapshot and prints only the explicitly selected document.
+Never-submitted drafts can explicitly refresh corrected issuer/recipient identity
+with revision/audit protection; saved amounts stay unchanged, and any prior
+attempt blocks identity replacement. See
 [fiscal.md](fiscal.md) for credential provisioning, limits and recovery behavior.
 
 ## Not implemented

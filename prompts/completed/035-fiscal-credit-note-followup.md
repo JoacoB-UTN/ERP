@@ -1,6 +1,6 @@
 # 035 — Follow and print homologation credit notes
 
-Status: IMPLEMENTED — local verification passed; independent review and CI pending.
+Status: DONE. PR #73 merged after local checks, independent review and all CI passed.
 Base: merged PR #72 / main cff1877.
 Branch: agent/codex-credit-note-followup.
 

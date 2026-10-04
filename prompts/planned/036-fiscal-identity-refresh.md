@@ -1,7 +1,7 @@
 # 036 — Refresh fiscal identity before the first submission
 
-Status: IMPLEMENTATION IN PROGRESS.
-Base: agent/codex-credit-note-followup 83d1fbb / PR #73 dependency.
+Status: IMPLEMENTED — local checks and independent review passed; CI pending.
+Base: merged PR #73 (source 83d1fbb).
 Branch: agent/codex-fiscal-identity-refresh.
 
 ## Problem and acceptance
@@ -43,3 +43,11 @@ refreshes and refresh versus authorization, no ledger changes. UI current query,
 explicit confirmation, permissions, revision reset, company switch and late
 response tests. Types, lint, relevant unit/integration tests, production builds;
 independent fiscal review before user-authorized automatic merge.
+
+Backend verification: API typecheck/lint pass; 28 fiscal preparation/identity
+integration tests pass against disposable PostgreSQL/Redis. Fresh migration,
+no-drift and double-seed checks pass. Independent backend/shared review found no
+blockers. UI review found refetch/unmount races; both are fixed and covered by regression
+tests, and independent rereview passed. Aggregate verification: 374 API unit
+tests, 285 Gestión tests, all workspace typechecks, applicable lint and production
+builds for API/Gestión/Facturación passed.

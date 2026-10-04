@@ -411,3 +411,30 @@ CAE/expiry. Company/freshness is rechecked on click. Invoice and NC sheets share
 a container that selects exactly one document for the print dialog and clears
 selection after printing. Warnings repeat in the page/table; no production QR
 is generated. Printing does not change the authorization or any commercial data.
+
+## Explicit identity refresh before the first submission
+
+Saving a draft freezes its source identity. If an operator later corrects the
+company/customer CUIT or the customer's VAT condition, the authorization check
+correctly refuses the old snapshot. An explicit preparation action now lets the
+operator refresh issuer/recipient identity before any submission has occurred.
+
+POST `/fiscal/drafts/:id/refresh-identity` requires invoice read/create and sales
+documents read. Its strict body is `{ expectedRevision, confirmIdentityRefresh: true }`;
+identity values cannot be supplied by the client. The server reads the scoped
+company and source-sale customer, requires valid CUITs and a supported known VAT
+condition, and copies their legal names and fiscal identity only. Every other
+snapshot field—including original sale lines, quantities, prices, chosen class,
+tax treatments and totals—remains unchanged. No current pricing is resolved.
+
+The existing sale/draft lock serializes refresh against saving and authorization.
+Any recorded attempt, including a rejected one, blocks this action. Revision
+validation, snapshot update, revision increment and audit commit atomically;
+failed audit cannot leave changed identity. No ARCA call or commercial ledger
+mutation is involved. Authorization still validates class, amounts and catalogs.
+
+Gestión shows the saved identity and requires explicit confirmation to refresh.
+The action is available only with current draft/attempt queries and no prior
+attempt; company changes, stale revisions and late responses cannot overwrite
+another context. A new revision resets authorization confirmations. Operators
+must review the retained class/IVA selection before any subsequent send.
