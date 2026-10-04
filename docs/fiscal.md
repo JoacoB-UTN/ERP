@@ -4,7 +4,8 @@ The first fiscal slice is preparation only: Gestión `/facturas-fiscales`
 selects a confirmed internal sale, previews its tax breakdown and saves a
 company-scoped `FiscalDraft`. Every view identifies it as **Sin validez fiscal**
 and **No enviado a ARCA**. There is no authorization endpoint, invoice number,
-CAE, QR, fiscal receipt, WSAA client or network call to ARCA.
+CAE, QR, fiscal receipt or WSAA client. A public homologation availability
+probe is available separately; it does not authenticate or issue invoices.
 
 ## Operator flow
 
@@ -76,8 +77,8 @@ There is no homologation certificate or Web Services point of sale configured.
 Drafts therefore always report `authorizationAvailable: false` and pending
 issuer/recipient validation and homologation configuration.
 
-Before issuing even a homologation invoice, implement fiscal profiles,
-recipient identification/VAT-condition validation, service catalog checks,
+Before issuing even a homologation invoice, validate the declared issuer profile,
+implement recipient identification/VAT-condition validation and service catalog checks,
 WSAA credentials, point-of-sale configuration, WSFEv1 request building and
 persistent authorization state. Allocate numbers durably per point of sale
 and voucher type. Handle an uncertain send by querying the original voucher
@@ -92,7 +93,8 @@ Primary references checked 2026-10-03:
 - [WSFEv1 developer manual](https://www.arca.gob.ar/ws/documentacion/manuales/manual-desarrollador-ARCA-COMPG.pdf)
 - [WSAA certificates and service association](https://www.arca.gob.ar/ws/documentacion/wsaa.asp)
 
-No live ARCA authentication, authorization or homologation has been tested.
+No authenticated ARCA homologation or invoice authorization has been tested.
+Only the public availability probe documented below has been exercised live.
 
 ## Verification for this slice
 
@@ -108,4 +110,48 @@ refresh, explicit choices, revision conflicts and preserved local edits.
 
 Repository lint, typecheck and API/Gestión/Facturación production builds pass.
 Lint retains the two pre-existing authentication navigation warnings. No
-manual browser acceptance or live homologation run is claimed for this slice.
+manual browser acceptance or invoice homologation run is claimed for this slice.
+
+
+## Issuer preparation and public homologation connectivity
+
+Gestión → Operación → **Configuración fiscal** (`/facturas-fiscales/configuracion`)
+requires `configuration.manage`. It shows the registered Company's identity
+without changing it; CUIT checking is local syntax/checksum only. A locally
+valid CUIT does not establish registration, fiscal condition or eligibility.
+The operator can save a declared IVA condition and a test Web Services point
+of sale (1–99999), or leave either unset. There are no fiscal defaults.
+
+The additive `fiscal_settings` table holds one company-scoped profile with
+revision and audit metadata. GET/PUT `/fiscal/settings` use validated context,
+strict payloads and expected-revision conflicts. Persistence and audit are
+atomic. Environment is constrained to HOMOLOGATION by the database. The API
+accepts no credentials, identity override, external URL or production toggle.
+Saving declarations neither validates them against ARCA nor changes existing
+fiscal drafts, sales or ledger balances. `authorizationAvailable` stays false.
+
+**Comprobar disponibilidad de ARCA** invokes POST
+`/fiscal/settings/connectivity` with an empty body, also protected by
+`configuration.manage`. The API sends only the public `FEDummy` SOAP request
+to the fixed official homologation URL. No CUIT, customer, credential or invoice
+is transmitted. The operation has a five-second deadline, a 32 KiB response
+limit, rejects redirects and DTDs, and parses namespaces/expected structure
+with `saxes`. Only validated service states are returned; raw upstream bodies
+or exceptions are never reflected. `AVAILABLE`, `DEGRADED`, `UNAVAILABLE`
+describe service availability, never this company's ability to issue.
+
+The form preserves unsaved edits across background refetch failures, rejects
+stale revisions, and clears state when switching company. Availability checks
+are on demand and display their timestamp; no monitoring is scheduled.
+
+[Official FEDummy SOAP contract](https://wswhomo.afip.gov.ar/wsfev1/service.asmx?op=FEDummy)
+was checked for endpoint, namespace and SOAPAction. A live public-only probe
+from this development host at **2026-10-04 02:52 UTC** returned all three
+services OK. This was not a WSAA login, certificate validation or invoice
+homologation test. Secure credential provisioning, authenticated service
+catalog/point-of-sale validation and fiscal issuance remain future work.
+
+Settings verification adds seven real-database integration cases, 20 public
+transport/parser cases, 13 configuration UI cases and three client cases.
+The new migration and both fiscal suites pass on disposable PostgreSQL/Redis;
+schema comparison remains empty and double seed preserves business data.

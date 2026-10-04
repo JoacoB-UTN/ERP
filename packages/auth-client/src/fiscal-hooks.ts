@@ -10,6 +10,9 @@ import type {
   FiscalSourceResponse,
   FiscalPreviewResponse,
   SalesListResponse,
+  FiscalSettingsResponse,
+  SaveFiscalSettingsInput,
+  FiscalConnectivityResponse,
 } from '@erp/shared';
 import type { ApiFetchOptions } from './api-client';
 
@@ -94,7 +97,42 @@ export function createFiscalClient({ apiFetch, useActiveCompanyId, getActiveComp
       },
     });
   }
+  function useFiscalSettings(enabled = true) {
+    return useFiscalQuery<FiscalSettingsResponse>(['settings'], '/fiscal/settings', enabled);
+  }
+  function useSaveFiscalSettings() {
+    const companyId = useActiveCompanyId();
+    const client = useQueryClient();
+    return useMutation({
+      mutationFn: (input: SaveFiscalSettingsInput) => {
+        assertCompany(companyId);
+        return apiFetch<FiscalSettingsResponse>('/fiscal/settings', {
+          method: 'PUT',
+          json: input,
+          expectedCompanyId: companyId,
+        });
+      },
+      onSuccess: () => {
+        void client.invalidateQueries({ queryKey: ['company', companyId, 'fiscal', 'settings'] });
+      },
+    });
+  }
+  function useCheckFiscalConnectivity() {
+    const companyId = useActiveCompanyId();
+    return useMutation({
+      mutationFn: () => {
+        assertCompany(companyId);
+        return apiFetch<FiscalConnectivityResponse>('/fiscal/settings/connectivity', {
+          json: {},
+          expectedCompanyId: companyId,
+        });
+      },
+    });
+  }
   return {
+    useFiscalSettings,
+    useSaveFiscalSettings,
+    useCheckFiscalConnectivity,
     useFiscalSales,
     useFiscalDrafts,
     useFiscalSource,

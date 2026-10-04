@@ -108,3 +108,44 @@ describe('Fiscal company binding', () => {
     expect(network).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('Fiscal settings client context', () => {
+  it('does not query configuration without permission', () => {
+    renderHook(() => hooks.useFiscalSettings(false), { wrapper: Wrapper });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('uses scoped PUT and invalidates only that company configuration', async () => {
+    fetcher.mockResolvedValue({ settings: { revision: 1 } });
+    const invalidation = vi.spyOn(client, 'invalidateQueries');
+    const view = renderHook(() => hooks.useSaveFiscalSettings(), { wrapper: Wrapper });
+    const values = { vatCondition: null, testPointOfSale: null, expectedRevision: 0 };
+    await act(async () => {
+      await view.result.current.mutateAsync(values);
+    });
+    expect(fetcher).toHaveBeenCalledWith('/fiscal/settings', {
+      method: 'PUT',
+      json: values,
+      expectedCompanyId: 'a',
+    });
+    expect(invalidation).toHaveBeenCalledExactlyOnceWith({
+      queryKey: ['company', 'a', 'fiscal', 'settings'],
+    });
+  });
+  it('rejects a stale public probe before sending and sends an empty payload when current', async () => {
+    fetcher.mockResolvedValue({ status: 'AVAILABLE' });
+    const view = renderHook(() => hooks.useCheckFiscalConnectivity(), { wrapper: Wrapper });
+    company = 'b';
+    await act(async () => {
+      await expect(view.result.current.mutateAsync()).rejects.toThrow('La empresa cambió');
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+    company = 'a';
+    await act(async () => {
+      await view.result.current.mutateAsync();
+    });
+    expect(fetcher).toHaveBeenCalledWith('/fiscal/settings/connectivity', {
+      json: {},
+      expectedCompanyId: 'a',
+    });
+  });
+});

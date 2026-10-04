@@ -1,6 +1,6 @@
 # 027 — Borradores fiscales desde ventas confirmadas
 
-Status: IMPLEMENTED — awaiting PR review; no ARCA authorization or real issuance
+Status: DONE — merged in PR #65; no ARCA authorization or real issuance
 Owner: coordinator (Prisma/migration/shared/client/docs); backend worker
 owns fiscal module/tests; UI worker owns only new Gestión routes,
 minimal navigation and UI tests. Independent fiscal review required.
