@@ -8,9 +8,17 @@ import {
   soapRequest,
   type XmlNode,
 } from './arca-soap';
-import { validFiscalDate, type ArcaInvoiceRequest } from './fiscal-request';
+import {
+  validFiscalDate,
+  type ArcaCreditNoteRequest,
+  type ArcaVoucherRequest,
+} from './fiscal-request';
 
-export type { ArcaInvoiceRequest } from './fiscal-request';
+export type {
+  ArcaInvoiceRequest,
+  ArcaCreditNoteRequest,
+  ArcaVoucherRequest,
+} from './fiscal-request';
 
 const NS = 'http://ar.gov.afip.dif.FEV1/';
 const uncertain = () =>
@@ -64,13 +72,70 @@ function compatibleClasses(value: string, expected: string): boolean {
     classes.includes(expected)
   );
 }
-function matchesDetail(node: XmlNode, r: ArcaInvoiceRequest) {
+function matchesDetail(node: XmlNode, r: ArcaVoucherRequest) {
   same(node, 'Concepto', 1);
   same(node, 'DocTipo', 80);
   same(node, 'DocNro', r.recipientCuit);
   same(node, 'CbteDesde', r.voucherNumber);
   same(node, 'CbteHasta', r.voucherNumber);
   same(node, 'CbteFch', r.date);
+}
+function association(
+  r: ArcaVoucherRequest,
+): ArcaCreditNoteRequest['associated'] | null {
+  if ([1, 6, 11].includes(r.voucherType)) {
+    if ('associated' in r) throw uncertain();
+    return null;
+  }
+  if (!('associated' in r) || ![3, 8, 13].includes(r.voucherType))
+    throw uncertain();
+  const a = r.associated;
+  if (
+    !a ||
+    a.voucherType !== ({ 3: 1, 8: 6, 13: 11 } as const)[r.voucherType] ||
+    a.issuerCuit !== r.issuerCuit ||
+    !/^\d{11}$/.test(a.issuerCuit) ||
+    a.pointOfSale !== r.pointOfSale ||
+    !Number.isInteger(a.pointOfSale) ||
+    a.pointOfSale < 1 ||
+    a.pointOfSale > 99999 ||
+    !Number.isInteger(a.voucherNumber) ||
+    a.voucherNumber < 1 ||
+    a.voucherNumber > 99999999 ||
+    !validFiscalDate(a.date) ||
+    !validFiscalDate(r.date) ||
+    a.date > r.date
+  )
+    throw uncertain();
+  return a;
+}
+function matchesAssociation(node: XmlNode, r: ArcaVoucherRequest) {
+  const expected = association(r);
+  const containers = children(node, 'CbtesAsoc', NS);
+  if (!expected) {
+    if (
+      containers.length > 1 ||
+      containers.some((item) => item.children.length || item.text.trim())
+    )
+      throw uncertain();
+    return;
+  }
+  const container = child(node, 'CbtesAsoc', NS);
+  if (container.text.trim() || container.children.length !== 1)
+    throw uncertain();
+  const entry = child(container, 'CbteAsoc', NS);
+  const fields = ['Tipo', 'PtoVta', 'Nro', 'Cuit', 'CbteFch'];
+  if (
+    entry.text.trim() ||
+    entry.children.length !== fields.length ||
+    entry.children.some((item) => !fields.includes(item.name))
+  )
+    throw uncertain();
+  same(entry, 'Tipo', expected.voucherType);
+  same(entry, 'PtoVta', expected.pointOfSale);
+  same(entry, 'Nro', expected.voucherNumber);
+  same(entry, 'Cuit', expected.issuerCuit);
+  same(entry, 'CbteFch', expected.date);
 }
 function authorization(node: XmlNode, caeName: string, dateName: string) {
   const cae = value(node, caeName);
@@ -117,7 +182,7 @@ export class ArcaWsfeService {
   }
   async validate(
     companyId: string,
-    r: Omit<ArcaInvoiceRequest, 'voucherNumber'>,
+    r: Omit<ArcaVoucherRequest, 'voucherNumber'>,
   ): Promise<void> {
     const points = await this.call(
       companyId,
@@ -137,8 +202,11 @@ export class ArcaWsfeService {
       ![null, '', 'NULL'].includes(optional(point[0], 'FchBaja'))
     )
       throw uncertain();
-    const invoiceClass =
-      r.voucherType === 1 ? 'A' : r.voucherType === 6 ? 'B' : 'C';
+    const invoiceClass = [1, 3].includes(r.voucherType)
+      ? 'A'
+      : [6, 8].includes(r.voucherType)
+        ? 'B'
+        : 'C';
     const conditions = await this.call(
       companyId,
       r.issuerCuit,
@@ -201,7 +269,8 @@ export class ArcaWsfeService {
     if (!/^\d{1,8}$/.test(text)) throw uncertain();
     return Number(text);
   }
-  async authorize(companyId: string, r: ArcaInvoiceRequest) {
+  async authorize(companyId: string, r: ArcaVoucherRequest) {
+    const associated = association(r);
     const head = `<FeCabReq>${tag('CantReg', 1)}${tag('PtoVta', r.pointOfSale)}${tag('CbteTipo', r.voucherType)}</FeCabReq>`;
     const detail =
       tag('Concepto', 1) +
@@ -219,6 +288,9 @@ export class ArcaWsfeService {
       tag('MonId', 'PES') +
       tag('MonCotiz', '1') +
       tag('CondicionIVAReceptorId', r.recipientVatConditionId) +
+      (associated
+        ? `<CbtesAsoc><CbteAsoc>${tag('Tipo', associated.voucherType)}${tag('PtoVta', associated.pointOfSale)}${tag('Nro', associated.voucherNumber)}${tag('Cuit', associated.issuerCuit)}${tag('CbteFch', associated.date)}</CbteAsoc></CbtesAsoc>`
+        : '') +
       (r.iva.length
         ? `<Iva>${r.iva.map((i) => `<AlicIva>${tag('Id', i.id)}${tag('BaseImp', i.base)}${tag('Importe', i.amount)}</AlicIva>`).join('')}</Iva>`
         : '');
@@ -259,7 +331,8 @@ export class ArcaWsfeService {
     }
     throw uncertain();
   }
-  async consult(companyId: string, r: ArcaInvoiceRequest) {
+  async consult(companyId: string, r: ArcaVoucherRequest) {
+    association(r);
     const result = await this.call(
       companyId,
       r.issuerCuit,
@@ -289,9 +362,9 @@ export class ArcaWsfeService {
     money(invoice, 'ImpOpEx', r.exempt);
     money(invoice, 'ImpTrib', '0');
     money(invoice, 'ImpIVA', r.vat);
+    matchesAssociation(invoice, r);
     for (const field of [
       'Tributos',
-      'CbtesAsoc',
       'Opcionales',
       'Compradores',
       'PeriodoAsoc',

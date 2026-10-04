@@ -1,6 +1,6 @@
 # 033 — Prepare a total homologation credit note
 
-Status: IMPLEMENTED / VERIFIED LOCALLY — CI pending.
+Status: DONE — PR #71 merged after successful CI and independent review.
 Base: main fa76df8 (PR70 merged). Branch: agent/codex-credit-note-preparation.
 Coordinator owns schema/migration/shared/API/client/docs. UI worker owns new panel
 and wiring; integration worker owns fiscal-authorization.e2e-spec.ts. Independent

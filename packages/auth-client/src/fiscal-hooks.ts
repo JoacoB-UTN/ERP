@@ -202,7 +202,34 @@ export function createFiscalClient({ apiFetch, useActiveCompanyId, getActiveComp
         }),
     );
   }
+  function useFiscalCreditNoteAuthorization(id: string | null, enabled = true) {
+    return useFiscalQuery<FiscalLatestAuthorizationResponse>(
+      ['credit-note-authorization', id],
+      `/fiscal/credit-notes/${id}/authorization`,
+      !!id && enabled,
+    );
+  }
+  function useAuthorizeFiscalCreditNote() {
+    return useAuthorizationWrite(
+      ({ creditNoteId, input }: { creditNoteId: string; input: AuthorizeFiscalDraftInput }, companyId) =>
+        apiFetch<FiscalAuthorizationResponse>(`/fiscal/credit-notes/${creditNoteId}/authorize`, {
+          json: input,
+          expectedCompanyId: companyId,
+        }),
+    );
+  }
+  function useReconcileFiscalCreditNote() {
+    return useAuthorizationWrite((id: string, companyId) =>
+      apiFetch<FiscalAuthorizationResponse>(`/fiscal/credit-note-authorizations/${id}/reconcile`, {
+        json: {},
+        expectedCompanyId: companyId,
+      }),
+    );
+  }
   return {
+    useFiscalCreditNoteAuthorization,
+    useAuthorizeFiscalCreditNote,
+    useReconcileFiscalCreditNote,
     useFiscalCreditNote,
     useSaveFiscalCreditNote,
     useFiscalAuthorization,

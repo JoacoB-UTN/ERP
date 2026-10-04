@@ -19,6 +19,18 @@ export interface ArcaInvoiceRequest {
   iva: { id: number; base: string; amount: string }[];
 }
 
+export type ArcaCreditNoteRequest = Omit<ArcaInvoiceRequest, 'voucherType'> & {
+  voucherType: 3 | 8 | 13;
+  associated: {
+    voucherType: 1 | 6 | 11;
+    pointOfSale: number;
+    voucherNumber: number;
+    issuerCuit: string;
+    date: string;
+  };
+};
+export type ArcaVoucherRequest = ArcaInvoiceRequest | ArcaCreditNoteRequest;
+
 const CONDITIONS: Record<string, number> = {
   RESPONSABLE_INSCRIPTO: 1,
   EXENTO: 4,
