@@ -1,5 +1,8 @@
 import * as forge from 'node-forge';
 import { verify } from 'node:crypto';
+import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   ArcaCredentialsService,
   type ArcaCredentials,
@@ -113,6 +116,62 @@ describe('ArcaWsaaService', () => {
       'No se pudo autenticar',
     );
     expect(soap).toHaveBeenCalledTimes(1);
+  });
+  it('rechecks real representation files before using cached tickets', async () => {
+    const company = 'a1111111-1111-4111-8111-111111111111';
+    const issuerCuit = '30123456781';
+    const certificateCuit = '20123456786';
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), 'arca-representation-')),
+    );
+    const originalRoot = process.env.ERP_ARCA_CREDENTIALS_DIR;
+    process.env.ERP_ARCA_CREDENTIALS_DIR = root;
+    try {
+      const folder = join(root, company);
+      await mkdir(folder);
+      const cert = forge.pki.certificateFromPem(credentials.certificatePem);
+      cert.setSubject([{ type: '2.5.4.5', value: `CUIT ${certificateCuit}` }]);
+      cert.sign(
+        forge.pki.privateKeyFromPem(credentials.privateKeyPem),
+        forge.md.sha256.create(),
+      );
+      await writeFile(
+        join(folder, 'certificate.pem'),
+        forge.pki.certificateToPem(cert),
+      );
+      await writeFile(
+        join(folder, 'private-key.pem'),
+        credentials.privateKeyPem,
+        { mode: 0o600 },
+      );
+      const representation = join(folder, 'representation.json');
+      await writeFile(
+        representation,
+        JSON.stringify({ issuerCuit, certificateCuit }),
+        { mode: 0o600 },
+      );
+      const realService = new ArcaWsaaService(new ArcaCredentialsService());
+      await realService.getTicket(company, issuerCuit);
+      await realService.getTicket(company, issuerCuit);
+      expect(soap).toHaveBeenCalledTimes(1);
+      await rm(representation);
+      await expect(realService.getTicket(company, issuerCuit)).rejects.toThrow(
+        'No se pudo autenticar',
+      );
+      await writeFile(
+        representation,
+        JSON.stringify({ issuerCuit: certificateCuit, certificateCuit }),
+      );
+      await expect(realService.getTicket(company, issuerCuit)).rejects.toThrow(
+        'No se pudo autenticar',
+      );
+      expect(soap).toHaveBeenCalledTimes(1);
+    } finally {
+      if (originalRoot === undefined)
+        delete process.env.ERP_ARCA_CREDENTIALS_DIR;
+      else process.env.ERP_ARCA_CREDENTIALS_DIR = originalRoot;
+      await rm(root, { recursive: true, force: true });
+    }
   });
   it.each([
     (xml: string) => xml.replace('<token>opaque-token</token>', '<token/>'),

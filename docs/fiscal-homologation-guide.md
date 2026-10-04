@@ -13,12 +13,14 @@ corresponda al escenario de homologación, sin asumirla por defecto.
 
 ARCA indica que WSASS se adhiere desde una cuenta de persona física. Su manual
 separa el CUIT del certificado (usuario conectado) del CUIT representado en la
-autorización al servicio. La versión actual del ERP **exige que ambos coincidan**:
-no admite todavía un certificado personal que represente a otra empresa.
-Si se necesita esa representación, detener la instalación y ampliar primero el
-soporte del ERP; no cambiar el CUIT de una empresa real para sortear el control.
-Una prueba con identidad personal debe realizarse en una instalación aislada de
-homologación, con datos de prueba y una identidad expresamente elegida.
+autorización al servicio. El ERP admite ambos casos: si coinciden, conserva el comportamiento directo;
+si difieren, el administrador debe declarar explícitamente esa representación
+en `representation.json` dentro de la carpeta de credenciales de la empresa
+(ver [configuración técnica](fiscal.md#server-only-credentials-and-wsaa-authentication)).
+La autorización para representar al emisor se concede además en WSASS para
+`wsfe`; el archivo local por sí solo no la otorga. No cambiar el CUIT real de la
+empresa por el de la persona titular del certificado. Usar un certificado/alias
+dedicado por empresa para evitar conflictos con tickets WSAA de otras compañías.
 
 Fuentes: [certificados de homologación](https://www.arca.gob.ar/ws/documentacion/certificados.asp),
 [identidad del certificado](https://www.arca.gob.ar/ws/WSASS/html/crearcertificado.html) y

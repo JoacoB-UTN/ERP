@@ -933,7 +933,10 @@ settings and the public availability probe and is merged in main `897349a`.
 Merged PR #67 adds server-only certificate loading, WSAA login, authenticated
 catalogs, persisted WSFE requests and reconciliation. PR #68 adds explicitly
 non-fiscal printing of authorized test results. The fiscal list now displays
-the latest attempt status and test number without opening each draft.
+the latest attempt status and test number without opening each draft (PR #69).
+Personal certificates may represent a company via a strict, server-provisioned
+CUIT binding; WSASS authorization is still required. Removing that binding
+blocks subsequent delegated uses, including cached tickets.
 Local tests, lint/typecheck, production builds and disposable migration/seed
 verification pass for those merged slices (see fiscal.md). Authenticated ARCA
 acceptance remains pending; this is not production readiness.
