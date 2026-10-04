@@ -24,9 +24,11 @@ const labels = {
 export function FiscalAuthorizationPanel({
   draft,
   canPrepare,
+  available = true,
 }: {
   draft: FiscalDraftDto;
   canPrepare: boolean;
+  available?: boolean;
 }) {
   const { can, isLoading } = usePermissions();
   const read = !isLoading && can('sales.invoices.read');
@@ -52,7 +54,7 @@ export function FiscalAuthorizationPanel({
     mounted.current && authClient.companyContextStore.getActiveCompanyId() === activeCompanyId;
   const remote = query.data?.authorization;
   const attempt = response && (!remote || response.updatedAt >= remote.updatedAt) ? response : remote;
-  const known = Boolean(query.data) && !query.isError && !query.isFetching;
+  const known = available && Boolean(query.data) && !query.isError && !query.isFetching;
   const pending = attempt?.status === 'UNKNOWN' || attempt?.status === 'SENDING';
   const canSend = known && (!attempt || attempt.status === 'REJECTED');
   async function run(consult: boolean) {
