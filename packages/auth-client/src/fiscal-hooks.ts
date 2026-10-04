@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   FiscalDraftInput,
+  FiscalDraftFilter,
   RefreshFiscalIdentityInput,
   FiscalCreditNoteResponse,
   SaveFiscalCreditNoteInput,
@@ -52,10 +53,10 @@ export function createFiscalClient({ apiFetch, useActiveCompanyId, getActiveComp
       enabled,
     );
   }
-  function useFiscalDrafts(page = 1, enabled = true) {
+  function useFiscalDrafts(page = 1, enabled = true, filter: FiscalDraftFilter = 'ALL') {
     return useFiscalQuery<FiscalDraftsResponse>(
-      ['drafts', page],
-      `/fiscal/drafts?page=${page}&pageSize=25`,
+      ['drafts', page, filter],
+      `/fiscal/drafts?page=${page}&pageSize=25&filter=${filter}`,
       enabled,
     );
   }
