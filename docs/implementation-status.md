@@ -946,12 +946,15 @@ selection and an exclusive test point of sale. `SENDING`/`UNKNOWN` reserve the
 original number and block the series; consultation never blindly resends.
 Confirmed sales and ledger balances remain unchanged. Real certificate setup,
 issuer definition and live homologation acceptance are still missing. Production,
-QR, fiscal printing and credit/debit notes are not implemented. See
+Production QR/printing, credit/debit authorization and commercial reversals remain unimplemented.
+A total credit-note preparation can now be saved against an authorized test invoice,
+with immutable original amounts, reason, revision and atomic audit; no ARCA call or
+ledger movement occurs. See
 [fiscal.md](fiscal.md) for credential provisioning, limits and recovery behavior.
 
 ## Not implemented
 
-### Sales orders/quotes, credit/debit notes, delivery notes
+### Sales orders/quotes, commercial credit/debit notes, delivery notes
 **Status: NOT IMPLEMENTED.** The demo `SalesDocument`/`SALE` core exists
 and both Gestión and Facturación can build/confirm it. Fiscal preparation and
 limited test authorization are separate resources described above; no

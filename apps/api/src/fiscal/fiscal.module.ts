@@ -1,3 +1,5 @@
+import { FiscalCreditNoteService } from './fiscal-credit-note.service';
+import { FiscalCreditNoteController } from './fiscal-credit-note.controller';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { CompanyContextModule } from '../company-context/company-context.module';
@@ -16,11 +18,13 @@ import { ArcaWsfeService } from './arca-wsfe.service';
 @Module({
   imports: [AuthModule, CompanyContextModule, AuthorizationModule, AuditModule],
   controllers: [
+    FiscalCreditNoteController,
     FiscalController,
     FiscalSettingsController,
     FiscalAuthorizationController,
   ],
   providers: [
+    FiscalCreditNoteService,
     FiscalService,
     FiscalSettingsService,
     ArcaConnectivityService,

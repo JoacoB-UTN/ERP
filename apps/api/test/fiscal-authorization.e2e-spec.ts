@@ -13,6 +13,7 @@ import * as argon2 from 'argon2';
 import {
   COMPANY_ID_HEADER,
   type FiscalDraftResponse,
+  type FiscalCreditNoteResponse,
   type FiscalDraftsResponse,
   type FiscalLatestAuthorizationResponse,
   type FiscalAuthorizationResponse,
@@ -22,6 +23,7 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
 import { AuditService } from '../src/audit/audit.service';
 import { SalesService } from '../src/sales/sales.service';
+import { CustomerAccountService } from '../src/accounts/customer-account.service';
 import type { SalesDocumentStatus } from '../src/generated/prisma/client';
 
 /** Isolated fixtures; run only against a disposable migrated database. */
@@ -70,33 +72,52 @@ describe('Fiscal authorization (e2e)', () => {
     status: SalesDocumentStatus = 'CONFIRMED',
     currency = currencyId,
   ) {
-    return prisma.salesDocument.create({
-      data: {
-        tenantId,
-        companyId,
-        warehouseId,
-        priceListId,
-        customerId,
-        currencyId: currency,
-        number: `VTA-${randomUUID()}`,
-        status,
-        occurredAt: new Date(),
-        total: amount,
-        subtotal: amount,
-        lines: {
-          create: {
-            productVariantId: variantId,
-            description: 'Frozen sale line',
-            quantity: '1',
-            unitPrice: amount,
-            netAmount: amount,
-            totalAmount: amount,
+    return prisma.$transaction(async (tx) => {
+      const document = await tx.salesDocument.create({
+        data: {
+          tenantId,
+          companyId,
+          warehouseId,
+          priceListId,
+          customerId,
+          currencyId: currency,
+          number: `VTA-${randomUUID()}`,
+          status,
+          occurredAt: new Date(),
+          total: amount,
+          subtotal: amount,
+          lines: {
+            create: {
+              productVariantId: variantId,
+              description: 'Frozen sale line',
+              quantity: '1',
+              unitPrice: amount,
+              netAmount: amount,
+              totalAmount: amount,
+            },
           },
         },
-      },
-      include: { lines: true },
+        include: { lines: true },
+      });
+      // Keep historical fixtures complete so another suite's startup repair cannot
+      // change this company's account snapshots while testing NC isolation.
+      if (status === 'CONFIRMED') {
+        await app.get(CustomerAccountService).postSaleConfirmation(tx, {
+          tenantId,
+          companyId,
+          customerId,
+          currencyId: currency,
+          salesDocumentId: document.id,
+          salesDocumentNumber: document.number,
+          total: document.total.toString(),
+          occurredAt: document.occurredAt,
+          createdBy: null,
+        });
+      }
+      return document;
     });
   }
+
   const input = (
     lineId: string,
     expectedRevision = 0,
@@ -305,6 +326,9 @@ describe('Fiscal authorization (e2e)', () => {
   afterAll(async () => {
     jest.restoreAllMocks();
     if (prisma && tenantId) {
+      await prisma.fiscalCreditNoteDraft.deleteMany({
+        where: { tenantId: { in: [tenantId, foreignTenantId] } },
+      });
       await prisma.fiscalAuthorization.deleteMany({
         where: { tenantId: { in: [tenantId, foreignTenantId] } },
       });
@@ -356,6 +380,7 @@ describe('Fiscal authorization (e2e)', () => {
   });
 
   beforeEach(async () => {
+    await prisma.fiscalCreditNoteDraft.deleteMany({ where: { tenantId } });
     await prisma.fiscalAuthorization.deleteMany({ where: { tenantId } });
     wsfe.validate.mockReset().mockResolvedValue(undefined);
     wsfe.lastNumber.mockReset().mockResolvedValue(0);
@@ -793,5 +818,350 @@ describe('Fiscal authorization (e2e)', () => {
     expect(JSON.stringify(response.body)).not.toMatch(
       /private-ticket|private-sign/,
     );
+  });
+  describe('credit note preparation', () => {
+    const reason = 'Corrección total de comprobante de pruebas';
+    const route = (id: string) =>
+      `/api/v1/fiscal/authorizations/${id}/credit-note-draft`;
+    const getCredit = (id: string, agent = editor, company = companyId) =>
+      agent.get(route(id)).set(COMPANY_ID_HEADER, company);
+    const saveCredit = (
+      id: string,
+      body: object = { reason, expectedRevision: 0 },
+      agent = editor,
+      company = companyId,
+    ) => agent.post(route(id)).set(COMPANY_ID_HEADER, company).send(body);
+    const result = (response: { body: unknown }) =>
+      (response.body as FiscalCreditNoteResponse).draft!;
+    async function original(real = false) {
+      const prepared = await makeDraft(real);
+      const response = await authorize(prepared.draft.id).expect(201);
+      return {
+        ...prepared,
+        authorization: (response.body as FiscalAuthorizationResponse)
+          .authorization,
+      };
+    }
+    function clearArcaCalls() {
+      wsfe.validate.mockClear();
+      wsfe.lastNumber.mockClear();
+      wsfe.authorize.mockClear();
+      wsfe.consult.mockClear();
+      wsaa.getTicket.mockClear();
+    }
+    function expectNoArcaCalls() {
+      expect(wsfe.validate).not.toHaveBeenCalled();
+      expect(wsfe.lastNumber).not.toHaveBeenCalled();
+      expect(wsfe.authorize).not.toHaveBeenCalled();
+      expect(wsfe.consult).not.toHaveBeenCalled();
+      expect(wsaa.getTicket).not.toHaveBeenCalled();
+    }
+    it('saves and reopens total immutable source amounts; only reason changes by revision', async () => {
+      const { draft, authorization } = await original();
+      const authorized = await prisma.fiscalAuthorization.findFirstOrThrow({
+        where: { companyId, id: authorization.id },
+      });
+      const authorizedRequest =
+        authorized.request as unknown as ArcaInvoiceRequest;
+      expect((await getCredit(authorization.id).expect(200)).body).toEqual({
+        draft: null,
+      });
+      clearArcaCalls();
+      await prisma.customer.update({
+        where: { id: customerId },
+        data: { legalName: 'Changed after original authorization' },
+      });
+      try {
+        const created = result(
+          await saveCredit(authorization.id, {
+            reason: `  ${reason}  `,
+            expectedRevision: 0,
+          }).expect(201),
+        );
+        expect(created).toMatchObject({
+          status: 'DRAFT',
+          environment: 'HOMOLOGATION',
+          revision: 1,
+          reason,
+          creditNoteType: 3,
+          original: {
+            authorizationId: authorization.id,
+            issuerCuit: authorizedRequest.issuerCuit,
+            pointOfSale: 12,
+            voucherType: 1,
+            voucherNumber: 1,
+            cae: accepted.cae,
+          },
+          authorizedAmounts: {
+            total: authorizedRequest.total,
+            net: authorizedRequest.net,
+            vat: authorizedRequest.vat,
+            exempt: authorizedRequest.exempt,
+            notTaxed: authorizedRequest.notTaxed,
+            iva: authorizedRequest.iva,
+          },
+          invoice: {
+            source: draft.source,
+            lines: draft.lines,
+            totals: draft.totals,
+            invoiceType: draft.invoiceType,
+          },
+        });
+        expect(created).not.toHaveProperty('cae');
+        expect(created).not.toHaveProperty('voucherNumber');
+        const changed = result(
+          await saveCredit(authorization.id, {
+            reason: 'Motivo corregido para esta preparación',
+            expectedRevision: 1,
+          }).expect(201),
+        );
+        expect(changed).toMatchObject({
+          id: created.id,
+          revision: 2,
+          original: created.original,
+          invoice: created.invoice,
+          authorizedAmounts: created.authorizedAmounts,
+        });
+        expect(
+          result(await getCredit(authorization.id, reader).expect(200)),
+        ).toEqual(changed);
+        await saveCredit(authorization.id, {
+          reason,
+          expectedRevision: 1,
+        }).expect(409);
+        expect(
+          await prisma.fiscalCreditNoteDraft.count({
+            where: { companyId, originalAuthorizationId: authorization.id },
+          }),
+        ).toBe(1);
+        expectNoArcaCalls();
+      } finally {
+        await prisma.customer.update({
+          where: { id: customerId },
+          data: { legalName: 'Original recipient' },
+        });
+      }
+    });
+    it('serializes concurrent create and update, with exactly one winner each', async () => {
+      const { authorization } = await original();
+      clearArcaCalls();
+      const creates = await Promise.all([
+        saveCredit(authorization.id),
+        saveCredit(authorization.id),
+      ]);
+      expect(creates.map((r) => r.status).sort()).toEqual([201, 409]);
+      const updates = await Promise.all([
+        saveCredit(authorization.id, {
+          reason: 'Primer motivo concurrente',
+          expectedRevision: 1,
+        }),
+        saveCredit(authorization.id, {
+          reason: 'Segundo motivo concurrente',
+          expectedRevision: 1,
+        }),
+      ]);
+      expect(updates.map((r) => r.status).sort()).toEqual([201, 409]);
+      expect(
+        result(await getCredit(authorization.id).expect(200)).revision,
+      ).toBe(2);
+      expect(
+        await prisma.fiscalCreditNoteDraft.count({
+          where: { companyId, originalAuthorizationId: authorization.id },
+        }),
+      ).toBe(1);
+      expectNoArcaCalls();
+    });
+    it('requires scoped read/create permissions and rejects untrusted fields', async () => {
+      const { authorization } = await original();
+      clearArcaCalls();
+      await getCredit(authorization.id, reader).expect(200);
+      await getCredit(authorization.id, noFiscal).expect(403);
+      await getCredit(authorization.id, noSalesRead).expect(403);
+      await saveCredit(
+        authorization.id,
+        { reason, expectedRevision: 0 },
+        reader,
+      ).expect(403);
+      await saveCredit(
+        authorization.id,
+        { reason, expectedRevision: 0 },
+        noSalesRead,
+      ).expect(403);
+      await saveCredit(
+        authorization.id,
+        { reason, expectedRevision: 0 },
+        noFiscal,
+      ).expect(403);
+      await getCredit(authorization.id, editor, foreignCompanyId).expect(404);
+      await saveCredit(
+        authorization.id,
+        { reason, expectedRevision: 0 },
+        editor,
+        foreignCompanyId,
+      ).expect(404);
+      await getCredit(randomUUID()).expect(404);
+      for (const body of [
+        { reason, expectedRevision: 0, companyId: foreignCompanyId },
+        { reason, expectedRevision: 0, total: '0.01' },
+        { reason, expectedRevision: 0, cae: accepted.cae },
+        { reason, expectedRevision: 0, creditNoteType: 13 },
+        { reason: '    ', expectedRevision: 0 },
+        { reason: 'a'.repeat(501), expectedRevision: 0 },
+        { reason, expectedRevision: -1 },
+      ])
+        await saveCredit(authorization.id, body).expect(400);
+      expect(
+        await prisma.fiscalCreditNoteDraft.count({ where: { companyId } }),
+      ).toBe(0);
+      expectNoArcaCalls();
+    });
+    it.each(['SENDING', 'UNKNOWN', 'REJECTED'])(
+      'rejects an original in %s state',
+      async (status) => {
+        const { authorization } = await original();
+        await prisma.fiscalAuthorization.update({
+          where: { id: authorization.id },
+          data: { status, cae: null, expiresAt: null },
+        });
+        clearArcaCalls();
+        await saveCredit(authorization.id).expect(400);
+        expect(
+          await prisma.fiscalCreditNoteDraft.count({ where: { companyId } }),
+        ).toBe(0);
+        expectNoArcaCalls();
+      },
+    );
+    it.each([
+      ['B', 6, 8],
+      ['C', 11, 13],
+    ] as const)(
+      'maps original %s to its matching NC class',
+      async (invoiceType, voucherType, creditNoteType) => {
+        await prisma.customer.update({
+          where: { id: customerId },
+          data: { taxCondition: 'EXENTO' },
+        });
+        if (invoiceType === 'C')
+          await prisma.fiscalSettings.update({
+            where: { companyId },
+            data: { vatCondition: 'MONOTRIBUTO' },
+          });
+        try {
+          const document = await sale();
+          const draft = (
+            await save(document.id, {
+              ...input(document.lines[0].id),
+              invoiceType,
+              lines: [
+                {
+                  salesLineId: document.lines[0].id,
+                  treatment: invoiceType === 'C' ? 'C_NO_VAT' : 'VAT_21',
+                },
+              ],
+            }).expect(201)
+          ).body as FiscalDraftResponse;
+          const attempt = (await authorize(draft.draft.id).expect(201))
+            .body as FiscalAuthorizationResponse;
+          expect(attempt.authorization.voucherType).toBe(voucherType);
+          clearArcaCalls();
+          const prepared = result(
+            await saveCredit(attempt.authorization.id).expect(201),
+          );
+          expect(prepared.creditNoteType).toBe(creditNoteType);
+          expect(prepared.authorizedAmounts.total).toBe('121.00');
+          expect(prepared.original.voucherType).toBe(voucherType);
+          expectNoArcaCalls();
+        } finally {
+          await prisma.customer.update({
+            where: { id: customerId },
+            data: { taxCondition: 'RESPONSABLE_INSCRIPTO' },
+          });
+          await prisma.fiscalSettings.update({
+            where: { companyId },
+            data: { vatCondition: 'RESPONSABLE_INSCRIPTO' },
+          });
+        }
+      },
+    );
+    it('rolls back draft creation and reason updates when audit fails', async () => {
+      const { authorization } = await original();
+      clearArcaCalls();
+      const audit = app.get(AuditService);
+      let spy = jest
+        .spyOn(audit, 'recordFromContext')
+        .mockRejectedValueOnce(new Error('NC audit unavailable'));
+      try {
+        await saveCredit(authorization.id).expect(500);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(
+        await prisma.fiscalCreditNoteDraft.count({ where: { companyId } }),
+      ).toBe(0);
+      const created = result(await saveCredit(authorization.id).expect(201));
+      spy = jest
+        .spyOn(audit, 'recordFromContext')
+        .mockRejectedValueOnce(new Error('NC audit unavailable'));
+      try {
+        await saveCredit(authorization.id, {
+          reason: 'Un cambio que debe revertirse',
+          expectedRevision: 1,
+        }).expect(500);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(result(await getCredit(authorization.id).expect(200))).toEqual(
+        created,
+      );
+      expectNoArcaCalls();
+    });
+    it('preserves the authorized invoice, real sale, stock, balances, collections and treasury exactly', async () => {
+      const { sale: document, authorization } = await original(true);
+      const snapshot = () =>
+        Promise.all([
+          prisma.salesDocument.findUnique({
+            where: { id: document.id },
+            include: { lines: true, tender: true },
+          }),
+          prisma.fiscalAuthorization.findFirst({
+            where: { companyId, id: authorization.id },
+          }),
+          prisma.stockMovement.findMany({
+            where: { companyId },
+            orderBy: { id: 'asc' },
+          }),
+          prisma.inventoryBalance.findMany({
+            where: { companyId },
+            orderBy: { productVariantId: 'asc' },
+          }),
+          prisma.customerAccountMovement.findMany({
+            where: { companyId },
+            orderBy: { id: 'asc' },
+          }),
+          prisma.customerCollection.findMany({
+            where: { companyId },
+            orderBy: { id: 'asc' },
+            include: { applications: true },
+          }),
+          prisma.treasuryMovement.findMany({
+            where: { companyId },
+            orderBy: { id: 'asc' },
+          }),
+          prisma.treasuryAccount.findMany({
+            where: { companyId },
+            orderBy: { id: 'asc' },
+          }),
+        ]);
+      const before = await snapshot();
+      clearArcaCalls();
+      await saveCredit(authorization.id).expect(201);
+      await saveCredit(authorization.id, {
+        reason: 'Cambio de motivo sin efectos comerciales',
+        expectedRevision: 1,
+      }).expect(201);
+      await getCredit(authorization.id).expect(200);
+      expect(await snapshot()).toEqual(before);
+      expectNoArcaCalls();
+    });
   });
 });
