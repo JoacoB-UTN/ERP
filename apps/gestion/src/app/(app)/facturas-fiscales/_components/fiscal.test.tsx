@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FiscalDraftDto, FiscalPreview, FiscalSource } from '@erp/shared';
 import FiscalLayout from '../layout';
 import { FiscalForm, FiscalListPage, FiscalNewPage, FiscalPreparePage, FiscalDetailPage } from './fiscal';
@@ -9,6 +9,8 @@ const mock = vi.hoisted(() => ({
   permissions: new Set<string>(),
   preview: vi.fn(),
   save: vi.fn(),
+  authorize: vi.fn(),
+  reconcile: vi.fn(),
   list: vi.fn(),
   sales: vi.fn(),
   source: vi.fn(),
@@ -27,8 +29,8 @@ vi.mock('@/lib/auth-client', () => ({
   authClient: { companyContextStore: { getActiveCompanyId: () => mock.company } },
   useActiveCompany: () => ({ activeCompanyId: mock.company }),
   useFiscalAuthorization: () => ({ data: { authorization: null }, isError: false, isPending: false }),
-  useAuthorizeFiscalDraft: () => ({ mutateAsync: vi.fn() }),
-  useReconcileFiscalAuthorization: () => ({ mutateAsync: vi.fn() }),
+  useAuthorizeFiscalDraft: () => ({ mutateAsync: mock.authorize }),
+  useReconcileFiscalAuthorization: () => ({ mutateAsync: mock.reconcile }),
   usePermissions: () => ({ can: (p: string) => mock.permissions.has(p), isLoading: false }),
   usePreviewFiscalDraft: () => ({ mutateAsync: mock.preview }),
   useSaveFiscalDraft: () => ({ mutateAsync: mock.save }),
@@ -342,7 +344,7 @@ describe('Homologation status list', () => {
     expect(mock.save).not.toHaveBeenCalled();
   });
   it('never interprets a missing status field as unsent', () => {
-    mock.listItems = [draft];
+    mock.listItems = [{ ...draft, creditNote: null }];
     render(<FiscalListPage />);
     expect(screen.getByText('Datos no disponibles')).toBeTruthy();
     expect(screen.queryByText('Sin enviar')).toBeNull();
@@ -375,5 +377,135 @@ describe('Homologation status list', () => {
     );
     expect(screen.queryByRole('link', { name: 'Preparar desde una venta' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Autorizar|Consultar/ })).toBeNull();
+  });
+});
+
+describe('Credit-note status in the homologation list', () => {
+  const invoiceAuthorization = { status: 'AUTHORIZED', pointOfSale: 3, voucherType: 6, voucherNumber: 42 };
+  it.each([
+    [null, 'Nota preparada'],
+    ['SENDING', 'Envío de NC pendiente'],
+    ['UNKNOWN', 'Resultado de NC desconocido'],
+    ['AUTHORIZED', 'NC autorizada en pruebas'],
+    ['REJECTED', 'NC rechazada en pruebas'],
+  ])('shows the persisted NC state %s and its own number separately from the invoice', (status, label) => {
+    mock.listItems = [
+      {
+        ...draft,
+        authorization: invoiceAuthorization,
+        creditNote: {
+          id: 'credit-a',
+          authorization:
+            status === null ? null : { status, pointOfSale: 3, voucherType: 8, voucherNumber: 7 },
+        },
+      },
+    ];
+    render(<FiscalListPage />);
+    expect(screen.getByRole('columnheader', { name: 'Nota de crédito' })).toBeTruthy();
+    expect(screen.getByText(label!)).toBeTruthy();
+    expect(screen.getByText('00003-00000042')).toBeTruthy();
+    if (status) expect(screen.getByText('NC 00003-00000007 · Tipo 8')).toBeTruthy();
+    else expect(screen.queryByText('NC 00003-00000007 · Tipo 8')).toBeNull();
+    const pending = status === 'SENDING' || status === 'UNKNOWN';
+    const link = screen.getByRole('link', {
+      name: pending ? 'Consultar resultado de NC' : 'Ver nota de crédito',
+    });
+    expect(link.getAttribute('href')).toBe('/facturas-fiscales/draft-a#nota-de-credito');
+    expect(screen.getByRole('link', { name: 'Ver detalle' }).getAttribute('href')).toBe(
+      '/facturas-fiscales/draft-a',
+    );
+    expect(mock.authorize).not.toHaveBeenCalled();
+    expect(mock.reconcile).not.toHaveBeenCalled();
+    expect(mock.save).not.toHaveBeenCalled();
+  });
+  it('distinguishes no note from missing data in an older cached list response', () => {
+    mock.listItems = [
+      { ...draft, authorization: invoiceAuthorization, creditNote: null },
+      {
+        ...draft,
+        id: 'cached',
+        source: { ...source, saleNumber: 'VTA-CACHED' },
+        authorization: invoiceAuthorization,
+      },
+      {
+        ...draft,
+        id: 'partial',
+        source: { ...source, saleNumber: 'VTA-PARTIAL' },
+        authorization: invoiceAuthorization,
+        creditNote: { id: 'partial-note' },
+      },
+    ];
+    render(<FiscalListPage />);
+    const noNote = within(screen.getByText('VTA-001').closest('tr')!);
+    expect(noNote.getByText('Sin nota')).toBeTruthy();
+    expect(noNote.queryByRole('link', { name: 'Ver nota de crédito' })).toBeNull();
+    const cached = within(screen.getByText('VTA-CACHED').closest('tr')!);
+    expect(cached.getByText('Datos no disponibles')).toBeTruthy();
+    expect(cached.queryByText('Sin nota')).toBeNull();
+    expect(cached.queryByText('Nota preparada')).toBeNull();
+    expect(cached.queryByRole('link', { name: 'Ver nota de crédito' })).toBeNull();
+    const partial = within(screen.getByText('VTA-PARTIAL').closest('tr')!);
+    expect(partial.getByText('Datos no disponibles')).toBeTruthy();
+    expect(partial.queryByText('Nota preparada')).toBeNull();
+  });
+  it('hides cached note state, number and links after a failed background refresh', () => {
+    mock.listItems = [
+      {
+        ...draft,
+        authorization: invoiceAuthorization,
+        creditNote: {
+          id: 'credit-a',
+          authorization: { status: 'UNKNOWN', pointOfSale: 3, voucherType: 8, voucherNumber: 7 },
+        },
+      },
+    ];
+    const view = render(<FiscalListPage />);
+    expect(screen.getByText('Resultado de NC desconocido')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Consultar resultado de NC' })).toBeTruthy();
+    mock.listError = true;
+    view.rerender(<FiscalListPage />);
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(screen.queryByText('Resultado de NC desconocido')).toBeNull();
+    expect(screen.queryByText('NC 00003-00000007 · Tipo 8')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Consultar resultado de NC' })).toBeNull();
+  });
+  it('lets invoice-read-only users open the note without send or consult mutations', () => {
+    mock.permissions = new Set(['sales.invoices.read']);
+    mock.listItems = [
+      {
+        ...draft,
+        authorization: invoiceAuthorization,
+        creditNote: {
+          id: 'credit-a',
+          authorization: { status: 'SENDING', pointOfSale: 3, voucherType: 8, voucherNumber: 7 },
+        },
+      },
+    ];
+    render(<FiscalListPage />);
+    expect(mock.list).toHaveBeenCalledWith(1, true);
+    expect(screen.getByRole('link', { name: 'Consultar resultado de NC' }).getAttribute('href')).toBe(
+      '/facturas-fiscales/draft-a#nota-de-credito',
+    );
+    expect(screen.queryByRole('link', { name: 'Preparar desde una venta' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Autorizar|Consultar/ })).toBeNull();
+    expect(mock.authorize).not.toHaveBeenCalled();
+    expect(mock.reconcile).not.toHaveBeenCalled();
+  });
+  it('does not expose cached notes when invoice-read permission is absent', () => {
+    mock.permissions = new Set(['sales.invoices.create']);
+    mock.listItems = [
+      {
+        ...draft,
+        authorization: invoiceAuthorization,
+        creditNote: {
+          id: 'credit-a',
+          authorization: { status: 'AUTHORIZED', pointOfSale: 3, voucherType: 8, voucherNumber: 7 },
+        },
+      },
+    ];
+    render(<FiscalListPage />);
+    expect(mock.list).toHaveBeenCalledWith(1, false);
+    expect(screen.queryByText('NC autorizada en pruebas')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Ver nota de crédito' })).toBeNull();
   });
 });

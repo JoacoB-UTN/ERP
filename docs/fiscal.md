@@ -394,3 +394,20 @@ Authorizing a test credit note does not cancel the original invoice, refund a
 payment, return goods or change account/Treasury balances. Real commercial
 corrections, partial notes, production and force-unlock tooling remain separate.
 No live authenticated ARCA acceptance is claimed without operator credentials.
+
+## Credit-note follow-up and test printing
+
+The paginated fiscal draft list includes a minimal `creditNote` summary: null
+when absent, or the note ID and latest persisted authorization summary. The
+summary contains status/PV/type/number only; no CAE, request or credentials.
+All nested relations remain company-scoped. Reading the list never contacts
+ARCA. Prepared and pending/unknown notes link directly to the note panel; absent
+summary data from an old cache is shown as unavailable rather than “no note.”
+
+Authorized notes can print a homologation sheet using their saved identity,
+lines, positive authorized amounts, reason and associated invoice. Printing
+requires matching draft ID/revision, NC type, homologation status and valid test
+CAE/expiry. Company/freshness is rechecked on click. Invoice and NC sheets share
+a container that selects exactly one document for the print dialog and clears
+selection after printing. Warnings repeat in the page/table; no production QR
+is generated. Printing does not change the authorization or any commercial data.

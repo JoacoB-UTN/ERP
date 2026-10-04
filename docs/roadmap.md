@@ -192,6 +192,7 @@ Fiscal / ARCA — PARTIAL
   Total credit notes preserve the original invoice and amounts; manual homologation
   authorization uses a separate NC series and exact associated-invoice validation.
   Uncertain responses are recovered by consultation, without reversing stock/accounts.
+  Notes have list follow-up and separate, explicitly non-fiscal test printing.
   Real-certificate acceptance remains pending.
   Next: define issuer, provision homologation credentials and exclusive test PV,
   validate a real test invoice and recovery, then separately review production,

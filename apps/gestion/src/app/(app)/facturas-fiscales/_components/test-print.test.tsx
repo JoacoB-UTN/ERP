@@ -52,7 +52,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 it('prints saved amounts, escaped identity and test CAE with visible repeated disclaimers', () => {
-  const print = vi.spyOn(window, 'print').mockImplementation(() => {});
+  const print = vi.spyOn(window, 'print').mockImplementation(() => {
+    expect(document.querySelectorAll('[data-fiscal-print-selected]')).toHaveLength(1);
+    expect(document.querySelector('[data-fiscal-print-selected]')!.getAttribute('aria-label')).toBe(
+      'Comprobante de homologación',
+    );
+  });
   render(<FiscalTestPrint draft={draft} authorization={authorization} canPrint={() => true} />);
   const sheet = document.querySelector('[data-fiscal-test-print]')!;
   expect(sheet.textContent).toContain('00012-00000042');
@@ -65,6 +70,8 @@ it('prints saved amounts, escaped identity and test CAE with visible repeated di
   expect(sheet.querySelectorAll('.warning')).toHaveLength(2);
   fireEvent.click(screen.getByRole('button', { name: 'Imprimir comprobante de prueba' }));
   expect(print).toHaveBeenCalledOnce();
+  fireEvent(window, new Event('afterprint'));
+  expect(document.querySelector('[data-fiscal-print-selected]')).toBeNull();
 });
 it.each(['UNKNOWN', 'SENDING', 'REJECTED'] as const)('does not expose a printable sheet for %s', (status) => {
   render(

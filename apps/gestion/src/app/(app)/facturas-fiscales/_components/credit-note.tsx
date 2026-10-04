@@ -7,6 +7,7 @@ import {
   type FiscalCreditNoteDraftDto,
   type FiscalDraftDto,
 } from '@erp/shared';
+import { FiscalCreditNoteTestPrint } from './credit-note-test-print';
 import { Button } from '@/components/ui/button';
 import {
   authClient,
@@ -42,7 +43,7 @@ export function FiscalCreditNotePanel({
   const query = useFiscalCreditNote(originalId, read && available);
   if (!read) return null;
   return (
-    <section className="space-y-3 rounded-lg border p-4">
+    <section id="nota-de-credito" className="space-y-3 rounded-lg border p-4">
       <h3 className="font-semibold">Nota de crédito total · Homologación · Sin validez fiscal</h3>
       <p className="text-sm">
         Prepará una nota por el importe completo del comprobante original. Guardarla no envía datos a ARCA, no
@@ -264,6 +265,16 @@ function CreditNoteForm({
               )}
             </div>
           )}
+          {available &&
+            authorizationKnown &&
+            !stale &&
+            !mismatchedAttempt &&
+            !error &&
+            !busy &&
+            !dirty &&
+            attempt && (
+              <FiscalCreditNoteTestPrint note={saved} authorization={attempt} canPrint={stillHere} />
+            )}
           {pending && <p>No repitas el envío de la nota. Consultá su resultado pendiente en ARCA.</p>}
           {write && dirty && !frozen && <p>Guardá el motivo antes de autorizar la nota.</p>}
           {canSend && (

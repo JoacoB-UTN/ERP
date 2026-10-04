@@ -1204,6 +1204,150 @@ describe('Fiscal authorization (e2e)', () => {
         clearArcaCalls();
         return { ...invoice, note };
       }
+      async function listNotes(
+        company = companyId,
+        query = 'pageSize=100',
+        agent = reader,
+      ) {
+        const calls = () => [
+          wsfe.validate.mock.calls.length,
+          wsfe.lastNumber.mock.calls.length,
+          wsfe.authorize.mock.calls.length,
+          wsfe.consult.mock.calls.length,
+          wsaa.getTicket.mock.calls.length,
+        ];
+        const before = calls();
+        const response = await agent
+          .get(`/api/v1/fiscal/drafts?${query}`)
+          .set(COMPANY_ID_HEADER, company)
+          .expect(200);
+        expect(calls()).toEqual(before);
+        return response.body as FiscalDraftsResponse;
+      }
+      it('lists unprepared, prepared and the latest rejected or authorized NC without exposing attempt details or changing pagination', async () => {
+        const invoice = await original();
+        const before = await listNotes();
+        expect(
+          before.items.find((item) => item.id === invoice.draft.id)?.creditNote,
+        ).toBeNull();
+        const note = result(
+          await saveCredit(invoice.authorization.id).expect(201),
+        );
+        const summary = async () =>
+          (await listNotes()).items.find((item) => item.id === invoice.draft.id)
+            ?.creditNote;
+        expect(await summary()).toEqual({ id: note.id, authorization: null });
+        const rejection = {
+          status: 'REJECTED',
+          cae: null,
+          expiresAt: null,
+          message: 'Private rejection detail excluded from listing',
+        };
+        wsfe.authorize.mockResolvedValueOnce(rejection);
+        await sendNote(note.id).expect(201);
+        expect(await summary()).toEqual({
+          id: note.id,
+          authorization: {
+            status: 'REJECTED',
+            pointOfSale: 12,
+            voucherType: 3,
+            voucherNumber: 1,
+          },
+        });
+        // A different number distinguishes the latest rejected attempt from history.
+        wsfe.lastNumber.mockResolvedValue(1);
+        wsfe.authorize.mockResolvedValueOnce(rejection);
+        await sendNote(note.id).expect(201);
+        expect(await summary()).toEqual({
+          id: note.id,
+          authorization: {
+            status: 'REJECTED',
+            pointOfSale: 12,
+            voucherType: 3,
+            voucherNumber: 2,
+          },
+        });
+        await sendNote(note.id).expect(201);
+        expect(await summary()).toEqual({
+          id: note.id,
+          authorization: {
+            status: 'AUTHORIZED',
+            pointOfSale: 12,
+            voucherType: 3,
+            voucherNumber: 2,
+          },
+        });
+        const after = await listNotes();
+        expect(after.pagination).toEqual(before.pagination);
+        expect(after.items.map((item) => item.id)).toEqual(
+          before.items.map((item) => item.id),
+        );
+        for (const page of [1, 2]) {
+          const paged = await listNotes(companyId, `page=${page}&pageSize=1`);
+          expect(paged.pagination).toEqual({
+            page,
+            pageSize: 1,
+            total: before.pagination.total,
+            totalPages: before.pagination.total,
+          });
+          expect(paged.items.map((item) => item.id)).toEqual(
+            before.items.slice(page - 1, page).map((item) => item.id),
+          );
+        }
+        const listed = after.items.find(
+          (item) => item.id === invoice.draft.id,
+        )!;
+        expect(listed.authorization).toEqual({
+          status: 'AUTHORIZED',
+          pointOfSale: 12,
+          voucherType: 1,
+          voucherNumber: 1,
+        });
+        expect(
+          JSON.stringify({
+            invoice: listed.authorization,
+            creditNote: listed.creditNote,
+          }),
+        ).not.toMatch(
+          /"(?:cae|expiresAt|request|snapshot|reason|message|associated)"\s*:|private-ticket|private-sign/,
+        );
+      });
+      it('lists SENDING and UNKNOWN NC from durable state without consulting ARCA', async () => {
+        const { draft, note } = await prepareNote();
+        let sendingList: FiscalDraftsResponse | undefined;
+        wsfe.authorize.mockImplementationOnce(async () => {
+          sendingList = await listNotes();
+          throw new Error('Uncertain transport after durable claim');
+        });
+        await sendNote(note.id).expect(201);
+        // Keep assertions outside the transport mock: authorization catches
+        // transport failures and would otherwise swallow a failed expectation.
+        expect(
+          sendingList?.items.find((item) => item.id === draft.id)?.creditNote,
+        ).toEqual({
+          id: note.id,
+          authorization: {
+            status: 'SENDING',
+            pointOfSale: 12,
+            voucherType: 3,
+            voucherNumber: 1,
+          },
+        });
+        expect(
+          (await listNotes()).items.find((item) => item.id === draft.id)
+            ?.creditNote,
+        ).toEqual({
+          id: note.id,
+          authorization: {
+            status: 'UNKNOWN',
+            pointOfSale: 12,
+            voucherType: 3,
+            voucherNumber: 1,
+          },
+        });
+        expect(wsfe.authorize).toHaveBeenCalledTimes(1);
+        expect(wsfe.consult).not.toHaveBeenCalled();
+      });
       it('requires scoped read/create permissions, revision and acknowledgements without accepting fiscal payload fields', async () => {
         const { note } = await prepareNote();
         expect((await latestNote(note.id, reader).expect(200)).body).toEqual({
@@ -1569,6 +1713,32 @@ describe('Fiscal authorization (e2e)', () => {
           await consultNote(pendingNote.id, editor, foreignCompanyId).expect(
             404,
           );
+          const ownList = await listNotes();
+          const foreignList = await listNotes(
+            foreignCompanyId,
+            'pageSize=100',
+            editor,
+          );
+          expect(
+            ownList.items.find((item) => item.id === first.draft.id)
+              ?.creditNote,
+          ).toEqual({
+            id: first.note.id,
+            authorization: {
+              status: 'UNKNOWN',
+              pointOfSale: 12,
+              voucherType: 3,
+              voucherNumber: 1,
+            },
+          });
+          expect(
+            foreignList.items.find((item) => item.id === foreignDraft.draft.id)
+              ?.creditNote,
+          ).toEqual({ id: foreignNote.id, authorization: null });
+          expect(JSON.stringify(ownList)).not.toContain(foreignNote.id);
+          expect(JSON.stringify(ownList)).not.toContain(foreignDraft.draft.id);
+          expect(JSON.stringify(foreignList)).not.toContain(first.note.id);
+          expect(JSON.stringify(foreignList)).not.toContain(first.draft.id);
         } finally {
           await prisma.fiscalCreditNoteAuthorization.deleteMany({
             where: scope,

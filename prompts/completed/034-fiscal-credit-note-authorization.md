@@ -1,6 +1,6 @@
 # 034 — Authorize and reconcile total homologation credit notes
 
-Status: IMPLEMENTED — local verification and independent review passed; CI pending.
+Status: DONE. PR #72 merged after all CI checks and independent review passed.
 Base: merged PR71 / main26e3f43. Branch agent/codex-credit-note-authorization.
 Coordinator owns Prisma/migration/services/sharedclient/docs. Isolated protocol
 worktree owns WSFE request/parser/builder files; UI worker owns note panels;

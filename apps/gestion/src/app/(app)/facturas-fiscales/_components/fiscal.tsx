@@ -112,6 +112,43 @@ function authorizationLabel(authorization: FiscalDraftListItem['authorization'] 
     }[authorization.status] ?? 'Datos no disponibles'
   );
 }
+function CreditNoteSummary({
+  note,
+  draftId,
+}: {
+  note: FiscalDraftListItem['creditNote'] | undefined;
+  draftId: string;
+}) {
+  if (note === null) return <>Sin nota</>;
+  if (!note) return <>Datos no disponibles</>;
+  const authorization = note.authorization;
+  const label =
+    authorization === null
+      ? 'Nota preparada'
+      : authorization
+        ? ({
+            SENDING: 'Envío de NC pendiente',
+            UNKNOWN: 'Resultado de NC desconocido',
+            AUTHORIZED: 'NC autorizada en pruebas',
+            REJECTED: 'NC rechazada en pruebas',
+          }[authorization.status] ?? 'Datos no disponibles')
+        : 'Datos no disponibles';
+  const pending = authorization?.status === 'SENDING' || authorization?.status === 'UNKNOWN';
+  return (
+    <div className="space-y-1">
+      <p>{label}</p>
+      {authorization && (
+        <p className="whitespace-nowrap">
+          NC {String(authorization.pointOfSale).padStart(5, '0')}-
+          {String(authorization.voucherNumber).padStart(8, '0')} · Tipo {authorization.voucherType}
+        </p>
+      )}
+      <Link className={linkClass} href={`/facturas-fiscales/${draftId}#nota-de-credito`}>
+        {pending ? 'Consultar resultado de NC' : 'Ver nota de crédito'}
+      </Link>
+    </div>
+  );
+}
 export function FiscalListPage() {
   const access = useAccess();
   const [page, setPage] = useState(1);
@@ -147,6 +184,7 @@ export function FiscalListPage() {
                   <th>Revisión</th>
                   <th>Estado del último intento</th>
                   <th>Número de prueba</th>
+                  <th>Nota de crédito</th>
                   <th>Detalle</th>
                 </tr>
               </thead>
@@ -163,6 +201,9 @@ export function FiscalListPage() {
                       {draft.authorization
                         ? `${String(draft.authorization.pointOfSale).padStart(5, '0')}-${String(draft.authorization.voucherNumber).padStart(8, '0')}`
                         : '—'}
+                    </td>
+                    <td>
+                      <CreditNoteSummary note={draft.creditNote} draftId={draft.id} />
                     </td>
                     <td>
                       <Link className={linkClass} href={`/facturas-fiscales/${draft.id}`}>

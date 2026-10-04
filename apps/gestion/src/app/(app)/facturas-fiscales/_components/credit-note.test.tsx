@@ -331,3 +331,58 @@ it('fails closed for an authorization belonging to a different note', () => {
   expect(screen.queryByRole('checkbox')).toBeNull();
   expect(screen.getByText(/No se pudo verificar que el resultado corresponda/)).toBeTruthy();
 });
+
+const printableNote = {
+  ...saved,
+  environment: 'HOMOLOGATION',
+  original: { ...saved.original, voucherType: 6, date: '20261004' },
+  authorizedAmounts: { total: '121.00', net: '100.00', vat: '21.00', exempt: '0.00', notTaxed: '0.00' },
+  invoice: {
+    invoiceType: 'B',
+    source: {
+      issuer: { legalName: 'Emisor', taxId: '20123456786' },
+      recipient: { legalName: 'Cliente', taxId: '20123456786', taxCondition: 'CONSUMIDOR_FINAL' },
+      saleNumber: 'V-1',
+    },
+    lines: [],
+  },
+};
+it('allows a read-only operator to print a verified authorized note without mutation permissions', () => {
+  mock.write = false;
+  mock.query.mockReturnValue(state(printableNote));
+  mock.authorization.mockReturnValue(authorizationState(attempt));
+  const print = vi.spyOn(window, 'print').mockImplementation(() => {});
+  render(<FiscalCreditNotePanel originalId="original" invoice={invoice} />);
+  expect(screen.queryByRole('textbox')).toBeNull();
+  expect(screen.getAllByRole('button')).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Imprimir nota de crédito de prueba' }));
+  expect(print).toHaveBeenCalledOnce();
+  expect(mock.send).not.toHaveBeenCalled();
+  expect(mock.save).not.toHaveBeenCalled();
+  print.mockRestore();
+});
+
+it.each(['authorization-error', 'authorization-refresh', 'note-error', 'stale-note', 'original-unavailable'])(
+  'removes the printable note when current data cannot be verified (%s)',
+  (failure) => {
+    mock.query.mockReturnValue(state(printableNote));
+    mock.authorization.mockReturnValue(authorizationState(attempt));
+    const view = render(<FiscalCreditNotePanel originalId="original" invoice={invoice} />);
+    expect(screen.getByRole('button', { name: 'Imprimir nota de crédito de prueba' })).toBeTruthy();
+    if (failure === 'authorization-error')
+      mock.authorization.mockReturnValue({ ...authorizationState(attempt), isError: true });
+    if (failure === 'authorization-refresh')
+      mock.authorization.mockReturnValue({ ...authorizationState(attempt), isFetching: true });
+    if (failure === 'note-error') mock.query.mockReturnValue({ ...state(printableNote), isError: true });
+    if (failure === 'stale-note') mock.query.mockReturnValue(state({ ...printableNote, revision: 2 }));
+    view.rerender(
+      <FiscalCreditNotePanel
+        originalId="original"
+        invoice={invoice}
+        available={failure !== 'original-unavailable'}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Imprimir nota de crédito de prueba' })).toBeNull();
+    expect(document.querySelector('[data-fiscal-test-print]')).toBeNull();
+  },
+);

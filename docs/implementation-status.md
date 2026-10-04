@@ -952,7 +952,9 @@ Preparation is audited and does not send; a separate explicit action authorizes
 the note in homologation with its own numbering and exact invoice association.
 Durable attempts, global series/number uniqueness, frozen drafts and consult-only
 recovery prevent blind retries. A test CAE never changes stock, sales, accounts
-or Treasury balances. See
+or Treasury balances. The fiscal list also shows the saved note and its latest
+status/number, with access to manual consultation. Authorized NC test printing
+uses the original snapshot and prints only the explicitly selected document. See
 [fiscal.md](fiscal.md) for credential provisioning, limits and recovery behavior.
 
 ## Not implemented
