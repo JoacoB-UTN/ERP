@@ -183,12 +183,15 @@ Treasury
   from Cobros/Pagos. POS settlement remains deliberately excluded.
   Gestión screens are integrated in PR #62 with core browser acceptance; cheques, reconciliation and FX are not started.
 
-Fiscal / ARCA
-  Argentine tax authority integration, electronic invoicing
+Fiscal / ARCA — PARTIAL
+  Persisted preparation drafts from confirmed ARS sales with explicit IVA
+  breakdown now exist; see docs/fiscal.md. Next: issuer/recipient profiles,
+  homologation setup, WSAA/WSFE authorization and reconciliation, CAE/QR.
+  No authorized electronic invoicing yet.
 
 Taxes
-  VAT calculation (PriceList.includesTax is metadata only today — no
-  calculation engine exists)
+  Explicit draft VAT breakdown implemented; PriceList.includesTax remains
+  metadata. Automatic tax determination and live fiscal validation pending.
 
 Accounting
   Chart of accounts, journal entries, ledger posting from business events
