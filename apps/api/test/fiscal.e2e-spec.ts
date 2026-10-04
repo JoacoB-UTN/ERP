@@ -14,6 +14,7 @@ import {
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
 import { AuditService } from '../src/audit/audit.service';
+import { CustomerAccountService } from '../src/accounts/customer-account.service';
 import { SalesService } from '../src/sales/sales.service';
 import type { SalesDocumentStatus } from '../src/generated/prisma/client';
 
@@ -44,31 +45,49 @@ describe('Fiscal drafts (e2e)', () => {
     status: SalesDocumentStatus = 'CONFIRMED',
     currency = currencyId,
   ) {
-    return prisma.salesDocument.create({
-      data: {
-        tenantId,
-        companyId,
-        warehouseId,
-        priceListId,
-        customerId,
-        currencyId: currency,
-        number: `VTA-${randomUUID()}`,
-        status,
-        occurredAt: new Date(),
-        total: amount,
-        subtotal: amount,
-        lines: {
-          create: {
-            productVariantId: variantId,
-            description: 'Frozen sale line',
-            quantity: '1',
-            unitPrice: amount,
-            netAmount: amount,
-            totalAmount: amount,
+    return prisma.$transaction(async (tx) => {
+      const document = await tx.salesDocument.create({
+        data: {
+          tenantId,
+          companyId,
+          warehouseId,
+          priceListId,
+          customerId,
+          currencyId: currency,
+          number: `VTA-${randomUUID()}`,
+          status,
+          occurredAt: new Date(),
+          total: amount,
+          subtotal: amount,
+          lines: {
+            create: {
+              productVariantId: variantId,
+              description: 'Frozen sale line',
+              quantity: '1',
+              unitPrice: amount,
+              netAmount: amount,
+              totalAmount: amount,
+            },
           },
         },
-      },
-      include: { lines: true },
+        include: { lines: true },
+      });
+      // Keep historical fixtures ledger-complete so other suites' startup backfill
+      // cannot change this company's balances between before/after assertions.
+      if (status === 'CONFIRMED') {
+        await app.get(CustomerAccountService).postSaleConfirmation(tx, {
+          tenantId,
+          companyId,
+          customerId,
+          currencyId: currency,
+          salesDocumentId: document.id,
+          salesDocumentNumber: document.number,
+          total: document.total.toString(),
+          occurredAt: document.occurredAt,
+          createdBy: null,
+        });
+      }
+      return document;
     });
   }
   const input = (
