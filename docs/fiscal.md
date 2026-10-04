@@ -272,3 +272,5 @@ nullable CAE constraint, sale locking and originating-company cache refresh.
 No manual browser acceptance or authenticated live ARCA run is claimed. Production activation, issuer registry
 validation, complete tax catalogs, fiscal printing/QR and credit/debit notes
 remain separate reviewed work.
+
+Operator walkthrough: [Primera prueba de facturación con ARCA](fiscal-homologation-guide.md).
