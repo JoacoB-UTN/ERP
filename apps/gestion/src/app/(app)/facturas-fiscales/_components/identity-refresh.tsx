@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { CUSTOMER_TAX_CONDITION_LABELS, refreshFiscalIdentitySchema, type FiscalDraftDto } from '@erp/shared';
 import { Button } from '@/components/ui/button';
+import { FiscalRecipientIdentity } from './recipient-identity';
 import {
   authClient,
   useActiveCompany,
@@ -87,9 +88,7 @@ export function FiscalIdentityRefresh({
       <p>
         Emisor: {draft.source.issuer.legalName} · CUIT: {draft.source.issuer.taxId || 'Sin informar'}
       </p>
-      <p>
-        Receptor: {draft.source.recipient.legalName} · CUIT: {draft.source.recipient.taxId || 'Sin informar'}
-      </p>
+      <FiscalRecipientIdentity recipient={draft.source.recipient} />
       <p>
         Condición de IVA del receptor:{' '}
         {CUSTOMER_TAX_CONDITION_LABELS[draft.source.recipient.taxCondition] ??

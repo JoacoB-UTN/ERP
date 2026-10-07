@@ -10,6 +10,7 @@ import {
   type FiscalDraftDto,
 } from '@erp/shared';
 import { Button } from '@/components/ui/button';
+import { FiscalRecipientIdentity } from './recipient-identity';
 
 const subscribe = () => () => {};
 const clientSnapshot = () => true;
@@ -130,9 +131,7 @@ export function FiscalTestPrintSheet({
           <p>
             Emisor: {invoice.source.issuer.legalName} · CUIT: {invoice.source.issuer.taxId}
           </p>
-          <p>
-            Receptor: {invoice.source.recipient.legalName} · CUIT: {invoice.source.recipient.taxId}
-          </p>
+          <FiscalRecipientIdentity recipient={invoice.source.recipient} />
           <p>
             Condición de IVA del receptor:{' '}
             {CUSTOMER_TAX_CONDITION_LABELS[invoice.source.recipient.taxCondition] ??

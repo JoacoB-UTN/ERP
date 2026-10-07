@@ -16,6 +16,7 @@ import {
 } from '@erp/shared';
 import { FiscalAuthorizationPanel } from './authorization';
 import { FiscalIdentityRefresh } from './identity-refresh';
+import { FiscalRecipientIdentity } from './recipient-identity';
 import { Button } from '@/components/ui/button';
 import {
   authClient,
@@ -566,11 +567,9 @@ export function FiscalForm({
           Venta {source.saleNumber} · Total {money(source.total)}
         </p>
         <p>
-          Emisor registrado: {source.issuer.legalName} · {source.issuer.taxId}
+          Emisor registrado: {source.issuer.legalName} · CUIT: {source.issuer.taxId}
         </p>
-        <p>
-          Receptor: {source.recipient.legalName} · {source.recipient.taxId ?? 'Sin identificación informada'}
-        </p>
+        <FiscalRecipientIdentity recipient={source.recipient} />
         <p className="text-sm text-muted-foreground">Estos datos no confirman habilitación fiscal.</p>
       </div>
       <fieldset disabled={busy} className="space-y-4">

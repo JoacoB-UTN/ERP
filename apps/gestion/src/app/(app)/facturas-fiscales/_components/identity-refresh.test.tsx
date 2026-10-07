@@ -61,7 +61,9 @@ it('shows frozen identity and requires an explicit confirmation before sending t
     <FiscalIdentityRefresh draft={draft} available onRefreshed={onRefreshed} onBusyChange={onBusyChange} />,
   );
   expect(screen.getByText(/Emisor: Emisor guardado/)).toBeTruthy();
-  expect(screen.getByText(/Receptor: Receptor guardado · CUIT: Sin informar/)).toBeTruthy();
+  expect(
+    screen.getByText('Receptor: Receptor guardado · Documento (tipo no registrado): Sin informar'),
+  ).toBeTruthy();
   expect(screen.getByText(/Condición de IVA del receptor/)).toBeTruthy();
   const button = screen.getByRole('button', { name: 'Actualizar datos fiscales del borrador' });
   fireEvent.click(button);
@@ -195,6 +197,69 @@ it('clears confirmation when a newer revision or another company is displayed', 
   view.rerender(
     <FiscalIdentityRefresh draft={updated} available onRefreshed={vi.fn()} onBusyChange={vi.fn()} />,
   );
+  fireEvent.click(screen.getByRole('button', { name: 'Actualizar datos fiscales del borrador' }));
+  expect(mock.refresh).not.toHaveBeenCalled();
+});
+
+it('shows frozen DNI and the declared VAT condition read-only without inferring consumer status', () => {
+  mock.permissions.delete('sales.invoices.create');
+  render(
+    <FiscalIdentityRefresh
+      draft={{
+        ...draft,
+        source: {
+          ...draft.source,
+          recipient: { ...draft.source.recipient, documentType: 'DNI', taxId: '00123456' },
+        },
+      }}
+      available
+      onRefreshed={vi.fn()}
+      onBusyChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('Receptor: Receptor guardado · DNI: 00123456')).toBeTruthy();
+  expect(screen.getByText('Emisor: Emisor guardado · CUIT: 20123456786')).toBeTruthy();
+  expect(screen.getByText('Condición de IVA del receptor: UNKNOWN')).toBeTruthy();
+  expect(screen.queryByRole('checkbox')).toBeNull();
+  expect(mock.refresh).not.toHaveBeenCalled();
+});
+
+it('updates the saved document and clears confirmation across revisions and company changes', () => {
+  const props = { available: true, onRefreshed: vi.fn(), onBusyChange: vi.fn() };
+  const dniDraft: FiscalDraftDto = {
+    ...draft,
+    source: {
+      ...draft.source,
+      recipient: { ...draft.source.recipient, documentType: 'DNI', taxId: '12345678' },
+    },
+  };
+  const view = render(<FiscalIdentityRefresh {...props} draft={dniDraft} />);
+  fireEvent.click(screen.getByRole('checkbox'));
+  const cuitDraft: FiscalDraftDto = {
+    ...updated,
+    source: { ...updated.source, recipient: { ...updated.source.recipient, documentType: 'CUIT' } },
+  };
+  view.rerender(<FiscalIdentityRefresh {...props} draft={cuitDraft} />);
+  expect(screen.getByText('Receptor: Receptor corregido · CUIT: 20123456786')).toBeTruthy();
+  expect(screen.queryByText(/DNI: 12345678/)).toBeNull();
+  expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByRole('checkbox'));
+  mock.company = 'b';
+  view.rerender(
+    <FiscalIdentityRefresh
+      {...props}
+      draft={{
+        ...cuitDraft,
+        source: {
+          ...cuitDraft.source,
+          recipient: { legalName: 'Cliente B', documentType: null, taxId: null, taxCondition: 'UNKNOWN' },
+        },
+      }}
+    />,
+  );
+  expect(screen.getByText('Receptor: Cliente B · Documento (tipo sin definir): Sin informar')).toBeTruthy();
+  expect(screen.queryByText(/Receptor corregido/)).toBeNull();
+  expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole('button', { name: 'Actualizar datos fiscales del borrador' }));
   expect(mock.refresh).not.toHaveBeenCalled();
 });

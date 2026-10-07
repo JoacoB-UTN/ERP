@@ -109,3 +109,38 @@ it('checks company again at click time and removes the print sheet on unmount', 
   view.unmount();
   expect(document.querySelector('[data-fiscal-test-print]')).toBeNull();
 });
+
+it.each([
+  { documentType: 'DNI', taxId: '12345678', label: 'DNI' },
+  { documentType: 'CUIT', taxId: '20123456786', label: 'CUIT' },
+  { documentType: undefined, taxId: '20123456786', label: 'Documento (tipo no registrado)' },
+  { documentType: undefined, taxId: '12345678', label: 'Documento (tipo no registrado)' },
+  { documentType: null, taxId: '12345678', label: 'Documento (tipo sin definir)' },
+] as const)(
+  'prints invoice B with its saved document label and number (%j)',
+  ({ documentType, taxId, label }) => {
+    const print = vi.spyOn(window, 'print').mockImplementation(() => {});
+    render(
+      <FiscalTestPrint
+        draft={{
+          ...draft,
+          invoiceType: 'B',
+          source: {
+            ...draft.source,
+            recipient: { ...draft.source.recipient, documentType, taxId, taxCondition: 'CONSUMIDOR_FINAL' },
+          },
+        }}
+        authorization={{ ...authorization, voucherType: 6 }}
+        canPrint={() => true}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Imprimir comprobante de prueba' }));
+    const sheet = document.querySelector('[data-fiscal-print-selected]')!;
+    expect(sheet.textContent).toContain('Comprobante de homologación · B');
+    expect(sheet.textContent).toContain(`Receptor: Cliente de prueba · ${label}: ${taxId}`);
+    expect(sheet.textContent).toContain('Emisor: <script>test</script> · CUIT: 20123456786');
+    expect(sheet.textContent).toContain('Condición de IVA del receptor: Consumidor Final');
+    expect(sheet.textContent).toContain('SIN VALIDEZ FISCAL');
+    expect(print).toHaveBeenCalledOnce();
+  },
+);
