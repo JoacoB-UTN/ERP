@@ -9,6 +9,8 @@ import {
   normalizeTaxId,
   type AuthorizeFiscalDraftInput,
   type FiscalAuthorizationDto,
+  type FiscalAuthorizationHistoryQuery,
+  type FiscalAuthorizationHistoryResponse,
   type FiscalPreview,
   type FiscalAuthenticationResponse,
 } from '@erp/shared';
@@ -21,7 +23,24 @@ import { ArcaWsfeService, type ArcaInvoiceRequest } from './arca-wsfe.service';
 import { buildHomologationRequest } from './fiscal-request';
 
 const pending = ['SENDING', 'UNKNOWN'];
-function dto(row: FiscalAuthorization): FiscalAuthorizationDto {
+const publicSelection = {
+  id: true,
+  draftId: true,
+  draftRevision: true,
+  status: true,
+  pointOfSale: true,
+  voucherType: true,
+  voucherNumber: true,
+  cae: true,
+  expiresAt: true,
+  message: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.FiscalAuthorizationSelect;
+type PublicAuthorization = Prisma.FiscalAuthorizationGetPayload<{
+  select: typeof publicSelection;
+}>;
+function dto(row: PublicAuthorization): FiscalAuthorizationDto {
   return {
     id: row.id,
     draftId: row.draftId,
@@ -79,6 +98,46 @@ export class FiscalAuthorizationService {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
     return { authorization: row ? dto(row) : null };
+  }
+  async history(
+    ctx: RequestContext,
+    draftId: string,
+    query: FiscalAuthorizationHistoryQuery,
+  ): Promise<FiscalAuthorizationHistoryResponse> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const scope = { companyId: ctx.companyId, tenantId: ctx.tenantId };
+        const parent = await tx.fiscalDraft.findFirst({
+          where: { id: draftId, ...scope },
+          select: { id: true },
+        });
+        if (!parent)
+          throw new NotFoundException(
+            'No se encontró el borrador en esta empresa.',
+          );
+        const where = { draftId, ...scope };
+        const orderBy = [{ createdAt: 'desc' }, { id: 'desc' }] as const;
+        const rows = await tx.fiscalAuthorization.findMany({
+          where,
+          orderBy: [...orderBy],
+          skip: (query.page - 1) * query.pageSize,
+          take: query.pageSize,
+          select: publicSelection,
+        });
+        const total = await tx.fiscalAuthorization.count({ where });
+        const latest = await tx.fiscalAuthorization.findFirst({
+          where,
+          orderBy: [...orderBy],
+          select: { id: true },
+        });
+        return {
+          items: rows.map(dto),
+          latestAuthorizationId: latest?.id ?? null,
+          pagination: { page: query.page, pageSize: query.pageSize, total },
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
   private async source(
     ctx: RequestContext,

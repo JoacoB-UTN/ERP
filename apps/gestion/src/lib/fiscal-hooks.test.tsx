@@ -139,6 +139,48 @@ describe('Fiscal company binding', () => {
   });
 });
 
+describe('Fiscal attempt history context', () => {
+  it('loads only an explicitly enabled document in an active company', () => {
+    renderHook(() => hooks.useFiscalAuthorizationHistory('invoice', 'draft', 1, false), { wrapper: Wrapper });
+    renderHook(() => hooks.useFiscalAuthorizationHistory('invoice', null), { wrapper: Wrapper });
+    company = null;
+    renderHook(() => hooks.useFiscalAuthorizationHistory('credit-note', 'note'), { wrapper: Wrapper });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it.each([
+    { kind: 'credit-note' as const, id: 'draft', page: 1 },
+    { kind: 'invoice' as const, id: 'other', page: 1 },
+    { kind: 'invoice' as const, id: 'draft', page: 2 },
+  ])('isolates history cache for $kind/$id/page $page', async (next) => {
+    fetcher.mockResolvedValueOnce({ items: [{ id: 'previous-attempt' }] });
+    const view = renderHook(
+      ({ kind, id, page }: { kind: 'invoice' | 'credit-note'; id: string; page: number }) =>
+        hooks.useFiscalAuthorizationHistory(kind, id, page),
+      { wrapper: Wrapper, initialProps: { kind: 'invoice' as 'invoice' | 'credit-note', id: 'draft', page: 1 } },
+    );
+    await waitFor(() => expect(view.result.current.isSuccess).toBe(true));
+    fetcher.mockImplementation(() => new Promise(() => {}));
+    view.rerender(next);
+    expect(view.result.current.data).toBeUndefined();
+    await waitFor(() => expect(fetcher).toHaveBeenLastCalledWith(
+      `/fiscal/${next.kind === 'invoice' ? 'drafts' : 'credit-notes'}/${next.id}/authorizations?page=${next.page}&pageSize=25`,
+      { expectedCompanyId: 'a' },
+    ));
+  });
+  it('does not display a late history response after switching company', async () => {
+    let resolveOld!: (value: unknown) => void;
+    fetcher.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    const view = renderHook(() => hooks.useFiscalAuthorizationHistory('invoice', 'draft'), { wrapper: Wrapper });
+    await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    company = 'b';
+    fetcher.mockImplementation(() => new Promise(() => {}));
+    view.rerender();
+    await act(async () => { resolveOld({ items: [{ id: 'old-company-attempt' }] }); });
+    expect(view.result.current.data).toBeUndefined();
+    expect(fetcher).toHaveBeenLastCalledWith('/fiscal/drafts/draft/authorizations?page=1&pageSize=25', { expectedCompanyId: 'b' });
+  });
+});
+
 describe('Fiscal settings client context', () => {
   it('does not query configuration without permission', () => {
     renderHook(() => hooks.useFiscalSettings(false), { wrapper: Wrapper });

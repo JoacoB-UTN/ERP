@@ -1,6 +1,6 @@
 # 037 — Find fiscal submissions that need consultation
 
-Status: IMPLEMENTED — verified; awaiting green CI and merge.
+Status: DONE — merged PR #75, main 205aa92.
 PR: #75.
 Base: merged PR #74 / main 2c52912.
 Branch: agent/codex-fiscal-pending-consultations; isolated API/UI work integrated.

@@ -35,6 +35,13 @@ vi.mock('next/navigation', () => ({ useParams: () => ({ saleId: 'sale-a', id: 'd
 vi.mock('@/lib/auth-client', () => ({
   authClient: { companyContextStore: { getActiveCompanyId: () => mock.company } },
   useActiveCompany: () => ({ activeCompanyId: mock.company }),
+  useFiscalAuthorizationHistory: () => ({
+    data: undefined,
+    isPending: false,
+    isFetching: false,
+    isError: false,
+    refetch: vi.fn(),
+  }),
   useFiscalAuthorization: () =>
     mock.authorizationState ?? { data: { authorization: null }, isError: false, isPending: false },
   useFiscalCreditNote: () => ({ data: { draft: null }, isError: false, isPending: false, isFetching: false }),

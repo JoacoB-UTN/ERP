@@ -8,12 +8,15 @@ const mock = vi.hoisted(() => ({
   company: 'a',
   write: true,
   query: vi.fn(),
+  history: vi.fn(),
+  historyRefetch: vi.fn(),
   send: vi.fn(),
   consult: vi.fn(),
 }));
 vi.mock('@/lib/auth-client', () => ({
   authClient: { companyContextStore: { getActiveCompanyId: () => mock.company } },
   useActiveCompany: () => ({ activeCompanyId: mock.company }),
+  useFiscalAuthorizationHistory: (...args: unknown[]) => mock.history(...args),
   usePermissions: () => ({
     isLoading: false,
     can: (p: string) => p !== 'sales.invoices.create' || mock.write,
@@ -47,6 +50,14 @@ function acknowledgements() {
 }
 beforeEach(() => {
   mock.company = 'a';
+  mock.historyRefetch.mockReset();
+  mock.history.mockReset().mockReturnValue({
+    data: { items: [], latestAuthorizationId: null, pagination: { page: 1, pageSize: 25, total: 0 } },
+    isError: false,
+    isPending: false,
+    isFetching: false,
+    refetch: mock.historyRefetch,
+  });
   mock.write = true;
   setup();
   mock.send.mockReset().mockResolvedValue({ authorization: attempt });
@@ -93,7 +104,7 @@ it('does not allow a read-only operator to send or reconcile', () => {
   mock.write = false;
   setup('UNKNOWN');
   render(<FiscalAuthorizationPanel draft={draft} canPrepare={false} />);
-  expect(screen.queryByRole('button')).toBeNull();
+  expect(screen.queryByRole('button', { name: /Guardar|Autorizar|Consultar resultado/ })).toBeNull();
   expect(screen.getByText('Resultado desconocido')).toBeTruthy();
 });
 it('discards a late result from the previous company', async () => {
@@ -154,6 +165,54 @@ it('blocks reconciliation while the outer draft is unavailable', () => {
   render(<FiscalAuthorizationPanel draft={draft} canPrepare available={false} />);
   fireEvent.click(screen.getByRole('button', { name: 'Consultar resultado en ARCA' }));
   expect(mock.consult).not.toHaveBeenCalled();
+});
+
+it('never derives send or reconciliation eligibility from an older history entry', () => {
+  setup('UNKNOWN');
+  mock.history.mockReturnValue({
+    data: {
+      items: [
+        {
+          ...attempt,
+          id: 'old',
+          status: 'REJECTED',
+          createdAt: '2026-10-04T12:00:00Z',
+          draftRevision: 1,
+          message: 'Rechazo anterior',
+        },
+      ],
+      latestAuthorizationId: 'attempt',
+      pagination: { page: 1, pageSize: 25, total: 1 },
+    },
+    isError: false,
+    isPending: false,
+    isFetching: false,
+    refetch: mock.historyRefetch,
+  });
+  const view = render(<FiscalAuthorizationPanel draft={draft} canPrepare />);
+  expect(mock.history).toHaveBeenLastCalledWith('invoice', 'draft', 1, false);
+  fireEvent.click(screen.getByRole('button', { name: 'Ver historial de factura' }));
+  expect(screen.getByText('Rechazo anterior')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Autorizar comprobante de prueba' })).toBeNull();
+  expect(
+    (screen.getByRole('button', { name: 'Consultar resultado en ARCA' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Recargar historial' }));
+  expect(mock.historyRefetch).toHaveBeenCalledTimes(1);
+  expect(mock.consult).not.toHaveBeenCalled();
+  mock.history.mockReturnValue({
+    data: undefined,
+    isError: true,
+    isPending: false,
+    isFetching: false,
+    refetch: mock.historyRefetch,
+  });
+  view.rerender(<FiscalAuthorizationPanel draft={draft} canPrepare />);
+  expect(screen.queryByText('Rechazo anterior')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Autorizar comprobante de prueba' })).toBeNull();
+  expect(
+    (screen.getByRole('button', { name: 'Consultar resultado en ARCA' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
 });
 
 it.each([

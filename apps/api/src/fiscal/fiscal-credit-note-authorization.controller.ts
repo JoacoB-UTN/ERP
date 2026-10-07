@@ -5,10 +5,13 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   authorizeFiscalDraftSchema,
+  fiscalAuthorizationHistoryQuerySchema,
   type AuthorizeFiscalDraftInput,
+  type FiscalAuthorizationHistoryQuery,
 } from '@erp/shared';
 import { z } from 'zod';
 import { RequirePermissions } from '../authorization/decorators/require-permissions.decorator';
@@ -19,6 +22,16 @@ import { FiscalCreditNoteAuthorizationService } from './fiscal-credit-note-autho
 @Controller('fiscal')
 export class FiscalCreditNoteAuthorizationController {
   constructor(private readonly service: FiscalCreditNoteAuthorizationService) {}
+  @Get('credit-notes/:id/authorizations')
+  @RequirePermissions('sales.invoices.read')
+  history(
+    @CurrentRequestContext() ctx: RequestContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query(new ZodValidationPipe(fiscalAuthorizationHistoryQuerySchema))
+    query: FiscalAuthorizationHistoryQuery,
+  ) {
+    return this.service.history(ctx, id, query);
+  }
   @Get('credit-notes/:id/authorization')
   @RequirePermissions('sales.invoices.read')
   latest(
