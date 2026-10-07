@@ -149,7 +149,9 @@ describe('Fiscal authorization (e2e)', () => {
     app = module.createNestApplication();
     app.use(cookieParser());
     app.setGlobalPrefix('api/v1');
-    await app.init();
+    // Keep one listener for concurrent requests and requests nested in WSFE mocks.
+    // Supertest's per-request server close can otherwise wait on the outer request.
+    await app.listen(0, '127.0.0.1');
     prisma = app.get(PrismaService);
     tenantId = (
       await prisma.tenant.create({
