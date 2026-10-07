@@ -17,6 +17,7 @@ import {
   type FiscalDraftsResponse,
   type FiscalLatestAuthorizationResponse,
   type FiscalAuthorizationResponse,
+  type FiscalAuthorizationHistoryResponse,
   type SaveFiscalDraftInput,
 } from '@erp/shared';
 import { AppModule } from '../src/app.module';
@@ -1240,6 +1241,259 @@ describe('Fiscal authorization (e2e)', () => {
         expect(calls()).toEqual(before);
         return response.body as FiscalDraftsResponse;
       }
+      async function historyFixture(kind: 'invoice' | 'credit-note') {
+        const id =
+          kind === 'invoice'
+            ? (await makeDraft()).draft.id
+            : (await prepareNote()).note.id;
+        const route = `/api/v1/fiscal/${kind === 'invoice' ? 'drafts' : 'credit-notes'}/${id}/authorizations`;
+        const get = (query = '', agent = reader, company = companyId) =>
+          agent
+            .get(`${route}${query ? `?${query}` : ''}`)
+            .set(COMPANY_ID_HEADER, company);
+        return {
+          id,
+          get,
+          send: () => (kind === 'invoice' ? authorize(id) : sendNote(id)),
+          reconcile: (attemptId: string) =>
+            kind === 'invoice' ? reconcile(attemptId) : consultNote(attemptId),
+          read: async (query = '') => {
+            const calls = () => [
+              wsfe.validate.mock.calls.length,
+              wsfe.lastNumber.mock.calls.length,
+              wsfe.authorize.mock.calls.length,
+              wsfe.consult.mock.calls.length,
+              wsaa.getTicket.mock.calls.length,
+            ];
+            const before = calls();
+            const response = await get(query).expect(200);
+            expect(calls()).toEqual(before);
+            return response.body as FiscalAuthorizationHistoryResponse;
+          },
+        };
+      }
+      it.each(['invoice', 'credit-note'] as const)(
+        'returns empty %s history only to scoped readers and validates bounded query parameters',
+        async (kind) => {
+          const fixture = await historyFixture(kind);
+          clearArcaCalls();
+          expect(await fixture.read()).toEqual({
+            items: [],
+            latestAuthorizationId: null,
+            pagination: { page: 1, pageSize: 25, total: 0 },
+          });
+          expect(await fixture.read('page=4&pageSize=100')).toEqual({
+            items: [],
+            latestAuthorizationId: null,
+            pagination: { page: 4, pageSize: 100, total: 0 },
+          });
+          for (const agent of [noFiscal, noSalesRead])
+            await fixture.get('', agent).expect(403);
+          await fixture.get('', editor, foreignCompanyId).expect(404);
+          const prefix = kind === 'invoice' ? 'drafts' : 'credit-notes';
+          await reader
+            .get(`/api/v1/fiscal/${prefix}/${randomUUID()}/authorizations`)
+            .set(COMPANY_ID_HEADER, companyId)
+            .expect(404);
+          await reader
+            .get(`/api/v1/fiscal/${prefix}/invalid-id/authorizations`)
+            .set(COMPANY_ID_HEADER, companyId)
+            .expect(400);
+          for (const query of [
+            'page=0',
+            'page=1000001',
+            'page=1.5',
+            'page=no',
+            'pageSize=0',
+            'pageSize=101',
+            'pageSize=1.5',
+            'page=1&page=2',
+            `companyId=${foreignCompanyId}`,
+            'request=true',
+            'status=REJECTED',
+          ])
+            await fixture.get(query).expect(400);
+          expectNoArcaCalls();
+        },
+      );
+      it.each(['invoice', 'credit-note'] as const)(
+        'paginates persisted %s attempts in stable order with a safe DTO and no writes',
+        async (kind) => {
+          const fixture = await historyFixture(kind);
+          const rejected = {
+            status: 'REJECTED',
+            cae: null,
+            expiresAt: null,
+            message: 'Rechazado en pruebas',
+          };
+          wsfe.authorize.mockResolvedValueOnce(rejected);
+          const first = attempt(await fixture.send().expect(201));
+          wsfe.authorize.mockResolvedValueOnce(rejected);
+          const second = attempt(await fixture.send().expect(201));
+          const authorized = attempt(await fixture.send().expect(201));
+          const historyIds = [first.id, second.id];
+          const data = {
+            createdAt: new Date('2001-01-01T00:00:00Z'),
+            request: {
+              privateToken: 'history-private-token',
+              privateKey: 'history-private-key',
+              internalAmount: 'history-internal-amount',
+            },
+          };
+          if (kind === 'invoice')
+            await prisma.fiscalAuthorization.updateMany({
+              where: { companyId, id: { in: historyIds } },
+              data,
+            });
+          else
+            await prisma.fiscalCreditNoteAuthorization.updateMany({
+              where: { companyId, id: { in: historyIds } },
+              data,
+            });
+          // A later attempt on another document must not replace this parent's latest ID.
+          wsfe.lastNumber.mockResolvedValue(1);
+          const other = await historyFixture(kind);
+          wsfe.authorize.mockResolvedValueOnce(rejected);
+          const otherAttempt = attempt(await other.send().expect(201));
+          clearArcaCalls();
+          const snapshot = () =>
+            Promise.all([
+              prisma.fiscalDraft.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+              prisma.fiscalCreditNoteDraft.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+              prisma.fiscalAuthorization.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+              prisma.fiscalCreditNoteAuthorization.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+              prisma.auditLog.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+              prisma.salesDocument.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+                include: { lines: true, tender: true },
+              }),
+              prisma.stockMovement.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+              prisma.customerAccountMovement.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+              prisma.treasuryMovement.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+            ]);
+          const before = await snapshot();
+          const ids = [authorized.id, ...historyIds.sort().reverse()];
+          const history = await fixture.read();
+          expect(history.items.map((item) => item.id)).toEqual(ids);
+          expect(history.items.map((item) => item.status)).toEqual([
+            'AUTHORIZED',
+            'REJECTED',
+            'REJECTED',
+          ]);
+          expect(history.latestAuthorizationId).toBe(authorized.id);
+          expect(history.pagination).toEqual({
+            page: 1,
+            pageSize: 25,
+            total: 3,
+          });
+          for (const item of history.items) {
+            expect(Object.keys(item).sort()).toEqual(
+              [
+                'id',
+                'draftId',
+                'draftRevision',
+                'environment',
+                'status',
+                'pointOfSale',
+                'voucherType',
+                'voucherNumber',
+                'cae',
+                'expiresAt',
+                'message',
+                'createdAt',
+                'updatedAt',
+              ].sort(),
+            );
+            expect(item.draftId).toBe(fixture.id);
+            expect(item.environment).toBe('HOMOLOGATION');
+          }
+          expect(history.items[0]).toMatchObject({
+            cae: accepted.cae,
+            expiresAt: accepted.expiresAt,
+          });
+          expect(JSON.stringify(history)).not.toMatch(
+            /history-private-token|history-private-key|history-internal-amount|"request"|"createdBy"|"tenantId"|"companyId"|"issuerCuit"/,
+          );
+          expect(
+            history.items.some((item) => item.id === otherAttempt.id),
+          ).toBe(false);
+          for (const [index, id] of ids.entries()) {
+            const page = await fixture.read(`page=${index + 1}&pageSize=1`);
+            expect(page.items.map((item) => item.id)).toEqual([id]);
+            expect(page.latestAuthorizationId).toBe(authorized.id);
+            expect(page.pagination).toEqual({
+              page: index + 1,
+              pageSize: 1,
+              total: 3,
+            });
+          }
+          expect(await fixture.read('page=4&pageSize=1')).toEqual({
+            items: [],
+            latestAuthorizationId: authorized.id,
+            pagination: { page: 4, pageSize: 1, total: 3 },
+          });
+          await fixture.get('', editor, foreignCompanyId).expect(404);
+          expect(await snapshot()).toEqual(before);
+          expectNoArcaCalls();
+        },
+      );
+      it.each(['invoice', 'credit-note'] as const)(
+        'shows reconciled %s authorization on the same history row without a new attempt',
+        async (kind) => {
+          const fixture = await historyFixture(kind);
+          wsfe.authorize.mockRejectedValueOnce(
+            new Error('Uncertain historical attempt'),
+          );
+          const pending = attempt(await fixture.send().expect(201));
+          const first = await fixture.read();
+          expect(first.items).toHaveLength(1);
+          expect(first.items[0]).toMatchObject({
+            id: pending.id,
+            status: 'UNKNOWN',
+            cae: null,
+          });
+          const sent = wsfe.authorize.mock.calls.length;
+          wsfe.consult.mockResolvedValueOnce(accepted);
+          await fixture.reconcile(pending.id).expect(201);
+          const after = await fixture.read();
+          expect(after.items).toHaveLength(1);
+          expect(after.items[0]).toMatchObject({
+            id: pending.id,
+            status: 'AUTHORIZED',
+            cae: accepted.cae,
+            createdAt: first.items[0].createdAt,
+          });
+          expect(after.latestAuthorizationId).toBe(pending.id);
+          expect(after.pagination.total).toBe(1);
+          expect(wsfe.authorize).toHaveBeenCalledTimes(sent);
+          expect(wsfe.consult).toHaveBeenCalledTimes(1);
+        },
+      );
       it('filters current invoice and NC uncertainty before pagination while excluding preparations and historical rejections', async () => {
         const rejected = {
           status: 'REJECTED',
