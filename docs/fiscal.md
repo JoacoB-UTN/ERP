@@ -473,3 +473,26 @@ status and message. It is separate from the current authorization controls and
 cannot authorize, consult or print an older attempt. History caches are scoped
 by company, invoice/note kind, document and page. Errors or unavailable document
 context hide cached history rather than presenting it as current information.
+
+## Safe rejection diagnostics
+
+A correlated rejected submission retains up to ten distinct numeric observation
+codes in its existing safe message. The adapter reads only direct, correctly
+namespaced observation fields and accepts bounded integer codes. Missing or
+malformed diagnostic values fall back to the generic rejection message only
+after existing protocol validation passes; a foreign XML namespace remains an
+uncertain response. Upstream
+`Msg` text and XML are never returned or persisted as diagnostics.
+
+Brief local hints cover total/component mismatch (10048), invalid recipient VAT
+condition (10242), VAT condition incompatible with the voucher class (10243),
+and missing recipient VAT condition (10246). Other valid codes remain visible
+as numbers for manual investigation. These mappings follow the
+[official WSFEv1 manual](https://www.arca.gob.ar/ws/documentacion/manuales/manual-desarrollador-ARCA-COMPG.pdf),
+PDF pages 38, 47–48 and 70, checked 2026-10-07. They describe the rejection and
+do not change any fiscal values automatically.
+
+The same message survives in invoice and NC attempt history after a manual
+retry. This affects only already-verified rejections: uncertain/mismatched
+responses still require consultation and never become safe-to-resend merely
+because an observation is present. Existing authorized results stay unchanged.
