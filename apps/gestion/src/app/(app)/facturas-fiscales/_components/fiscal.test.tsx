@@ -368,6 +368,29 @@ describe('Fiscal identity detail integration', () => {
 });
 
 describe('Fiscal draft preparation', () => {
+  it.each([
+    { documentType: 'DNI', taxId: '12345678', label: 'DNI' },
+    { documentType: 'CUIT', taxId: '20123456786', label: 'CUIT' },
+    { documentType: undefined, taxId: '20123456786', label: 'Documento (tipo no registrado)' },
+    { documentType: undefined, taxId: '12345678', label: 'Documento (tipo no registrado)' },
+    { documentType: null, taxId: '12345678', label: 'Documento (tipo sin definir)' },
+  ] as const)(
+    'shows the saved recipient document without inferring fiscal choices (%j)',
+    ({ documentType, taxId, label }) => {
+      render(
+        <FiscalForm
+          source={{ ...source, recipient: { ...source.recipient, documentType, taxId } }}
+          draft={null}
+        />,
+      );
+      expect(screen.getByText(`Receptor: Cliente A · ${label}: ${taxId}`)).toBeTruthy();
+      expect(screen.getByText('Emisor registrado: Empresa A · CUIT: 20123456789')).toBeTruthy();
+      expect((screen.getByLabelText('Clase propuesta') as HTMLSelectElement).value).toBe('');
+      expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
+      expect(mock.preview).not.toHaveBeenCalled();
+      expect(mock.save).not.toHaveBeenCalled();
+    },
+  );
   it('requires explicit class, tax treatment and final amount confirmation before server preview', async () => {
     render(<FiscalForm source={source} draft={null} />);
     expect((screen.getByLabelText('Clase propuesta') as HTMLSelectElement).value).toBe('');

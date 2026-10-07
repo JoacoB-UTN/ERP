@@ -135,7 +135,8 @@ describe('Fiscal drafts (e2e)', () => {
     app = module.createNestApplication();
     app.use(cookieParser());
     app.setGlobalPrefix('api/v1');
-    await app.init();
+    // Own the listener across nested/concurrent requests; close it once in teardown.
+    await app.listen(0, '127.0.0.1');
     prisma = app.get(PrismaService);
     tenantId = (
       await prisma.tenant.create({
@@ -751,6 +752,7 @@ describe('Fiscal drafts (e2e)', () => {
           issuer: validIssuer,
           recipient: {
             legalName: validRecipient.legalName,
+            documentType: validRecipient.documentType,
             taxId: validRecipient.taxId,
             taxCondition: validRecipient.taxCondition,
           },
@@ -764,6 +766,7 @@ describe('Fiscal drafts (e2e)', () => {
           issuer: validIssuer,
           recipient: {
             legalName: validRecipient.legalName,
+            documentType: validRecipient.documentType,
             taxId: validRecipient.taxId,
             taxCondition: validRecipient.taxCondition,
           },

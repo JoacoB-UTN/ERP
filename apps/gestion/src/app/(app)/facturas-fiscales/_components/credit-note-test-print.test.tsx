@@ -112,6 +112,46 @@ it('prints the NC snapshot, saved reason, original reference and its own authori
   expect(print).toHaveBeenCalledOnce();
 });
 
+it('prints DNI invoice B and total NC B separately with the original frozen recipient', () => {
+  const dniInvoice: FiscalDraftDto = {
+    ...invoice,
+    source: {
+      ...invoice.source,
+      recipient: { ...invoice.source.recipient, documentType: 'DNI', taxId: '00123456' },
+    },
+  };
+  const printed: string[] = [];
+  vi.spyOn(window, 'print').mockImplementation(() => {
+    const sheets = document.querySelectorAll('[data-fiscal-print-selected]');
+    expect(sheets).toHaveLength(1);
+    const sheet = sheets[0];
+    expect(sheet.textContent).toContain('Receptor: Receptor guardado · DNI: 00123456');
+    expect(sheet.textContent).toContain('Emisor: Emisor guardado · CUIT: 20123456786');
+    expect(sheet.textContent).toContain('Condición de IVA del receptor: Consumidor Final');
+    expect(sheet.textContent).toContain('SIN VALIDEZ FISCAL');
+    printed.push(sheet.getAttribute('aria-label')!);
+  });
+  render(
+    <>
+      <FiscalTestPrint draft={dniInvoice} authorization={invoiceAuthorization} canPrint={() => true} />
+      <FiscalCreditNoteTestPrint
+        note={{ ...note, invoice: dniInvoice }}
+        authorization={authorization}
+        canPrint={() => true}
+      />
+    </>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Imprimir nota de crédito de prueba' }));
+  const ncSheet = document.querySelector('[data-fiscal-print-selected]')!;
+  expect(ncSheet.textContent).toContain('CAE de prueba: 12345678901234');
+  expect(ncSheet.textContent).toContain('tipo 6 · 00012-00000042');
+  expect(ncSheet.textContent).toContain('Total: 1.234.567.890.123,45 ARS');
+  fireEvent.click(screen.getByRole('button', { name: 'Imprimir comprobante de prueba' }));
+  expect(printed).toEqual(['Nota de crédito total de homologación', 'Comprobante de homologación']);
+  fireEvent(window, new Event('afterprint'));
+  expect(document.querySelector('[data-fiscal-print-selected]')).toBeNull();
+});
+
 it.each(['UNKNOWN', 'SENDING', 'REJECTED'] as const)('does not offer a printable NC for %s', (status) => {
   render(
     <FiscalCreditNoteTestPrint

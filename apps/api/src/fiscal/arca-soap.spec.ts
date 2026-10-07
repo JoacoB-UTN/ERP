@@ -83,4 +83,17 @@ describe('Authenticated SOAP transport boundary', () => {
     ).rejects.toThrow();
     expect(network).not.toHaveBeenCalled();
   });
+  it('permits only the fixed WSFE document catalog action', async () => {
+    network.mockResolvedValue(new Response(xml));
+    await soapRequest('WSFE', 'FEParamGetTiposDoc', '<Request/>');
+    expect(network.mock.calls[0][0]).toBe(
+      'https://wswhomo.afip.gov.ar/wsfev1/service.asmx',
+    );
+    expect(network.mock.calls[0][1]).toMatchObject({
+      headers: {
+        SOAPAction: '"http://ar.gov.afip.dif.FEV1/FEParamGetTiposDoc"',
+      },
+      redirect: 'error',
+    });
+  });
 });

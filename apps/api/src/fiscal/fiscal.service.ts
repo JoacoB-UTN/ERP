@@ -21,6 +21,7 @@ import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { RequestContext } from '../company-context/types';
 import { calculateFiscalBreakdown } from './fiscal-calculation';
+import { readFiscalRecipient } from './fiscal-recipient';
 
 const PENDING = [
   'Configurar y validar la empresa emisora y su condición frente al IVA.',
@@ -102,6 +103,13 @@ export class FiscalService {
           'Esta etapa admite ventas internas en ARS sin impuestos previamente calculados.',
       });
     }
+    if (
+      sale.customer.companyId !== companyId ||
+      sale.customer.tenantId !== sale.tenantId
+    )
+      throw new BadRequestException(
+        'El cliente no pertenece a la empresa de esta venta.',
+      );
     const existing = await client.fiscalDraft.findUnique({
       where: {
         companyId_salesDocumentId: { companyId, salesDocumentId: saleId },
@@ -117,6 +125,7 @@ export class FiscalService {
       recipient: {
         legalName: sale.customer.legalName,
         taxId: sale.customer.taxId,
+        documentType: sale.customer.documentType,
         taxCondition: sale.customer.taxCondition ?? 'UNKNOWN',
       },
       lines: sale.lines.map((line) => ({
@@ -251,8 +260,6 @@ export class FiscalService {
         !company ||
         !customer ||
         !isValidCuitChecksum(company.taxId.replace(/[-\s]/g, '')) ||
-        customer.documentType !== 'CUIT' ||
-        !isValidCuitChecksum((customer.taxId ?? '').replace(/[-\s]/g, '')) ||
         !customer.taxCondition ||
         ![
           'RESPONSABLE_INSCRIPTO',
@@ -262,9 +269,13 @@ export class FiscalService {
         ].includes(customer.taxCondition)
       )
         throw new BadRequestException(
-          'Completá los CUIT válidos de la empresa y del cliente, el tipo de documento CUIT y una condición de IVA compatible con homologación antes de actualizar el borrador.',
+          'Completá el CUIT válido de la empresa y la identificación y condición de IVA del cliente antes de actualizar el borrador.',
         );
       const saved = existing.snapshot as unknown as FiscalPreview;
+      readFiscalRecipient(
+        { ...customer, taxCondition: customer.taxCondition },
+        { A: 1, B: 6, C: 11 }[saved.invoiceType],
+      );
       if (saved.source.saleId !== sale.id)
         throw new BadRequestException(
           'El borrador no coincide con su venta de origen.',
@@ -278,6 +289,7 @@ export class FiscalService {
           recipient: {
             legalName: customer.legalName,
             taxId: customer.taxId,
+            documentType: customer.documentType,
             taxCondition: customer.taxCondition,
           },
         },

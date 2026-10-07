@@ -99,7 +99,8 @@ export function FiscalAuthorizationPanel({
       <p className="text-sm">
         Requiere certificados configurados en el servidor, emisor habilitado y un punto de venta exclusivo
         para este ERP. Esta etapa admite productos en pesos y receptores identificados con CUIT y condición de
-        IVA conocida. Los datos actuales deben coincidir con el borrador guardado.
+        IVA conocida. También admite DNI para facturas B a clientes declarados como consumidores finales y su
+        nota de crédito B total. Los datos actuales deben coincidir con el borrador guardado.
       </p>
       {query.isPending && <p role="status">Consultando último intento…</p>}
       {query.isError && (

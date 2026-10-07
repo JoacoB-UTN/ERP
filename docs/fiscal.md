@@ -82,9 +82,11 @@ operator has not supplied that configuration yet. Draft DTOs continue to report
 eligibility; the separate authorization resource records explicit test requests.
 
 This slice supports WSFE concept 1 (products), ARS/PES with exchange rate 1,
-A/B/C invoices and a recipient explicitly identified by CUIT. Services, foreign
-currencies, other document identifiers, credit/debit notes and production are
-outside this slice. Both CUITs must pass local syntax/checksum checks. The
+A/B/C invoices with CUIT recipients, plus B invoices for customers explicitly
+identified by DNI and declared CONSUMIDOR_FINAL. Total associated credit notes
+are supported as described below. Services, foreign currencies, anonymous or
+other document identifiers, partial/debit notes and production remain outside
+this slice. Issuer and recipient CUITs pass local syntax/checksum checks. The
 issuer's declared VAT condition and recipient condition must match a supported
 class; current recipient identity/condition and issuer CUIT must still match
 the saved draft. This is not an ARCA registry check or a general eligibility
@@ -93,7 +95,8 @@ VAT groups must reconcile exactly with the supported aggregate rounding rule;
 inconsistent draft rounding is rejected rather than changing the sale total.
 
 The authenticated WSFE checks verify the test point of sale, compatible recipient
-VAT condition and applicable VAT catalog entries. The operator must explicitly
+VAT condition and applicable VAT catalog entries; DNI additionally requires a
+unique, currently valid document-type entry in the authenticated catalog. The operator must explicitly
 confirm a point of sale reserved for this ERP and the homologation environment.
 External software using the same series is not coordinated by database locks;
 an exclusive test point of sale is a prerequisite.
@@ -415,15 +418,16 @@ is generated. Printing does not change the authorization or any commercial data.
 ## Explicit identity refresh before the first submission
 
 Saving a draft freezes its source identity. If an operator later corrects the
-company/customer CUIT or the customer's VAT condition, the authorization check
+issuer CUIT, recipient document identity or the customer's VAT condition, the authorization check
 correctly refuses the old snapshot. An explicit preparation action now lets the
 operator refresh issuer/recipient identity before any submission has occurred.
 
 POST `/fiscal/drafts/:id/refresh-identity` requires invoice read/create and sales
 documents read. Its strict body is `{ expectedRevision, confirmIdentityRefresh: true }`;
 identity values cannot be supplied by the client. The server reads the scoped
-company and source-sale customer, requires valid CUITs and a supported known VAT
-condition, and copies their legal names and fiscal identity only. Every other
+company and source-sale customer, requires a valid issuer CUIT and a supported
+recipient identity/VAT condition, and copies their legal names and fiscal
+identity including document type only. Every other
 snapshot field—including original sale lines, quantities, prices, chosen class,
 tax treatments and totals—remains unchanged. No current pricing is resolved.
 
@@ -496,3 +500,31 @@ The same message survives in invoice and NC attempt history after a manual
 retry. This affects only already-verified rejections: uncertain/mismatched
 responses still require consultation and never become safe-to-resend merely
 because an observation is present. Existing authorized results stay unchanged.
+
+## Identified DNI recipients in invoice B / NC B homologation
+
+New preparations and explicit identity refresh freeze the customer's document
+type alongside the existing document-number field (`taxId`). DNI is admitted
+only with an explicitly declared CONSUMIDOR_FINAL condition and invoice B or
+its total NC B. The issuer, ARS/products, amount and exclusive-PV requirements
+remain unchanged. No anonymous recipient, VAT inference or monetary threshold
+logic is introduced.
+
+Requests persist `recipientDocumentType` and `recipientDocumentNumber`. DNI
+uses code 96 and a positive, canonical decimal number within WSFE's 11-position
+field; leading zeroes normalize consistently. The authenticated document catalog
+must contain one valid DNI entry for the request date. Authorization and
+consultation compare both type and number, including the NC's original identity.
+An incorrect type remains uncertain even if its number matches.
+
+Historical `recipientCuit`-only requests still mean type 80. A common strict
+reader rejects mixed or partial representations. A legacy snapshot without a
+type cannot infer DNI from its number or the current customer; an unsent legacy
+DNI preparation needs explicit identity refresh. Prior attempts still prohibit
+identity replacement. NC preparation uses the authorized original snapshot and
+request, preserving compatibility with older CUIT invoices.
+
+Gestión and test sheets show the saved document type, with neutral labels for
+legacy/undefined types. The subset follows the document fields/catalog and
+class-B controls in the [official WSFEv1 manual](https://www.arca.gob.ar/ws/documentacion/manuales/manual-desarrollador-ARCA-COMPG.pdf),
+checked 2026-10-07. Real authenticated acceptance is still pending credentials.

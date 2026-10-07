@@ -2,14 +2,18 @@ import { BadRequestException } from '@nestjs/common';
 import { isValidCuitChecksum, type FiscalPreview } from '@erp/shared';
 import { Prisma } from '../generated/prisma/client';
 import { calculateFiscalBreakdown } from './fiscal-calculation';
+import {
+  readFiscalRecipient,
+  type ArcaRecipientIdentity,
+  type ArcaRecipientDocument,
+} from './fiscal-recipient';
 
-export interface ArcaInvoiceRequest {
+interface ArcaInvoiceFields {
   issuerCuit: string;
   pointOfSale: number;
   voucherType: 1 | 6 | 11;
   voucherNumber: number;
   date: string;
-  recipientCuit: string;
   recipientVatConditionId: number;
   total: string;
   net: string;
@@ -18,17 +22,19 @@ export interface ArcaInvoiceRequest {
   notTaxed: string;
   iva: { id: number; base: string; amount: string }[];
 }
+export type ArcaInvoiceRequest = ArcaInvoiceFields & ArcaRecipientIdentity;
 
-export type ArcaCreditNoteRequest = Omit<ArcaInvoiceRequest, 'voucherType'> & {
-  voucherType: 3 | 8 | 13;
-  associated: {
-    voucherType: 1 | 6 | 11;
-    pointOfSale: number;
-    voucherNumber: number;
-    issuerCuit: string;
-    date: string;
+export type ArcaCreditNoteRequest = Omit<ArcaInvoiceFields, 'voucherType'> &
+  ArcaRecipientIdentity & {
+    voucherType: 3 | 8 | 13;
+    associated: {
+      voucherType: 1 | 6 | 11;
+      pointOfSale: number;
+      voucherNumber: number;
+      issuerCuit: string;
+      date: string;
+    };
   };
-};
 export type ArcaVoucherRequest = ArcaInvoiceRequest | ArcaCreditNoteRequest;
 
 const CONDITIONS: Record<string, number> = {
@@ -45,7 +51,7 @@ const RATES: Record<string, { id: number; rate: string }> = {
 };
 function invalid(): never {
   throw new BadRequestException(
-    'El borrador no reúne las condiciones de este circuito de homologación. Revisá CUIT, condición de IVA, clase e importes.',
+    'El borrador no reúne las condiciones de este circuito de homologación. Revisá identificación, condición de IVA, clase e importes.',
   );
 }
 export function validFiscalDate(value: string): boolean {
@@ -62,19 +68,17 @@ export function buildHomologationRequest(
   preview: FiscalPreview,
   settings: { vatCondition: string | null; testPointOfSale: number | null },
   date: string,
-): Omit<ArcaInvoiceRequest, 'voucherNumber'> {
+): Omit<ArcaInvoiceRequest, 'voucherNumber' | 'recipientCuit'> &
+  ArcaRecipientDocument {
   const issuerCuit = preview.source.issuer.taxId.replace(/[-\s]/g, '');
-  const recipientCuit = (preview.source.recipient.taxId ?? '').replace(
-    /[-\s]/g,
-    '',
-  );
+  const voucherType =
+    preview.invoiceType === 'A' ? 1 : preview.invoiceType === 'B' ? 6 : 11;
+  const recipient = readFiscalRecipient(preview.source.recipient, voucherType);
   const recipientVatConditionId =
     CONDITIONS[preview.source.recipient.taxCondition];
   if (
     !/^\d{11}$/.test(issuerCuit) ||
     !isValidCuitChecksum(issuerCuit) ||
-    !/^\d{11}$/.test(recipientCuit) ||
-    !isValidCuitChecksum(recipientCuit) ||
     !recipientVatConditionId ||
     !validFiscalDate(date) ||
     preview.source.currencyCode !== 'ARS' ||
@@ -155,11 +159,10 @@ export function buildHomologationRequest(
     });
   return {
     issuerCuit,
-    recipientCuit,
+    ...recipient,
     recipientVatConditionId,
     pointOfSale: settings.testPointOfSale!,
-    voucherType:
-      preview.invoiceType === 'A' ? 1 : preview.invoiceType === 'B' ? 6 : 11,
+    voucherType,
     date,
     total: calculated.totals.finalAmount,
     net: calculated.totals.netAmount,

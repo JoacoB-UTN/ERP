@@ -16,6 +16,7 @@ const METHODS = new Set([
   'FEParamGetPtosVenta',
   'FEParamGetCondicionIvaReceptor',
   'FEParamGetTiposIva',
+  'FEParamGetTiposDoc',
   'FECompUltimoAutorizado',
   'FECAESolicitar',
   'FECompConsultar',

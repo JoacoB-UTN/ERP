@@ -4,6 +4,7 @@ import { parseXml, soapRequest } from './arca-soap';
 import type {
   ArcaCreditNoteRequest,
   ArcaInvoiceRequest,
+  ArcaVoucherRequest,
 } from './fiscal-request';
 jest.mock('./arca-soap', () => ({
   ...jest.requireActual<typeof import('./arca-soap')>('./arca-soap'),
@@ -677,6 +678,257 @@ function creditConsulted(type: 3 | 8 | 13 = 3): string {
       .replace(/<Iva>.*?<\/Iva>/, '');
   return result;
 }
+function dniRequest(type: 6 | 8 = 6): ArcaVoucherRequest {
+  const original =
+    type === 6 ? { ...request, voucherType: 6 as const } : creditRequest(8);
+  const { recipientCuit: _cuit, ...base } = original;
+  return {
+    ...base,
+    recipientDocumentType: 96,
+    recipientDocumentNumber: '0012345678',
+    recipientVatConditionId: 5,
+  };
+}
+function dniResponse(xml: string): string {
+  return xml
+    .replace('<DocTipo>80</DocTipo>', '<DocTipo>96</DocTipo>')
+    .replace('<DocNro>20123456786</DocNro>', '<DocNro>12345678</DocNro>');
+}
+describe('WSFE DNI B and total NC B', () => {
+  it.each([6, 8] as const)(
+    'sends and correlates DNI on voucher %s',
+    async (type) => {
+      send.mockResolvedValue(
+        answer(
+          'FECAESolicitar',
+          dniResponse(
+            authorized.replace(
+              '<CbteTipo>1</CbteTipo>',
+              `<CbteTipo>${type}</CbteTipo>`,
+            ),
+          ),
+        ),
+      );
+      await expect(
+        service.authorize('company', dniRequest(type)),
+      ).resolves.toMatchObject({
+        status: 'AUTHORIZED',
+        cae: '12345678901234',
+      });
+      const xml = send.mock.calls[0][2];
+      expect(xml).toContain('<DocTipo>96</DocTipo><DocNro>12345678</DocNro>');
+      expect(xml).not.toContain('<DocTipo>80</DocTipo>');
+      if (type === 8) expect(xml).toContain(associationXml(8));
+      expect(send).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each([6, 8] as const)(
+    'consults DNI on voucher %s using its frozen identity',
+    async (type) => {
+      const xml =
+        type === 8
+          ? creditConsulted(8)
+          : consulted
+              .replace('<CbteTipo>1</CbteTipo>', '<CbteTipo>6</CbteTipo>')
+              .replace(
+                '<CondicionIVAReceptorId>1</CondicionIVAReceptorId>',
+                '<CondicionIVAReceptorId>5</CondicionIVAReceptorId>',
+              );
+      send.mockResolvedValue(answer('FECompConsultar', dniResponse(xml)));
+      await expect(
+        service.consult('company', dniRequest(type)),
+      ).resolves.toMatchObject({
+        status: 'AUTHORIZED',
+        cae: '12345678901234',
+      });
+      expect(send).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each([6, 8] as const)(
+    'preserves rejection diagnostics for DNI on voucher %s',
+    async (type) => {
+      send.mockResolvedValue(
+        answer(
+          'FECAESolicitar',
+          dniResponse(
+            rejected(
+              '<Observaciones><Obs><Code>10242</Code><Msg>secret-sign</Msg></Obs></Observaciones>',
+              type,
+            ),
+          ),
+        ),
+      );
+      const result = await service.authorize('company', dniRequest(type));
+      expect(result.status).toBe('REJECTED');
+      expect(result.message).toContain('Código 10242:');
+      expect(result.message).not.toContain('secret-sign');
+    },
+  );
+  it.each([
+    ['DocTipo', '96', '80'],
+    ['DocNro', '12345678', '12345679'],
+  ])(
+    'keeps different %s uncertain for both invoice and NC send/consult',
+    async (field, before, after) => {
+      for (const type of [6, 8] as const) {
+        const replace = (xml: string) =>
+          dniResponse(xml).replace(
+            `<${field}>${before}</${field}>`,
+            `<${field}>${after}</${field}>`,
+          );
+        send.mockResolvedValue(
+          answer(
+            'FECAESolicitar',
+            replace(
+              authorized.replace(
+                '<CbteTipo>1</CbteTipo>',
+                `<CbteTipo>${type}</CbteTipo>`,
+              ),
+            ),
+          ),
+        );
+        await expect(
+          service.authorize('company', dniRequest(type)),
+        ).rejects.toThrow('No se pudo verificar');
+        send.mockResolvedValue(
+          answer(
+            'FECompConsultar',
+            replace(
+              type === 8
+                ? creditConsulted(8)
+                : consulted
+                    .replace('<CbteTipo>1</CbteTipo>', '<CbteTipo>6</CbteTipo>')
+                    .replace(
+                      '<CondicionIVAReceptorId>1</CondicionIVAReceptorId>',
+                      '<CondicionIVAReceptorId>5</CondicionIVAReceptorId>',
+                    ),
+            ),
+          ),
+        );
+        await expect(
+          service.consult('company', dniRequest(type)),
+        ).rejects.toThrow('No se pudo verificar');
+      }
+      expect(send).toHaveBeenCalledTimes(4);
+    },
+  );
+  it.each([
+    { recipientDocumentType: 96 },
+    { recipientDocumentType: 96, recipientDocumentNumber: '12345678' },
+    { recipientDocumentType: 80, recipientDocumentNumber: '20123456786' },
+  ])(
+    'rejects coexistence with legacy CUIT before validate/send/consult network access %#',
+    async (extra) => {
+      const invalid = { ...request, ...extra } as unknown as ArcaVoucherRequest;
+      await expect(service.validate('company', invalid)).rejects.toThrow();
+      await expect(service.authorize('company', invalid)).rejects.toThrow();
+      await expect(service.consult('company', invalid)).rejects.toThrow();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    { voucherType: 1 },
+    { recipientVatConditionId: 4 },
+    { recipientDocumentNumber: '0' },
+    { recipientDocumentNumber: '123456789012' },
+    { recipientDocumentNumber: undefined },
+    { recipientDocumentType: undefined },
+  ])(
+    'rejects unsupported or partial DNI identity before network access %#',
+    async (extra) => {
+      const invalid = {
+        ...dniRequest(),
+        ...extra,
+      } as unknown as ArcaVoucherRequest;
+      await expect(service.validate('company', invalid)).rejects.toThrow();
+      await expect(service.authorize('company', invalid)).rejects.toThrow();
+      await expect(service.consult('company', invalid)).rejects.toThrow();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+  it('still correlates new explicit CUIT and old CUIT-only requests identically', async () => {
+    const { recipientCuit, ...base } = request;
+    const explicit: ArcaInvoiceRequest = {
+      ...base,
+      recipientDocumentType: 80,
+      recipientDocumentNumber: recipientCuit,
+    };
+    for (const saved of [request, explicit]) {
+      send.mockResolvedValue(answer('FECAESolicitar', authorized));
+      await expect(service.authorize('company', saved)).resolves.toMatchObject({
+        status: 'AUTHORIZED',
+      });
+      send.mockResolvedValue(answer('FECompConsultar', consulted));
+      await expect(service.consult('company', saved)).resolves.toMatchObject({
+        status: 'AUTHORIZED',
+      });
+    }
+  });
+  it.each([6, 8] as const)(
+    'requires an active DNI catalog entry and preserves PV/VAT checks for %s',
+    async (type) => {
+      send
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetTiposDoc',
+            '<ResultGet><DocTipo><Id>96</Id><Desc>DNI</Desc><FchDesde>20000101</FchDesde><FchHasta>NULL</FchHasta></DocTipo></ResultGet>',
+          ),
+        )
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetPtosVenta',
+            '<ResultGet><PtoVenta><Nro>1</Nro><EmisionTipo>CAE</EmisionTipo><Bloqueado>N</Bloqueado></PtoVenta></ResultGet>',
+          ),
+        )
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetCondicionIvaReceptor',
+            '<ResultGet><CondicionIvaReceptor><Id>5</Id><Cmp_Clase>B</Cmp_Clase></CondicionIvaReceptor></ResultGet>',
+          ),
+        )
+        .mockResolvedValueOnce(
+          answer(
+            'FEParamGetTiposIva',
+            '<ResultGet><IvaTipo><Id>5</Id><FchDesde>20000101</FchDesde><FchHasta>NULL</FchHasta></IvaTipo></ResultGet>',
+          ),
+        );
+      await expect(
+        service.validate('company', dniRequest(type)),
+      ).resolves.toBeUndefined();
+      expect(send.mock.calls.map((call) => call[1])).toEqual([
+        'FEParamGetTiposDoc',
+        'FEParamGetPtosVenta',
+        'FEParamGetCondicionIvaReceptor',
+        'FEParamGetTiposIva',
+      ]);
+      expect(send.mock.calls[0][2]).toContain('<Token>token&lt;&amp;</Token>');
+      expect(send.mock.calls[2][2]).toContain('<ClaseCmp>B</ClaseCmp>');
+    },
+  );
+  it.each([
+    '<ResultGet/>',
+    '<ResultGet><DocTipo><Id>80</Id><FchDesde>20000101</FchDesde></DocTipo></ResultGet>',
+    '<ResultGet><DocTipo><Id>96</Id><FchDesde>20000101</FchDesde></DocTipo><DocTipo><Id>96</Id><FchDesde>20000101</FchDesde></DocTipo></ResultGet>',
+    '<ResultGet><DocTipo><Id>96</Id></DocTipo></ResultGet>',
+    '<ResultGet><DocTipo><Id>96</Id><FchDesde>20260230</FchDesde></DocTipo></ResultGet>',
+    '<ResultGet><DocTipo><Id>96</Id><FchDesde>20261005</FchDesde></DocTipo></ResultGet>',
+    '<ResultGet><DocTipo><Id>96</Id><FchDesde>20000101</FchDesde><FchHasta>20261003</FchHasta></DocTipo></ResultGet>',
+    '<ResultGet><DocTipo><Id>96</Id><FchDesde>20000101</FchDesde><FchHasta>20260230</FchHasta></DocTipo></ResultGet>',
+    '<ResultGet><DocTipo><Id>96</Id><Id>96</Id><FchDesde>20000101</FchDesde></DocTipo></ResultGet>',
+    '<ResultGet><DocTipo><Id>96</Id><FchDesde>20000101</FchDesde><FchHasta>NULL</FchHasta><FchHasta>NULL</FchHasta></DocTipo></ResultGet>',
+    '<ResultGet><DocTipo xmlns="urn:wrong"><Id>96</Id><FchDesde>20000101</FchDesde></DocTipo></ResultGet>',
+    '<Errors><Err><Code>500</Code><Msg>secret-sign</Msg></Err></Errors>',
+  ])(
+    'rejects missing, malformed, duplicated or inactive DNI catalog %#',
+    async (xml) => {
+      send.mockResolvedValue(answer('FEParamGetTiposDoc', xml));
+      await expect(service.validate('company', dniRequest())).rejects.toThrow(
+        'No se pudo verificar',
+      );
+      expect(send).toHaveBeenCalledTimes(1);
+    },
+  );
+});
 describe('WSFE credit-note homologation protocol', () => {
   it.each([3, 8, 13] as const)(
     'encodes NC %s with one complete original association in WSDL order',

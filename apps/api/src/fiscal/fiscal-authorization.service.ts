@@ -21,6 +21,7 @@ import type { RequestContext } from '../company-context/types';
 import { ArcaWsaaService } from './arca-wsaa.service';
 import { ArcaWsfeService, type ArcaInvoiceRequest } from './arca-wsfe.service';
 import { buildHomologationRequest } from './fiscal-request';
+import { readArcaRecipient, readFiscalRecipient } from './fiscal-recipient';
 
 const pending = ['SENDING', 'UNKNOWN'];
 const publicSelection = {
@@ -180,16 +181,28 @@ export class FiscalAuthorizationService {
       throw new BadRequestException(
         'La venta no está disponible para este circuito de pruebas.',
       );
+    const request = buildHomologationRequest(snapshot, settings, date);
+    const recipient = readArcaRecipient(request);
+    const currentRecipient = readFiscalRecipient(
+      {
+        ...sale.customer,
+        taxCondition: sale.customer.taxCondition ?? 'UNKNOWN',
+      },
+      request.voucherType,
+    );
     if (
-      sale.customer.documentType !== 'CUIT' ||
+      sale.customer.companyId !== ctx.companyId ||
+      sale.customer.tenantId !== ctx.tenantId ||
       normalizeTaxId(company.taxId) !==
         normalizeTaxId(snapshot.source.issuer.taxId) ||
-      normalizeTaxId(sale.customer.taxId ?? '') !==
-        normalizeTaxId(snapshot.source.recipient.taxId ?? '') ||
+      currentRecipient.recipientDocumentType !==
+        recipient.recipientDocumentType ||
+      currentRecipient.recipientDocumentNumber !==
+        recipient.recipientDocumentNumber ||
       sale.customer.taxCondition !== snapshot.source.recipient.taxCondition
     ) {
       throw new BadRequestException(
-        'Esta etapa requiere un receptor identificado con CUIT y datos fiscales que coincidan con el borrador guardado. Revisá los datos antes de emitir.',
+        'La identificación y los datos fiscales del cliente deben coincidir con el borrador guardado. Revisá los datos antes de emitir.',
       );
     }
     if (!new Prisma.Decimal(snapshot.totals.finalAmount).eq(sale.total))
@@ -199,7 +212,7 @@ export class FiscalAuthorizationService {
     return {
       draft,
       settings,
-      request: buildHomologationRequest(snapshot, settings, date),
+      request,
     };
   }
   async authenticate(
