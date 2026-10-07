@@ -1,6 +1,6 @@
 # 038 — Read-only fiscal attempt history
 
-Status: IMPLEMENTED — aggregate verification in progress.
+Status: IMPLEMENTED — verified; awaiting CI and merge.
 Base: merged PR #75, main 205aa92.
 Dependency: PR #75 is merged; developed from its reviewed head before merge.
 Branch: agent/codex-fiscal-attempt-history.
@@ -30,3 +30,7 @@ Verification: scoped/permission integration tests, empty/history/reconciliation,
 pagination and strict-query validation; UI empty/error/loading/pagination and
 company-context tests; lint, workspace types, relevant suites and builds.
 Independent fiscal review and exact-HEAD green CI before authorized auto-merge.
+
+Verified: 374 API unit, 40 authorization integration and 316 Gestión tests;
+workspace lint/typechecks, all production builds, disposable migrations/drift
+and repeat seed passed. Independent review found no blockers.
