@@ -1,6 +1,7 @@
 # 037 — Find fiscal submissions that need consultation
 
-Status: IMPLEMENTED — aggregate verification and independent review in progress.
+Status: IMPLEMENTED — verified; awaiting green CI and merge.
+PR: #75.
 Base: merged PR #74 / main 2c52912.
 Branch: agent/codex-fiscal-pending-consultations; isolated API/UI work integrated.
 
@@ -20,3 +21,8 @@ filter in query cache/URL. Read-only users retain access. Tests cover pending ro
 beyond first page, invoice versus NC versus combined results, resolved/rejected
 history, prepared NC excluded, tenant isolation and invalid filter. No sending or
 consultation happens automatically. Independent review and green CI before merge.
+
+Verification: 295 Gestión tests, 34 fiscal authorization integration tests,
+workspace typechecks/lint and production builds passed. Fresh migrations/schema
+drift and repeat seed passed. Independent review approved. Integration fixture
+uses one explicit listener to avoid Supertest close deadlocks in nested requests.
