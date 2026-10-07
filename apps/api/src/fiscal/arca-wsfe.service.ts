@@ -148,6 +148,60 @@ function authorization(node: XmlNode, caeName: string, dateName: string) {
     message: 'Comprobante autorizado en homologación. Sin validez fiscal.',
   };
 }
+const REJECTION_MESSAGE =
+  'ARCA rechazó el comprobante de homologación. Revisá los datos fiscales.';
+const REJECTION_HINTS: Readonly<Record<string, string>> = {
+  '10048': 'El total no coincide con la suma de sus componentes.',
+  '10242': 'Revisá la condición de IVA del receptor en el catálogo de ARCA.',
+  '10243':
+    'La condición de IVA del receptor no corresponde a la clase del comprobante.',
+  '10246': 'Falta informar la condición de IVA del receptor.',
+};
+const MAX_DIAGNOSTIC_NODES = 100;
+const MAX_REJECTION_CODES = 10;
+function rejectionMessage(node: XmlNode): string {
+  // Diagnostics never determine the result. Only bounded, direct numeric codes
+  // are used; upstream Msg text is neither inspected nor returned.
+  if (node.children.length > MAX_DIAGNOSTIC_NODES) return REJECTION_MESSAGE;
+  let remaining = MAX_DIAGNOSTIC_NODES - node.children.length;
+  const containers = children(node, 'Observaciones', NS);
+  if (containers.length !== 1 || containers[0].text.trim())
+    return REJECTION_MESSAGE;
+  const codes = new Set<string>();
+  for (const observation of containers[0].children) {
+    if (remaining-- <= 0 || codes.size === MAX_REJECTION_CODES) break;
+    if (
+      observation.name !== 'Obs' ||
+      observation.namespace !== NS ||
+      observation.text.trim()
+    )
+      continue;
+    let code: XmlNode | undefined;
+    let invalid = false;
+    for (const field of observation.children) {
+      if (remaining-- <= 0) {
+        invalid = true;
+        break;
+      }
+      if (field.name !== 'Code' || field.namespace !== NS) continue;
+      if (code) {
+        invalid = true;
+        break;
+      }
+      code = field;
+    }
+    if (invalid || !code || code.children.length) continue;
+    const text = code.text.trim();
+    if (/^[1-9]\d{0,4}$/.test(text)) codes.add(text);
+  }
+  if (!codes.size) return REJECTION_MESSAGE;
+  return `${REJECTION_MESSAGE} ${[...codes]
+    .map(
+      (code) =>
+        `Código ${code}: ${REJECTION_HINTS[code] ?? 'Revisá este código en el manual de ARCA.'}`,
+    )
+    .join(' ')}`;
+}
 @Injectable()
 export class ArcaWsfeService {
   constructor(private readonly wsaa: ArcaWsaaService) {}
@@ -325,8 +379,7 @@ export class ArcaWsfeService {
         status: 'REJECTED' as const,
         cae: null,
         expiresAt: null,
-        message:
-          'ARCA rechazó el comprobante de homologación. Revisá los datos fiscales.',
+        message: rejectionMessage(rows[0]),
       };
     }
     throw uncertain();

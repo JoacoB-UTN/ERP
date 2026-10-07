@@ -32,6 +32,16 @@ const answer = (method: string, xml: string) =>
   parseXml(
     `<Body><${method}Response xmlns="http://ar.gov.afip.dif.FEV1/"><${method}Result>${xml}</${method}Result></${method}Response></Body>`,
   );
+const rejected = (observations = '', type = 1) =>
+  authorized
+    .replace('<CbteTipo>1</CbteTipo>', `<CbteTipo>${type}</CbteTipo>`)
+    .replaceAll('<Resultado>A</Resultado>', '<Resultado>R</Resultado>')
+    .replace(
+      '<CAE>12345678901234</CAE><CAEFchVto>20261014</CAEFchVto>',
+      observations,
+    );
+const genericRejection =
+  'ARCA rechazó el comprobante de homologación. Revisá los datos fiscales.';
 const send = jest.mocked(soapRequest);
 let service: ArcaWsfeService;
 beforeEach(() => {
@@ -333,6 +343,304 @@ describe('WSFE homologation protocol', () => {
       await expect(service.consult('company', request)).rejects.toThrow();
     }
   });
+});
+
+describe('safe diagnostics for correlated WSFE rejections', () => {
+  it.each([
+    ['10048', 'El total no coincide con la suma de sus componentes.'],
+    [
+      '10242',
+      'Revisá la condición de IVA del receptor en el catálogo de ARCA.',
+    ],
+    [
+      '10243',
+      'La condición de IVA del receptor no corresponde a la clase del comprobante.',
+    ],
+    ['10246', 'Falta informar la condición de IVA del receptor.'],
+    ['1', 'Revisá este código en el manual de ARCA.'],
+    ['99999', 'Revisá este código en el manual de ARCA.'],
+  ])('uses only the local description for code %s', async (code, hint) => {
+    send.mockResolvedValue(
+      answer(
+        'FECAESolicitar',
+        rejected(
+          `<Observaciones><Obs><Code>${code}</Code><Msg>secret-sign token&lt;&amp; upstream advice</Msg></Obs></Observaciones>`,
+        ),
+      ),
+    );
+    expect(await service.authorize('company', request)).toEqual({
+      status: 'REJECTED',
+      cae: null,
+      expiresAt: null,
+      message: `${genericRejection} Código ${code}: ${hint}`,
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('deduplicates valid codes in response order and ignores malformed siblings', async () => {
+    send.mockResolvedValue(
+      answer(
+        'FECAESolicitar',
+        rejected(
+          '<Observaciones>' +
+            ['10246', 'secret-sign', '10048', '10246', ' 99999 ', '10048']
+              .map((code) => `<Obs><Code>${code}</Code></Obs>`)
+              .join('') +
+            '</Observaciones>',
+        ),
+      ),
+    );
+    const result = await service.authorize('company', request);
+    expect(result.status).toBe('REJECTED');
+    expect(result.message.match(/Código \d+/g)).toEqual([
+      'Código 10246',
+      'Código 10048',
+      'Código 99999',
+    ]);
+    expect(result.message).not.toContain('secret-sign');
+  });
+
+  it.each([
+    '',
+    '0',
+    '-1',
+    '+1',
+    '00123',
+    '1.0',
+    '1e4',
+    '0x10',
+    '100000',
+    '999999999999999999999999',
+    '10 242',
+    '１０２４２',
+    '10242 secret-sign',
+    '&lt;Token&gt;secret-sign&lt;/Token&gt;',
+  ])(
+    'keeps rejection with a safe fallback for malformed code %s',
+    async (code) => {
+      send.mockResolvedValue(
+        answer(
+          'FECAESolicitar',
+          rejected(
+            `<Observaciones><Obs><Code>${code}</Code></Obs></Observaciones>`,
+          ),
+        ),
+      );
+      expect(await service.authorize('company', request)).toEqual({
+        status: 'REJECTED',
+        cae: null,
+        expiresAt: null,
+        message: genericRejection,
+      });
+    },
+  );
+
+  it.each([
+    '',
+    '<Observaciones/>',
+    '<Observaciones><Obs><Msg>secret-sign 10242</Msg></Obs></Observaciones>',
+    '<Observaciones><Obs><Code/></Obs></Observaciones>',
+    '<Observaciones><Obs><Code>10242</Code><Code>10242</Code></Obs></Observaciones>',
+    '<Observaciones><Obs><Code>10242</Code><Code>10243</Code></Obs></Observaciones>',
+    '<Observaciones><Obs><Code><Code>10242</Code></Code></Obs></Observaciones>',
+    '<Observaciones><Obs><Nested><Code>10242</Code></Nested></Obs></Observaciones>',
+    '<Observaciones><Nested><Obs><Code>10242</Code></Obs></Nested></Observaciones>',
+    '<Nested><Observaciones><Obs><Code>10242</Code></Obs></Observaciones></Nested>',
+    '<Observaciones><Obs><Code>10242</Code></Obs></Observaciones><Observaciones/>',
+    '<Observaciones>text<Obs><Code>10242</Code></Obs></Observaciones>',
+    '<Observaciones><Obs>text<Code>10242</Code></Obs></Observaciones>',
+  ])(
+    'never searches descendants or throws for malformed diagnostics %#',
+    async (xml) => {
+      send.mockResolvedValue(answer('FECAESolicitar', rejected(xml)));
+      await expect(service.authorize('company', request)).resolves.toEqual({
+        status: 'REJECTED',
+        cae: null,
+        expiresAt: null,
+        message: genericRejection,
+      });
+    },
+  );
+
+  it('does not read observation codes from the header or top-level result', async () => {
+    const observations =
+      '<Observaciones><Obs><Code>10242</Code></Obs></Observaciones>';
+    send.mockResolvedValue(
+      answer(
+        'FECAESolicitar',
+        rejected().replace('</FeCabResp>', `${observations}</FeCabResp>`) +
+          observations,
+      ),
+    );
+    await expect(service.authorize('company', request)).resolves.toMatchObject({
+      status: 'REJECTED',
+      message: genericRejection,
+    });
+  });
+
+  it('bounds the message to ten distinct codes', async () => {
+    send.mockResolvedValue(
+      answer(
+        'FECAESolicitar',
+        rejected(
+          '<Observaciones>' +
+            Array.from(
+              { length: 20 },
+              (_, i) => `<Obs><Code>${50000 + i}</Code></Obs>`,
+            ).join('') +
+            '</Observaciones>',
+        ),
+      ),
+    );
+    const result = await service.authorize('company', request);
+    expect(result.message.match(/Código \d+/g)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `Código ${50000 + i}`),
+    );
+    expect(result.message.length).toBeLessThan(1000);
+  });
+
+  it.each([
+    `<Observaciones>${'<Obs><Msg>secret-sign</Msg></Obs>'.repeat(100)}<Obs><Code>10242</Code></Obs></Observaciones>`,
+    `<Observaciones><Obs>${'<Msg>secret-sign</Msg>'.repeat(100)}<Code>10242</Code></Obs></Observaciones>`,
+    `${'<Other/>'.repeat(100)}<Observaciones><Obs><Code>10242</Code></Obs></Observaciones>`,
+  ])(
+    'bounds scanning even when no usable code has been found %#',
+    async (xml) => {
+      send.mockResolvedValue(answer('FECAESolicitar', rejected(xml)));
+      await expect(
+        service.authorize('company', request),
+      ).resolves.toMatchObject({
+        status: 'REJECTED',
+        message: genericRejection,
+      });
+    },
+  );
+
+  it.each(['Observaciones', 'Obs', 'Code', 'Msg'])(
+    'preserves uncertainty for an unexpected namespace on %s',
+    async (field) => {
+      const observations =
+        '<Observaciones><Obs><Code>10242</Code><Msg>secret-sign</Msg></Obs></Observaciones>';
+      send.mockResolvedValue(
+        answer(
+          'FECAESolicitar',
+          rejected(
+            observations.replace(`<${field}>`, `<${field} xmlns="urn:wrong">`),
+          ),
+        ),
+      );
+      await expect(service.authorize('company', request)).rejects.toThrow(
+        'No se pudo verificar',
+      );
+      expect(send).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([
+    ['Cuit', '20123456786', '20123456787'],
+    ['PtoVta', '1', '2'],
+    ['CbteTipo', '1', '6'],
+    ['CantReg', '1', '2'],
+    ['DocTipo', '80', '99'],
+    ['DocNro', '20123456786', '20123456787'],
+    ['CbteDesde', '4', '5'],
+    ['CbteFch', '20261004', '20261005'],
+    ['Resultado', 'R', 'A'],
+  ])(
+    'never uses diagnostics to resolve a mismatched %s',
+    async (field, before, after) => {
+      send.mockResolvedValue(
+        answer(
+          'FECAESolicitar',
+          rejected(
+            '<Observaciones><Obs><Code>10242</Code></Obs></Observaciones>',
+          ).replace(
+            `<${field}>${before}</${field}>`,
+            `<${field}>${after}</${field}>`,
+          ),
+        ),
+      );
+      await expect(service.authorize('company', request)).rejects.toThrow();
+      expect(send).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([
+    '<CAE>12345678901234</CAE>',
+    '<CAEFchVto>20261014</CAEFchVto>',
+    '<CAE/><CAE/>',
+  ])(
+    'preserves uncertainty when rejection also contains authorization data %#',
+    async (xml) => {
+      send.mockResolvedValue(
+        answer(
+          'FECAESolicitar',
+          rejected(
+            `${xml}<Observaciones><Obs><Code>10242</Code></Obs></Observaciones>`,
+          ),
+        ),
+      );
+      await expect(service.authorize('company', request)).rejects.toThrow();
+    },
+  );
+
+  it('keeps top-level errors uncertain even with a correlated R and valid observation', async () => {
+    send.mockResolvedValue(
+      answer(
+        'FECAESolicitar',
+        rejected(
+          '<Observaciones><Obs><Code>10242</Code></Obs></Observaciones>',
+        ) +
+          '<Errors><Err><Code>500</Code><Msg>secret-sign</Msg></Err></Errors>',
+      ),
+    );
+    await expect(service.authorize('company', request)).rejects.toThrow(
+      'No se pudo verificar',
+    );
+  });
+
+  it('does not attach rejection diagnostics to authorized results', async () => {
+    send.mockResolvedValue(
+      answer(
+        'FECAESolicitar',
+        authorized.replace(
+          '</FECAEDetResponse>',
+          '<Observaciones><Obs><Code>10242</Code><Msg>secret-sign</Msg></Obs></Observaciones></FECAEDetResponse>',
+        ),
+      ),
+    );
+    await expect(service.authorize('company', request)).resolves.toEqual({
+      status: 'AUTHORIZED',
+      cae: '12345678901234',
+      expiresAt: '20261014',
+      message: 'Comprobante autorizado en homologación. Sin validez fiscal.',
+    });
+  });
+
+  it.each([3, 8, 13] as const)(
+    'uses the same safe diagnostics for a rejected NC %s',
+    async (type) => {
+      send.mockResolvedValue(
+        answer(
+          'FECAESolicitar',
+          rejected(
+            '<Observaciones><Obs><Code>10243</Code><Msg>secret-sign</Msg></Obs></Observaciones>',
+            type,
+          ),
+        ),
+      );
+      await expect(
+        service.authorize('company', creditRequest(type)),
+      ).resolves.toEqual({
+        status: 'REJECTED',
+        cae: null,
+        expiresAt: null,
+        message: `${genericRejection} Código 10243: La condición de IVA del receptor no corresponde a la clase del comprobante.`,
+      });
+      expect(send.mock.calls[0][2]).toContain(associationXml(type));
+      expect(send).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 function creditRequest(type: 3 | 8 | 13 = 3): ArcaCreditNoteRequest {
