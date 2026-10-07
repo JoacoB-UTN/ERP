@@ -45,8 +45,11 @@ export const refreshFiscalIdentitySchema = z
   .strict();
 export type RefreshFiscalIdentityInput = z.infer<typeof refreshFiscalIdentitySchema>;
 
+export const fiscalDraftFilterSchema = z.enum(['ALL', 'PENDING', 'INVOICE_PENDING', 'CREDIT_NOTE_PENDING']);
+export type FiscalDraftFilter = z.infer<typeof fiscalDraftFilterSchema>;
 export const fiscalDraftsQuerySchema = z
   .object({
+    filter: fiscalDraftFilterSchema.default('ALL'),
     page: z.coerce.number().int().min(1).max(1_000_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(25),
   })

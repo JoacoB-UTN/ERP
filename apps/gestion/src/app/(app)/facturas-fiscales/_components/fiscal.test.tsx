@@ -23,6 +23,8 @@ const mock = vi.hoisted(() => ({
   detail: vi.fn(),
   listError: false,
   listItems: [] as unknown[],
+  listTotalPages: 1,
+  listTotal: undefined as number | undefined,
   sourceData: undefined as unknown,
   draftData: undefined as unknown,
   refetchError: false,
@@ -56,7 +58,12 @@ vi.mock('@/lib/auth-client', () => ({
     return {
       ...result({
         items: mock.listItems,
-        pagination: { page: 1, pageSize: 25, total: mock.listItems.length, totalPages: 1 },
+        pagination: {
+          page: 1,
+          pageSize: 25,
+          total: mock.listTotal ?? mock.listItems.length,
+          totalPages: mock.listTotalPages,
+        },
       }),
       isError: mock.listError,
       error: mock.listError ? new Error('Sin conexión') : null,
@@ -150,6 +157,8 @@ beforeEach(() => {
   mock.permissions = new Set(['sales.invoices.read', 'sales.invoices.create', 'sales.documents.read']);
   mock.listError = false;
   mock.listItems = [];
+  mock.listTotalPages = 1;
+  mock.listTotal = undefined;
   mock.sourceData = undefined;
   mock.draftData = undefined;
   mock.refetchError = false;
@@ -510,7 +519,7 @@ describe('Fiscal permissions and read paths', () => {
         <FiscalPreparePage />
       </>,
     );
-    expect(mock.list).toHaveBeenCalledWith(1, false);
+    expect(mock.list).toHaveBeenCalledWith(1, false, 'ALL');
     expect(mock.sales).toHaveBeenCalledWith(1, false);
     expect(mock.source).toHaveBeenCalledWith('sale-a', false);
     expect(mock.bySale).toHaveBeenCalledWith('sale-a', false);
@@ -533,6 +542,94 @@ describe('Fiscal permissions and read paths', () => {
 });
 
 describe('Homologation status list', () => {
+  it.each([
+    ['ALL', 'Todos', 'Todavía no hay borradores fiscales.'],
+    ['PENDING', 'Todos por consultar', 'No hay facturas ni notas de crédito por consultar.'],
+    ['INVOICE_PENDING', 'Facturas por consultar', 'No hay facturas por consultar.'],
+    ['CREDIT_NOTE_PENDING', 'Notas por consultar', 'No hay notas de crédito por consultar.'],
+  ])(
+    'requests the %s filter and displays its specific empty state without fiscal mutations',
+    (filter, label, empty) => {
+      render(<FiscalListPage />);
+      const select = screen.getByRole('combobox', { name: 'Mostrar comprobantes' });
+      expect((select as HTMLSelectElement).value).toBe('ALL');
+      expect(screen.getByRole('option', { name: label }).getAttribute('value')).toBe(filter);
+      fireEvent.change(select, { target: { value: filter } });
+      expect(mock.list).toHaveBeenLastCalledWith(1, true, filter);
+      expect(screen.getByRole('status').textContent).toBe(empty);
+      expect(mock.authorize).not.toHaveBeenCalled();
+      expect(mock.reconcile).not.toHaveBeenCalled();
+      expect(mock.save).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns to page one whenever the consultation filter changes', () => {
+    mock.listTotalPages = 3;
+    render(<FiscalListPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+    expect(mock.list).toHaveBeenLastCalledWith(2, true, 'ALL');
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'INVOICE_PENDING' } });
+    expect(mock.list).toHaveBeenLastCalledWith(1, true, 'INVOICE_PENDING');
+    fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+    expect(mock.list).toHaveBeenLastCalledWith(2, true, 'INVOICE_PENDING');
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'CREDIT_NOTE_PENDING' } });
+    expect(mock.list).toHaveBeenLastCalledWith(1, true, 'CREDIT_NOTE_PENDING');
+    expect(screen.getByText('Página 1')).toBeTruthy();
+  });
+
+  it('does not claim all pending work is resolved when the current page empties', () => {
+    mock.listTotalPages = 2;
+    mock.listTotal = 26;
+    const view = render(<FiscalListPage />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'PENDING' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+    mock.listTotalPages = 1;
+    mock.listTotal = 4;
+    view.rerender(<FiscalListPage />);
+    expect(screen.getByRole('status').textContent).toContain('hay comprobantes en otras páginas');
+    expect(screen.queryByText('No hay facturas ni notas de crédito por consultar.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Volver a la primera página' }));
+    expect(mock.list).toHaveBeenLastCalledWith(1, true, 'PENDING');
+  });
+
+  it('allows invoice-read-only operators to filter results without sending or consulting', () => {
+    mock.permissions = new Set(['sales.invoices.read']);
+    render(<FiscalListPage />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'PENDING' } });
+    expect(mock.list).toHaveBeenLastCalledWith(1, true, 'PENDING');
+    expect(screen.queryByRole('link', { name: 'Preparar desde una venta' })).toBeNull();
+    expect(mock.authorize).not.toHaveBeenCalled();
+    expect(mock.reconcile).not.toHaveBeenCalled();
+  });
+
+  it('does not expose the consultation filters without invoice-read permission', () => {
+    mock.permissions = new Set(['sales.invoices.create']);
+    render(<FiscalListPage />);
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(mock.list).toHaveBeenLastCalledWith(1, false, 'ALL');
+  });
+
+  it('keeps the chosen filter but hides stale pending rows after a failed refresh', () => {
+    mock.listItems = [
+      {
+        ...draft,
+        authorization: { status: 'UNKNOWN', pointOfSale: 3, voucherType: 6, voucherNumber: 42 },
+        creditNote: null,
+      },
+    ];
+    const view = render(<FiscalListPage />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'PENDING' } });
+    expect(screen.getByText('Resultado desconocido')).toBeTruthy();
+    mock.listError = true;
+    view.rerender(<FiscalListPage />);
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('PENDING');
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(screen.queryByText('Resultado desconocido')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Consultar resultado' })).toBeNull();
+    expect(screen.queryByText('No hay facturas ni notas de crédito por consultar.')).toBeNull();
+    expect(mock.reconcile).not.toHaveBeenCalled();
+  });
+
   it.each([
     [null, 'Sin enviar'],
     ['SENDING', 'Envío pendiente de confirmar'],
@@ -586,7 +683,7 @@ describe('Homologation status list', () => {
       { ...draft, authorization: { status: 'UNKNOWN', pointOfSale: 3, voucherNumber: 42, voucherType: 6 } },
     ];
     render(<FiscalListPage />);
-    expect(mock.list).toHaveBeenCalledWith(1, true);
+    expect(mock.list).toHaveBeenCalledWith(1, true, 'ALL');
     expect(screen.getByRole('link', { name: 'Consultar resultado' }).getAttribute('href')).toBe(
       '/facturas-fiscales/draft-a',
     );
@@ -697,7 +794,7 @@ describe('Credit-note status in the homologation list', () => {
       },
     ];
     render(<FiscalListPage />);
-    expect(mock.list).toHaveBeenCalledWith(1, true);
+    expect(mock.list).toHaveBeenCalledWith(1, true, 'ALL');
     expect(screen.getByRole('link', { name: 'Consultar resultado de NC' }).getAttribute('href')).toBe(
       '/facturas-fiscales/draft-a#nota-de-credito',
     );
@@ -719,7 +816,7 @@ describe('Credit-note status in the homologation list', () => {
       },
     ];
     render(<FiscalListPage />);
-    expect(mock.list).toHaveBeenCalledWith(1, false);
+    expect(mock.list).toHaveBeenCalledWith(1, false, 'ALL');
     expect(screen.queryByText('NC autorizada en pruebas')).toBeNull();
     expect(screen.queryByRole('link', { name: 'Ver nota de crédito' })).toBeNull();
   });

@@ -149,7 +149,9 @@ describe('Fiscal authorization (e2e)', () => {
     app = module.createNestApplication();
     app.use(cookieParser());
     app.setGlobalPrefix('api/v1');
-    await app.init();
+    // Keep one listener for concurrent requests and requests nested in WSFE mocks.
+    // Supertest's per-request server close can otherwise wait on the outer request.
+    await app.listen(0, '127.0.0.1');
     prisma = app.get(PrismaService);
     tenantId = (
       await prisma.tenant.create({
@@ -525,6 +527,7 @@ describe('Fiscal authorization (e2e)', () => {
         }),
       ]);
     const before = await snapshot();
+    let pendingPage: FiscalDraftsResponse | undefined;
     wsfe.authorize.mockImplementation(async () => {
       expect(
         await prisma.fiscalAuthorization.findFirst({
@@ -532,6 +535,11 @@ describe('Fiscal authorization (e2e)', () => {
         }),
       ).toMatchObject({ status: 'SENDING', voucherNumber: 1 });
       expect(await listed(draft.id)).toMatchObject({ status: 'SENDING' });
+      const response = await reader
+        .get('/api/v1/fiscal/drafts?filter=INVOICE_PENDING&pageSize=1')
+        .set(COMPANY_ID_HEADER, companyId)
+        .expect(200);
+      pendingPage = response.body as FiscalDraftsResponse;
       return accepted;
     });
     const requests = await Promise.all([
@@ -539,6 +547,14 @@ describe('Fiscal authorization (e2e)', () => {
       authorize(draft.id),
     ]);
     expect(requests.map((r) => r.status)).toEqual([201, 201]);
+    expect(pendingPage?.items.map((row) => row.id)).toEqual([draft.id]);
+    expect(pendingPage?.items[0].authorization?.status).toBe('SENDING');
+    expect(pendingPage?.pagination).toEqual({
+      page: 1,
+      pageSize: 1,
+      total: 1,
+      totalPages: 1,
+    });
     expect(wsfe.authorize).toHaveBeenCalledTimes(1);
     await authorize(draft.id).expect(201);
     expect(wsfe.authorize).toHaveBeenCalledTimes(1);
@@ -1224,6 +1240,131 @@ describe('Fiscal authorization (e2e)', () => {
         expect(calls()).toEqual(before);
         return response.body as FiscalDraftsResponse;
       }
+      it('filters current invoice and NC uncertainty before pagination while excluding preparations and historical rejections', async () => {
+        const rejected = {
+          status: 'REJECTED',
+          cae: null,
+          expiresAt: null,
+          message: 'Rejected before a deliberate retry',
+        };
+        const resolvedInvoice = await makeDraft();
+        wsfe.authorize.mockResolvedValueOnce(rejected);
+        await authorize(resolvedInvoice.draft.id).expect(201);
+        const resolved = attempt(
+          await authorize(resolvedInvoice.draft.id).expect(201),
+        );
+        const resolvedNote = result(await saveCredit(resolved.id).expect(201));
+        wsfe.authorize.mockResolvedValueOnce(rejected);
+        await sendNote(resolvedNote.id).expect(201);
+        await sendNote(resolvedNote.id).expect(201);
+
+        wsfe.lastNumber.mockResolvedValue(1);
+        const pendingNote = await prepareNote();
+        wsfe.authorize.mockResolvedValueOnce(rejected);
+        await sendNote(pendingNote.note.id).expect(201);
+        wsfe.authorize.mockRejectedValueOnce(new Error('Uncertain NC'));
+        await sendNote(pendingNote.note.id).expect(201);
+
+        wsfe.lastNumber.mockResolvedValue(2);
+        const preparedNote = await prepareNote();
+        wsfe.lastNumber.mockResolvedValue(3);
+        const rejectedInvoice = await makeDraft();
+        wsfe.authorize.mockResolvedValueOnce(rejected);
+        await authorize(rejectedInvoice.draft.id).expect(201);
+        const pendingInvoice = await makeDraft();
+        wsfe.authorize.mockResolvedValueOnce(rejected);
+        await authorize(pendingInvoice.draft.id).expect(201);
+        wsfe.authorize.mockRejectedValueOnce(new Error('Uncertain invoice'));
+        await authorize(pendingInvoice.draft.id).expect(201);
+        // A newer unsent row occupies the unfiltered first page.
+        const unsent = await makeDraft();
+        clearArcaCalls();
+        const all = await listNotes();
+        expect(
+          (await listNotes(companyId, 'filter=ALL&pageSize=100')).items,
+        ).toEqual(all.items);
+        expect(
+          (await listNotes(companyId, 'pageSize=1')).items.map((row) => row.id),
+        ).toEqual([unsent.draft.id]);
+        const expected = {
+          INVOICE_PENDING: [pendingInvoice.draft.id],
+          CREDIT_NOTE_PENDING: [pendingNote.draft.id],
+          PENDING: [pendingInvoice.draft.id, pendingNote.draft.id],
+        };
+        for (const [filter, ids] of Object.entries(expected)) {
+          const response = await listNotes(
+            companyId,
+            `filter=${filter}&pageSize=100`,
+          );
+          expect(response.items.map((row) => row.id)).toEqual(ids);
+          expect(response.pagination).toEqual({
+            page: 1,
+            pageSize: 100,
+            total: ids.length,
+            totalPages: 1,
+          });
+          expect(
+            response.items.some((row) =>
+              [
+                resolvedInvoice.draft.id,
+                rejectedInvoice.draft.id,
+                preparedNote.draft.id,
+                unsent.draft.id,
+              ].includes(row.id),
+            ),
+          ).toBe(false);
+        }
+        for (const [index, id] of expected.PENDING.entries()) {
+          const response = await listNotes(
+            companyId,
+            `filter=PENDING&pageSize=1&page=${index + 1}`,
+          );
+          expect(response.items.map((row) => row.id)).toEqual([id]);
+          expect(response.pagination).toEqual({
+            page: index + 1,
+            pageSize: 1,
+            total: 2,
+            totalPages: 2,
+          });
+        }
+        expect(
+          (await listNotes(companyId, 'filter=PENDING&pageSize=1&page=3'))
+            .items,
+        ).toEqual([]);
+        expectNoArcaCalls();
+      });
+      it('requires fiscal read permission and rejects unsupported or ambiguous pending filters without calling ARCA', async () => {
+        clearArcaCalls();
+        for (const filter of [
+          'ALL',
+          'PENDING',
+          'INVOICE_PENDING',
+          'CREDIT_NOTE_PENDING',
+        ]) {
+          await listNotes(companyId, `filter=${filter}`);
+          for (const agent of [noFiscal, noSalesRead])
+            await agent
+              .get(`/api/v1/fiscal/drafts?filter=${filter}`)
+              .set(COMPANY_ID_HEADER, companyId)
+              .expect(403);
+        }
+        for (const query of [
+          'filter=REJECTED',
+          'filter=pending',
+          'filter=',
+          'filter=PENDING&filter=ALL',
+          'filter=PENDING&status=UNKNOWN',
+        ])
+          await reader
+            .get(`/api/v1/fiscal/drafts?${query}`)
+            .set(COMPANY_ID_HEADER, companyId)
+            .expect(400);
+        await reader
+          .get('/api/v1/fiscal/drafts?filter=PENDING')
+          .set(COMPANY_ID_HEADER, foreignCompanyId)
+          .expect(403);
+        expectNoArcaCalls();
+      });
       it('lists unprepared, prepared and the latest rejected or authorized NC without exposing attempt details or changing pagination', async () => {
         const invoice = await original();
         const before = await listNotes();
@@ -1316,7 +1457,10 @@ describe('Fiscal authorization (e2e)', () => {
         const { draft, note } = await prepareNote();
         let sendingList: FiscalDraftsResponse | undefined;
         wsfe.authorize.mockImplementationOnce(async () => {
-          sendingList = await listNotes();
+          sendingList = await listNotes(
+            companyId,
+            'filter=CREDIT_NOTE_PENDING',
+          );
           throw new Error('Uncertain transport after durable claim');
         });
         await sendNote(note.id).expect(201);
@@ -1334,8 +1478,9 @@ describe('Fiscal authorization (e2e)', () => {
           },
         });
         expect(
-          (await listNotes()).items.find((item) => item.id === draft.id)
-            ?.creditNote,
+          (await listNotes(companyId, 'filter=PENDING')).items.find(
+            (item) => item.id === draft.id,
+          )?.creditNote,
         ).toEqual({
           id: note.id,
           authorization: {
@@ -1739,6 +1884,28 @@ describe('Fiscal authorization (e2e)', () => {
           expect(JSON.stringify(ownList)).not.toContain(foreignDraft.draft.id);
           expect(JSON.stringify(foreignList)).not.toContain(first.note.id);
           expect(JSON.stringify(foreignList)).not.toContain(first.draft.id);
+          for (const filter of [
+            'PENDING',
+            'INVOICE_PENDING',
+            'CREDIT_NOTE_PENDING',
+          ]) {
+            const ownPending = await listNotes(companyId, `filter=${filter}`);
+            expect(ownPending.items.map((item) => item.id)).toEqual(
+              filter === 'INVOICE_PENDING' ? [] : [first.draft.id],
+            );
+            const foreignPending = await listNotes(
+              foreignCompanyId,
+              `filter=${filter}`,
+              editor,
+            );
+            expect(foreignPending.items).toEqual([]);
+            expect(foreignPending.pagination).toEqual({
+              page: 1,
+              pageSize: 25,
+              total: 0,
+              totalPages: 0,
+            });
+          }
         } finally {
           await prisma.fiscalCreditNoteAuthorization.deleteMany({
             where: scope,

@@ -1,6 +1,6 @@
 # 036 — Refresh fiscal identity before the first submission
 
-Status: IMPLEMENTED — local checks and independent review passed; CI pending.
+Status: DONE. PR #74 merged with all CI checks passing.
 Base: merged PR #73 (source 83d1fbb).
 Branch: agent/codex-fiscal-identity-refresh.
 

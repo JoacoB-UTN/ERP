@@ -312,45 +312,84 @@ export class FiscalService {
     companyId: string,
     query: FiscalDraftsQuery,
   ): Promise<FiscalDraftsResponse> {
-    const [rows, total] = await this.prisma.$transaction([
-      this.prisma.fiscalDraft.findMany({
-        where: { companyId },
-        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
-        skip: (query.page - 1) * query.pageSize,
-        take: query.pageSize,
-        include: {
-          authorizations: {
-            where: { companyId },
-            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-            take: 1,
-            select: {
-              status: true,
-              pointOfSale: true,
-              voucherType: true,
-              voucherNumber: true,
-              creditNoteDraft: {
-                where: { companyId },
-                select: {
-                  id: true,
-                  authorizations: {
-                    where: { companyId },
-                    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-                    take: 1,
-                    select: {
-                      status: true,
-                      pointOfSale: true,
-                      voucherType: true,
-                      voucherNumber: true,
+    // Each draft has at most one non-rejected attempt. An unresolved attempt
+    // therefore represents its current state, never an older rejected attempt.
+    const pending = ['SENDING', 'UNKNOWN'];
+    const invoicePending: Prisma.FiscalDraftWhereInput = {
+      authorizations: { some: { companyId, status: { in: pending } } },
+    };
+    const creditNotePending: Prisma.FiscalDraftWhereInput = {
+      authorizations: {
+        some: {
+          companyId,
+          status: 'AUTHORIZED',
+          creditNoteDraft: {
+            is: {
+              companyId,
+              authorizations: {
+                some: { companyId, status: { in: pending } },
+              },
+            },
+          },
+        },
+      },
+    };
+    const where: Prisma.FiscalDraftWhereInput = {
+      companyId,
+      ...(query.filter === 'INVOICE_PENDING'
+        ? invoicePending
+        : query.filter === 'CREDIT_NOTE_PENDING'
+          ? creditNotePending
+          : query.filter === 'PENDING'
+            ? { OR: [invoicePending, creditNotePending] }
+            : {}),
+    };
+    const [rows, total] = await this.prisma.$transaction(
+      [
+        this.prisma.fiscalDraft.findMany({
+          where,
+          orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+          skip: (query.page - 1) * query.pageSize,
+          take: query.pageSize,
+          include: {
+            authorizations: {
+              where: { companyId },
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+              take: 1,
+              select: {
+                status: true,
+                pointOfSale: true,
+                voucherType: true,
+                voucherNumber: true,
+                creditNoteDraft: {
+                  where: { companyId },
+                  select: {
+                    id: true,
+                    authorizations: {
+                      where: { companyId },
+                      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                      take: 1,
+                      select: {
+                        status: true,
+                        pointOfSale: true,
+                        voucherType: true,
+                        voucherNumber: true,
+                      },
                     },
                   },
                 },
               },
             },
           },
-        },
-      }),
-      this.prisma.fiscalDraft.count({ where: { companyId } }),
-    ]);
+        }),
+        this.prisma.fiscalDraft.count({ where }),
+      ],
+      {
+        // Keep the page, its nested summaries and its total on one read snapshot
+        // while authorization or reconciliation changes a pending status.
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+      },
+    );
     return {
       items: rows.map((row) => {
         const original = row.authorizations[0];
@@ -367,7 +406,8 @@ export class FiscalService {
         };
       }),
       pagination: {
-        ...query,
+        page: query.page,
+        pageSize: query.pageSize,
         total,
         totalPages: Math.ceil(total / query.pageSize),
       },
