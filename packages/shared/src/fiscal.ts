@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { FiscalAuthorizationDto } from './fiscal-authorization';
+import type { CustomerDocumentType } from './enums';
 
 export const fiscalInvoiceTypeSchema = z.enum(['A', 'B', 'C']);
 export const fiscalTaxTreatmentSchema = z.enum([
@@ -84,7 +85,13 @@ export interface FiscalSource {
   currencyCode: 'ARS';
   total: string;
   issuer: { legalName: string; taxId: string };
-  recipient: { legalName: string; taxId: string | null; taxCondition: string };
+  recipient: {
+    legalName: string;
+    taxId: string | null;
+    taxCondition: string;
+    /** Absent only in legacy snapshots; never infer DNI from a legacy number. */
+    documentType?: CustomerDocumentType | null;
+  };
   lines: FiscalSourceLine[];
 }
 export interface FiscalPreview extends FiscalBreakdown {
