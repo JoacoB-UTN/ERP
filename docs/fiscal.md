@@ -452,3 +452,24 @@ Gestión offers all documents, all pending consultations, pending invoices or
 pending notes. Changing the filter starts at page one and uses a separate query
 cache key. Read-only operators can locate the document and open its detail;
 consultation still requires its existing explicit action and write permission.
+
+## Read-only attempt history
+
+GET `/fiscal/drafts/:id/authorizations` and
+`/fiscal/credit-notes/:id/authorizations` require invoice read permission and a
+parent document in the active company/tenant. Strict `page`/`pageSize` queries
+return sanitized authorization DTOs, a total and `latestAuthorizationId` from
+one consistent read. Attempts sort by creation time and ID descending; a later
+page never relabels its first item as the latest attempt. Business request JSON,
+issuer CUIT, user IDs and credentials are not part of this response.
+
+This is a history of persisted submission attempts, not a timeline of every
+status transition. A manual retry after rejection creates another attempt;
+consultation updates the existing attempt without creating another submission.
+Opening, paging or refreshing history never contacts ARCA or changes data.
+
+Gestión loads history only when expanded and shows date, revision, test number,
+status and message. It is separate from the current authorization controls and
+cannot authorize, consult or print an older attempt. History caches are scoped
+by company, invoice/note kind, document and page. Errors or unavailable document
+context hide cached history rather than presenting it as current information.

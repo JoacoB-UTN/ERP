@@ -1,8 +1,8 @@
 # 038 — Read-only fiscal attempt history
 
-Status: IN PROGRESS.
-Base branch: agent/codex-fiscal-pending-consultations, PR #75, 3997e44.
-Dependency: merge PR #75 before this PR; rebase on its merged main.
+Status: IMPLEMENTED — aggregate verification in progress.
+Base: merged PR #75, main 205aa92.
+Dependency: PR #75 is merged; developed from its reviewed head before merge.
 Branch: agent/codex-fiscal-attempt-history.
 
 Owners: coordinator owns packages/shared, packages/auth-client, Gestión hook
