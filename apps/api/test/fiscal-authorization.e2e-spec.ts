@@ -1,9 +1,11 @@
 import {
   ArcaWsfeService,
   type ArcaInvoiceRequest,
+  type ArcaVoucherRequest,
 } from '../src/fiscal/arca-wsfe.service';
 import { ArcaWsaaService } from '../src/fiscal/arca-wsaa.service';
 import * as arcaSoap from '../src/fiscal/arca-soap';
+import { readArcaRecipient } from '../src/fiscal/fiscal-recipient';
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
@@ -26,7 +28,10 @@ import { PrismaService } from '../src/database/prisma.service';
 import { AuditService } from '../src/audit/audit.service';
 import { SalesService } from '../src/sales/sales.service';
 import { CustomerAccountService } from '../src/accounts/customer-account.service';
-import type { SalesDocumentStatus } from '../src/generated/prisma/client';
+import type {
+  Prisma,
+  SalesDocumentStatus,
+} from '../src/generated/prisma/client';
 
 /** Isolated fixtures; run only against a disposable migrated database. */
 describe('Fiscal authorization (e2e)', () => {
@@ -1273,6 +1278,354 @@ describe('Fiscal authorization (e2e)', () => {
           },
         };
       }
+      describe('DNI B recipients', () => {
+        const lastSent = () =>
+          (wsfe.authorize.mock.calls as [string, ArcaVoucherRequest][]).at(
+            -1,
+          )![1];
+        beforeEach(async () => {
+          await prisma.customer.update({
+            where: { id: customerId },
+            data: {
+              documentType: 'DNI',
+              taxId: '0012345678',
+              taxCondition: 'CONSUMIDOR_FINAL',
+            },
+          });
+        });
+        afterEach(async () => {
+          await prisma.customer.update({
+            where: { id: customerId },
+            data: {
+              documentType: 'CUIT',
+              taxId: '20123456786',
+              taxCondition: 'RESPONSABLE_INSCRIPTO',
+            },
+          });
+        });
+        async function dniDraft(invoiceType: 'A' | 'B' | 'C' = 'B') {
+          const document = await sale();
+          const response = await save(document.id, {
+            ...input(document.lines[0].id),
+            invoiceType,
+            lines: [
+              {
+                salesLineId: document.lines[0].id,
+                treatment: invoiceType === 'C' ? 'C_NO_VAT' : 'VAT_21',
+              },
+            ],
+          }).expect(201);
+          return (response.body as FiscalDraftResponse).draft;
+        }
+        const refresh = (id: string, expectedRevision = 1) =>
+          editor
+            .post(`/api/v1/fiscal/drafts/${id}/refresh-identity`)
+            .set(COMPANY_ID_HEADER, companyId)
+            .send({ expectedRevision, confirmIdentityRefresh: true });
+
+        it('freezes DNI identity, normalizes its request and preserves it in a total NC B without ledger changes', async () => {
+          const draft = await dniDraft();
+          expect(draft.source.recipient).toMatchObject({
+            documentType: 'DNI',
+            taxId: '0012345678',
+            taxCondition: 'CONSUMIDOR_FINAL',
+          });
+          const ledgers = () =>
+            Promise.all([
+              prisma.salesDocument.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+              prisma.stockMovement.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+              prisma.customerAccountMovement.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+              prisma.treasuryMovement.findMany({
+                where: { companyId },
+                orderBy: { id: 'asc' },
+              }),
+            ]);
+          const before = await ledgers();
+          await authorize(draft.id, acknowledgement, reader).expect(403);
+          await authorize(
+            draft.id,
+            acknowledgement,
+            editor,
+            foreignCompanyId,
+          ).expect(404);
+          const invoice = attempt(await authorize(draft.id).expect(201));
+          expect(invoice).toMatchObject({
+            status: 'AUTHORIZED',
+            voucherType: 6,
+          });
+          const sent = lastSent();
+          expect(sent).toMatchObject({
+            recipientDocumentType: 96,
+            recipientDocumentNumber: '12345678',
+            recipientVatConditionId: 5,
+            voucherType: 6,
+          });
+          expect(sent).not.toHaveProperty('recipientCuit');
+          await prisma.customer.update({
+            where: { id: customerId },
+            data: {
+              documentType: 'CUIT',
+              taxId: '20123456786',
+              taxCondition: 'RESPONSABLE_INSCRIPTO',
+            },
+          });
+          const note = result(await saveCredit(invoice.id).expect(201));
+          expect(note.creditNoteType).toBe(8);
+          expect(note.invoice.source.recipient).toEqual(draft.source.recipient);
+          const credit = attempt(await sendNote(note.id).expect(201));
+          expect(credit).toMatchObject({
+            status: 'AUTHORIZED',
+            voucherType: 8,
+          });
+          expect(lastSent()).toMatchObject({
+            recipientDocumentType: 96,
+            recipientDocumentNumber: '12345678',
+            recipientVatConditionId: 5,
+            associated: {
+              voucherType: 6,
+              voucherNumber: invoice.voucherNumber,
+            },
+          });
+          expect(await ledgers()).toEqual(before);
+        });
+
+        it.each(['invoice', 'credit-note'] as const)(
+          'keeps a wrong-document %s response uncertain and recovers the same DNI request by consultation only',
+          async (kind) => {
+            const draft = await dniDraft();
+            let id = draft.id;
+            if (kind === 'credit-note') {
+              const invoice = attempt(await authorize(draft.id).expect(201));
+              id = result(await saveCredit(invoice.id).expect(201)).id;
+            }
+            clearArcaCalls();
+            const send = () =>
+              kind === 'invoice' ? authorize(id) : sendNote(id);
+            const consult = (attemptId: string) =>
+              kind === 'invoice'
+                ? reconcile(attemptId)
+                : consultNote(attemptId);
+            const transport = jest.spyOn(arcaSoap, 'soapRequest');
+            const protocol = new ArcaWsfeService({
+              getTicket: jest.fn().mockResolvedValue({
+                token: 'test-token',
+                sign: 'test-sign',
+                expiresAt: new Date(),
+              }),
+            } as unknown as ArcaWsaaService);
+            const xml = (method: string, content: string) =>
+              arcaSoap.parseXml(
+                `<Body><${method}Response xmlns="http://ar.gov.afip.dif.FEV1/"><${method}Result>${content}</${method}Result></${method}Response></Body>`,
+              );
+            const detail = (r: ArcaVoucherRequest, documentType: number) =>
+              `<Concepto>1</Concepto><DocTipo>${documentType}</DocTipo><DocNro>${readArcaRecipient(r).recipientDocumentNumber}</DocNro><CbteDesde>${r.voucherNumber}</CbteDesde><CbteHasta>${r.voucherNumber}</CbteHasta><CbteFch>${r.date}</CbteFch>`;
+            const consulted = (r: ArcaVoucherRequest, documentType: number) => {
+              const associated =
+                'associated' in r
+                  ? `<CbtesAsoc><CbteAsoc><Tipo>${r.associated.voucherType}</Tipo><PtoVta>${r.associated.pointOfSale}</PtoVta><Nro>${r.associated.voucherNumber}</Nro><Cuit>${r.associated.issuerCuit}</Cuit><CbteFch>${r.associated.date}</CbteFch></CbteAsoc></CbtesAsoc>`
+                  : '';
+              const iva = r.iva.length
+                ? `<Iva>${r.iva.map((row) => `<AlicIva><Id>${row.id}</Id><BaseImp>${row.base}</BaseImp><Importe>${row.amount}</Importe></AlicIva>`).join('')}</Iva>`
+                : '';
+              return xml(
+                'FECompConsultar',
+                `<ResultGet>${detail(r, documentType)}<PtoVta>${r.pointOfSale}</PtoVta><CbteTipo>${r.voucherType}</CbteTipo><Resultado>A</Resultado><EmisionTipo>CAE</EmisionTipo><MonId>PES</MonId><MonCotiz>1</MonCotiz><CondicionIVAReceptorId>${r.recipientVatConditionId}</CondicionIVAReceptorId><ImpTotal>${r.total}</ImpTotal><ImpTotConc>${r.notTaxed}</ImpTotConc><ImpNeto>${r.net}</ImpNeto><ImpOpEx>${r.exempt}</ImpOpEx><ImpTrib>0</ImpTrib><ImpIVA>${r.vat}</ImpIVA>${iva}${associated}<CodAutorizacion>${accepted.cae}</CodAutorizacion><FchVto>${accepted.expiresAt}</FchVto></ResultGet>`,
+              );
+            };
+            try {
+              wsfe.authorize.mockImplementationOnce(
+                async (company: string, r: ArcaVoucherRequest) => {
+                  transport.mockResolvedValueOnce(
+                    xml(
+                      'FECAESolicitar',
+                      `<FeCabResp><Cuit>${r.issuerCuit}</Cuit><PtoVta>${r.pointOfSale}</PtoVta><CbteTipo>${r.voucherType}</CbteTipo><CantReg>1</CantReg><Resultado>A</Resultado></FeCabResp><FeDetResp><FECAEDetResponse>${detail(r, 80)}<Resultado>A</Resultado><CAE>${accepted.cae}</CAE><CAEFchVto>${accepted.expiresAt}</CAEFchVto></FECAEDetResponse></FeDetResp>`,
+                    ),
+                  );
+                  return protocol.authorize(company, r);
+                },
+              );
+              const pending = attempt(await send().expect(201));
+              expect(pending.status).toBe('UNKNOWN');
+              expect(readArcaRecipient(lastSent())).toEqual({
+                recipientDocumentType: 96,
+                recipientDocumentNumber: '12345678',
+              });
+              expect(attempt(await send().expect(201)).id).toBe(pending.id);
+              expect(wsfe.authorize).toHaveBeenCalledTimes(1);
+              const recordedRequest = lastSent();
+              for (const documentType of [80, 96]) {
+                wsfe.consult.mockImplementationOnce(
+                  async (company: string, r: ArcaVoucherRequest) => {
+                    transport.mockResolvedValueOnce(consulted(r, documentType));
+                    return protocol.consult(company, r);
+                  },
+                );
+                const result = attempt(await consult(pending.id).expect(201));
+                expect(result.id).toBe(pending.id);
+                expect(result.status).toBe(
+                  documentType === 80 ? 'UNKNOWN' : 'AUTHORIZED',
+                );
+                expect(wsfe.consult.mock.calls.at(-1) as unknown).toEqual([
+                  companyId,
+                  recordedRequest,
+                ]);
+              }
+              expect(wsfe.authorize).toHaveBeenCalledTimes(1);
+              expect(transport).toHaveBeenCalledTimes(3);
+            } finally {
+              transport.mockRestore();
+            }
+          },
+        );
+
+        it('requires explicit refresh to adopt DNI in a legacy unsent snapshot and freezes identity after rejection', async () => {
+          const draft = await dniDraft();
+          const { documentType: _type, ...legacyRecipient } =
+            draft.source.recipient;
+          const row = await prisma.fiscalDraft.findFirstOrThrow({
+            where: { companyId, id: draft.id },
+          });
+          const snapshot =
+            row.snapshot as unknown as FiscalDraftResponse['draft'];
+          await prisma.fiscalDraft.update({
+            where: { id: draft.id },
+            data: {
+              snapshot: {
+                ...snapshot,
+                source: { ...snapshot.source, recipient: legacyRecipient },
+              } as unknown as Prisma.InputJsonValue,
+            },
+          });
+          clearArcaCalls();
+          await authorize(draft.id).expect(400);
+          expectNoArcaCalls();
+          const refreshed = (await refresh(draft.id).expect(201))
+            .body as FiscalDraftResponse;
+          expect(refreshed.draft.source.recipient.documentType).toBe('DNI');
+          expect(refreshed.draft.revision).toBe(2);
+          expect(refreshed.draft.totals).toEqual(draft.totals);
+          wsfe.authorize.mockResolvedValueOnce({
+            status: 'REJECTED',
+            cae: null,
+            expiresAt: null,
+            message: 'Rechazado en pruebas',
+          });
+          const rejected = attempt(
+            await authorize(draft.id, {
+              ...acknowledgement,
+              expectedRevision: 2,
+            }).expect(201),
+          );
+          expect(rejected.status).toBe('REJECTED');
+          await refresh(draft.id, 2).expect(409);
+        });
+
+        it('detects a changed document type even when the numeric identity is unchanged', async () => {
+          await prisma.customer.update({
+            where: { id: customerId },
+            data: { taxId: '20123456786' },
+          });
+          const draft = await dniDraft();
+          await prisma.customer.update({
+            where: { id: customerId },
+            data: { documentType: 'CUIT' },
+          });
+          clearArcaCalls();
+          await authorize(draft.id).expect(400);
+          expectNoArcaCalls();
+        });
+
+        it.each(['A', 'C'] as const)(
+          'does not authorize DNI as invoice %s',
+          async (invoiceType) => {
+            const draft = await dniDraft(invoiceType);
+            clearArcaCalls();
+            await authorize(draft.id).expect(400);
+            expectNoArcaCalls();
+          },
+        );
+        it.each(['0', '000000', '123456789012', '12bad34'])(
+          'refuses an invalid DNI %s before contacting ARCA',
+          async (taxId) => {
+            await prisma.customer.update({
+              where: { id: customerId },
+              data: { taxId },
+            });
+            const draft = await dniDraft();
+            clearArcaCalls();
+            await authorize(draft.id).expect(400);
+            expectNoArcaCalls();
+          },
+        );
+        it('does not infer consumer-final VAT condition from a DNI', async () => {
+          await prisma.customer.update({
+            where: { id: customerId },
+            data: { taxCondition: 'EXENTO' },
+          });
+          const draft = await dniDraft();
+          clearArcaCalls();
+          await authorize(draft.id).expect(400);
+          expectNoArcaCalls();
+        });
+
+        it('preserves historical CUIT-only request compatibility when preparing and sending a total note', async () => {
+          await prisma.customer.update({
+            where: { id: customerId },
+            data: {
+              documentType: 'CUIT',
+              taxId: '20123456786',
+              taxCondition: 'RESPONSABLE_INSCRIPTO',
+            },
+          });
+          const invoice = await original();
+          const authorization =
+            await prisma.fiscalAuthorization.findFirstOrThrow({
+              where: { companyId, id: invoice.authorization.id },
+            });
+          const {
+            recipientDocumentType: _type,
+            recipientDocumentNumber: number,
+            ...rest
+          } = authorization.request as unknown as ArcaInvoiceRequest;
+          await prisma.fiscalAuthorization.update({
+            where: { id: authorization.id },
+            data: { request: { ...rest, recipientCuit: number } },
+          });
+          const row = await prisma.fiscalDraft.findFirstOrThrow({
+            where: { companyId, id: invoice.draft.id },
+          });
+          const snapshot =
+            row.snapshot as unknown as FiscalDraftResponse['draft'];
+          const { documentType: _savedType, ...recipient } =
+            snapshot.source.recipient;
+          await prisma.fiscalDraft.update({
+            where: { id: row.id },
+            data: {
+              snapshot: {
+                ...snapshot,
+                source: { ...snapshot.source, recipient },
+              } as unknown as Prisma.InputJsonValue,
+            },
+          });
+          const note = result(await saveCredit(authorization.id).expect(201));
+          const credit = attempt(await sendNote(note.id).expect(201));
+          expect(credit.status).toBe('AUTHORIZED');
+          expect(readArcaRecipient(lastSent())).toEqual({
+            recipientDocumentType: 80,
+            recipientDocumentNumber: '20123456786',
+          });
+        });
+      });
+
       it.each(['invoice', 'credit-note'] as const)(
         'returns empty %s history only to scoped readers and validates bounded query parameters',
         async (kind) => {
@@ -1513,11 +1866,12 @@ describe('Fiscal authorization (e2e)', () => {
                 company: string,
                 r: Parameters<ArcaWsfeService['authorize']>[1],
               ) => {
+                const recipient = readArcaRecipient(r);
                 transport.mockResolvedValueOnce(
                   arcaSoap.parseXml(
                     `<Body><FECAESolicitarResponse xmlns="http://ar.gov.afip.dif.FEV1/"><FECAESolicitarResult>` +
                       `<FeCabResp><Cuit>${r.issuerCuit}</Cuit><PtoVta>${r.pointOfSale}</PtoVta><CbteTipo>${r.voucherType}</CbteTipo><CantReg>1</CantReg><Resultado>R</Resultado></FeCabResp>` +
-                      `<FeDetResp><FECAEDetResponse><Concepto>1</Concepto><DocTipo>80</DocTipo><DocNro>${r.recipientCuit}</DocNro><CbteDesde>${r.voucherNumber}</CbteDesde><CbteHasta>${r.voucherNumber}</CbteHasta><CbteFch>${r.date}</CbteFch><Resultado>R</Resultado>` +
+                      `<FeDetResp><FECAEDetResponse><Concepto>1</Concepto><DocTipo>${recipient.recipientDocumentType}</DocTipo><DocNro>${recipient.recipientDocumentNumber}</DocNro><CbteDesde>${r.voucherNumber}</CbteDesde><CbteHasta>${r.voucherNumber}</CbteHasta><CbteFch>${r.date}</CbteFch><Resultado>R</Resultado>` +
                       `<Observaciones><Obs><Code>10048</Code><Msg>diagnostic-test-token diagnostic-test-sign private upstream text</Msg></Obs><Obs><Code>54321</Code><Msg>private upstream text</Msg></Obs></Observaciones>` +
                       `</FECAEDetResponse></FeDetResp></FECAESolicitarResult></FECAESolicitarResponse></Body>`,
                   ),

@@ -1,8 +1,8 @@
 # 040 — DNI recipients for invoice B and total NC B in homologation
 
-Status: IN PROGRESS.
-Base: PR #77, agent/codex-fiscal-rejection-diagnostics fac9fcc.
-Dependency: merge PR #77 and rebase before this task merges.
+Status: IMPLEMENTED — verified; awaiting CI and merge.
+Base: merged PR #77, main d41b802.
+Dependency: PR #77 is merged; developed from its reviewed head before merge.
 Branch: agent/codex-fiscal-dni-b.
 
 Ownership: coordinator owns packages/shared, API integration specs and docs.
@@ -22,8 +22,9 @@ taxId in new source snapshots and explicit identity refresh. The existing
 customer taxId column holds the document number even for DNI; no schema needed.
 Legacy snapshots without documentType must never infer DNI from their number or
 the current customer. Existing valid CUIT behavior and old attempts remain usable.
-Unsent legacy DNI requires explicit identity refresh before sending. All prior
-attempts still freeze identity and amounts, even rejected ones.
+Unsent legacy DNI requires explicit identity refresh before sending. Any prior attempt still blocks identity refresh, even a rejected one. Historical
+requests and original source amounts stay frozen; existing permitted class/tax
+treatment corrections after rejection remain unchanged.
 
 New request JSON uses explicit recipientDocumentType (80/96) and
 recipientDocumentNumber. A shared backend reader must support historical
@@ -54,3 +55,8 @@ snapshot/request behavior; explicit refresh without prior attempts only; wrong
 type/number in responses/consultation; missing/invalid catalog; exact frozen NC
 identity; company/permissions; no ledger effects. Lint/types, unit/integration/
 Gestión suites, production builds, independent review and exact-head green CI.
+
+Verification: 526 API unit tests, 90 fiscal integration tests across three suites,
+329 Gestión tests, workspace lint/types and all production builds passed. Fresh
+migrations/drift and repeat seed passed. Independent API/UI review approved;
+the catalog-validity finding was fixed with regression tests.

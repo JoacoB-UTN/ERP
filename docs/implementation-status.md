@@ -941,8 +941,11 @@ Local tests, lint/typecheck, production builds and disposable migration/seed
 verification pass for those merged slices (see fiscal.md). Authenticated ARCA
 acceptance remains pending; this is not production readiness.
 
-The supported test circuit is products, ARS, recipient CUIT, explicit A/B/C
-selection and an exclusive test point of sale. `SENDING`/`UNKNOWN` reserve the
+The supported test circuit is products, ARS, CUIT recipients with explicit A/B/C
+selection, plus DNI recipients explicitly declared CONSUMIDOR_FINAL for B/NC B,
+and an exclusive test point of sale. Saved document type/number is checked
+through sending and consultation; legacy CUIT requests remain supported.
+`SENDING`/`UNKNOWN` reserve the
 original number and block the series; consultation never blindly resends.
 Confirmed sales and ledger balances remain unchanged. Real certificate setup,
 issuer definition and live homologation acceptance are still missing. Production,

@@ -193,6 +193,10 @@ Fiscal / ARCA — PARTIAL
   authorization uses a separate NC series and exact associated-invoice validation.
   Uncertain responses are recovered by consultation, without reversing stock/accounts.
   Notes have list follow-up and separate, explicitly non-fiscal test printing.
+  Pending filters and read-only attempt history support manual follow-up; safe
+  numeric rejection diagnostics preserve ARCA codes without upstream free text.
+  Identified DNI consumers are supported for B and total NC B in homologation,
+  with frozen identity and legacy CUIT compatibility.
   Real-certificate acceptance remains pending.
   Next: define issuer, provision homologation credentials and exclusive test PV,
   validate a real test invoice and recovery, then separately review production,

@@ -1,6 +1,8 @@
 # 039 — Safe ARCA rejection diagnostics
 
-Status: IMPLEMENTED — independent review and 434 unit / 42 integration tests passed.
+Status: DONE — merged PR #77, main d41b802.
+Verified: 434 unit / 42 integration tests, workspace lint/types, all production
+builds, independent review and exact-head CI passed.
 Base: merged PR #76, main 2dc96d2.
 Dependency: PR #76 is merged; developed from its reviewed head before merge.
 Branch: agent/codex-fiscal-rejection-diagnostics.
