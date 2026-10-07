@@ -163,6 +163,7 @@ export const {
   useLookupPricesBatch,
   useProductPrices,
   useFiscalCreditNoteAuthorization,
+  useFiscalAuthorizationHistory,
   useRefreshFiscalIdentity,
   useAuthorizeFiscalCreditNote,
   useReconcileFiscalCreditNote,

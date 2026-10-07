@@ -10,6 +10,8 @@ import type {
   AuthorizeFiscalDraftInput,
   FiscalAuthorizationResponse,
   FiscalLatestAuthorizationResponse,
+  FiscalAuthorizationHistoryKind,
+  FiscalAuthorizationHistoryResponse,
   FiscalAuthenticationResponse,
   SaveFiscalDraftInput,
   FiscalDraftResponse,
@@ -144,6 +146,16 @@ export function createFiscalClient({ apiFetch, useActiveCompanyId, getActiveComp
       !!draftId && enabled,
     );
   }
+  function useFiscalAuthorizationHistory(
+    kind: FiscalAuthorizationHistoryKind, id: string | null, page = 1, enabled = true,
+  ) {
+    const resource = kind === 'invoice' ? 'drafts' : 'credit-notes';
+    return useFiscalQuery<FiscalAuthorizationHistoryResponse>(
+      ['authorization-history', kind, id, page],
+      `/fiscal/${resource}/${id}/authorizations?page=${page}&pageSize=25`,
+      !!id && enabled,
+    );
+  }
   function useAuthorizationWrite<TInput, TResult>(
     request: (input: TInput, companyId: string) => Promise<TResult>,
   ) {
@@ -238,6 +250,7 @@ export function createFiscalClient({ apiFetch, useActiveCompanyId, getActiveComp
     );
   }
   return {
+    useFiscalAuthorizationHistory,
     useRefreshFiscalIdentity,
     useFiscalCreditNoteAuthorization,
     useAuthorizeFiscalCreditNote,
