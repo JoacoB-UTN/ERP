@@ -1,6 +1,7 @@
 # 040 — DNI recipients for invoice B and total NC B in homologation
 
-Status: IMPLEMENTED — verified; awaiting CI and merge.
+Status: DONE — merged PR #78, main 1aaad20.
+Exact-head GitHub CI passed before the user-authorized automatic merge.
 Base: merged PR #77, main d41b802.
 Dependency: PR #77 is merged; developed from its reviewed head before merge.
 Branch: agent/codex-fiscal-dni-b.
@@ -60,3 +61,7 @@ Verification: 526 API unit tests, 90 fiscal integration tests across three suite
 329 Gestión tests, workspace lint/types and all production builds passed. Fresh
 migrations/drift and repeat seed passed. Independent API/UI review approved;
 the catalog-validity finding was fixed with regression tests.
+
+Live authenticated homologation remains pending issuer CUIT/VAT definition,
+certificate setup and an exclusive test point of sale. No real issuance or
+production readiness is claimed. PR #17 remains open and unmerged.
