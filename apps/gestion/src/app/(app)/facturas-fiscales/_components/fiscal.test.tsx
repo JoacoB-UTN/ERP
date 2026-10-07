@@ -24,6 +24,7 @@ const mock = vi.hoisted(() => ({
   listError: false,
   listItems: [] as unknown[],
   listTotalPages: 1,
+  listTotal: undefined as number | undefined,
   sourceData: undefined as unknown,
   draftData: undefined as unknown,
   refetchError: false,
@@ -57,7 +58,12 @@ vi.mock('@/lib/auth-client', () => ({
     return {
       ...result({
         items: mock.listItems,
-        pagination: { page: 1, pageSize: 25, total: mock.listItems.length, totalPages: mock.listTotalPages },
+        pagination: {
+          page: 1,
+          pageSize: 25,
+          total: mock.listTotal ?? mock.listItems.length,
+          totalPages: mock.listTotalPages,
+        },
       }),
       isError: mock.listError,
       error: mock.listError ? new Error('Sin conexión') : null,
@@ -152,6 +158,7 @@ beforeEach(() => {
   mock.listError = false;
   mock.listItems = [];
   mock.listTotalPages = 1;
+  mock.listTotal = undefined;
   mock.sourceData = undefined;
   mock.draftData = undefined;
   mock.refetchError = false;
@@ -568,6 +575,21 @@ describe('Homologation status list', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'CREDIT_NOTE_PENDING' } });
     expect(mock.list).toHaveBeenLastCalledWith(1, true, 'CREDIT_NOTE_PENDING');
     expect(screen.getByText('Página 1')).toBeTruthy();
+  });
+
+  it('does not claim all pending work is resolved when the current page empties', () => {
+    mock.listTotalPages = 2;
+    mock.listTotal = 26;
+    const view = render(<FiscalListPage />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'PENDING' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+    mock.listTotalPages = 1;
+    mock.listTotal = 4;
+    view.rerender(<FiscalListPage />);
+    expect(screen.getByRole('status').textContent).toContain('hay comprobantes en otras páginas');
+    expect(screen.queryByText('No hay facturas ni notas de crédito por consultar.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Volver a la primera página' }));
+    expect(mock.list).toHaveBeenLastCalledWith(1, true, 'PENDING');
   });
 
   it('allows invoice-read-only operators to filter results without sending or consulting', () => {

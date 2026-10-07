@@ -243,7 +243,15 @@ export function FiscalListPage() {
               </tbody>
             </table>
           </div>
-          {query.data.items.length === 0 && (
+          {query.data.items.length === 0 && query.data.pagination.total > 0 && (
+            <div>
+              <p role="status">Esta página quedó vacía, pero hay comprobantes en otras páginas.</p>
+              <Button variant="outline" onClick={() => setPage(1)}>
+                Volver a la primera página
+              </Button>
+            </div>
+          )}
+          {query.data.items.length === 0 && query.data.pagination.total === 0 && (
             <p role="status">
               {
                 {

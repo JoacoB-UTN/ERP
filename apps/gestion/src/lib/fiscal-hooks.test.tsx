@@ -44,11 +44,41 @@ describe('Fiscal company binding', () => {
     fetcher.mockResolvedValueOnce({ items: [{ id: 'a-draft' }] });
     const view = renderHook(() => hooks.useFiscalDrafts(), { wrapper: Wrapper });
     await waitFor(() => expect(view.result.current.isSuccess).toBe(true));
-    expect(fetcher).toHaveBeenCalledWith('/fiscal/drafts?page=1&pageSize=25', { expectedCompanyId: 'a' });
+    expect(fetcher).toHaveBeenCalledWith('/fiscal/drafts?page=1&pageSize=25&filter=ALL', {
+      expectedCompanyId: 'a',
+    });
     fetcher.mockImplementation(() => new Promise(() => {}));
     company = 'b';
     view.rerender();
     expect(view.result.current.data).toBeUndefined();
+  });
+  it('separates consultation filters and pages without displaying other cached results', async () => {
+    fetcher.mockResolvedValueOnce({ items: [{ id: 'all-draft' }] });
+    const view = renderHook(
+      ({ page, filter }: { page: number; filter: 'ALL' | 'PENDING' | 'CREDIT_NOTE_PENDING' }) =>
+        hooks.useFiscalDrafts(page, true, filter),
+      {
+        wrapper: Wrapper,
+        initialProps: { page: 1, filter: 'ALL' as 'ALL' | 'PENDING' | 'CREDIT_NOTE_PENDING' },
+      },
+    );
+    await waitFor(() => expect(view.result.current.isSuccess).toBe(true));
+    fetcher.mockImplementation(() => new Promise(() => {}));
+    view.rerender({ page: 1, filter: 'PENDING' });
+    expect(view.result.current.data).toBeUndefined();
+    await waitFor(() =>
+      expect(fetcher).toHaveBeenLastCalledWith('/fiscal/drafts?page=1&pageSize=25&filter=PENDING', {
+        expectedCompanyId: 'a',
+      }),
+    );
+    view.rerender({ page: 2, filter: 'CREDIT_NOTE_PENDING' });
+    expect(view.result.current.data).toBeUndefined();
+    await waitFor(() =>
+      expect(fetcher).toHaveBeenLastCalledWith(
+        '/fiscal/drafts?page=2&pageSize=25&filter=CREDIT_NOTE_PENDING',
+        { expectedCompanyId: 'a' },
+      ),
+    );
   });
   it('does not load a disabled source or without a company', () => {
     renderHook(() => hooks.useFiscalSource('sale', false), { wrapper: Wrapper });

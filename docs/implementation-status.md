@@ -953,7 +953,8 @@ the note in homologation with its own numbering and exact invoice association.
 Durable attempts, global series/number uniqueness, frozen drafts and consult-only
 recovery prevent blind retries. A test CAE never changes stock, sales, accounts
 or Treasury balances. The fiscal list also shows the saved note and its latest
-status/number, with access to manual consultation. Authorized NC test printing
+status/number, with access to manual consultation. Company-scoped filters find
+pending invoice/NC consultations across pages without contacting ARCA. Authorized NC test printing
 uses the original snapshot and prints only the explicitly selected document.
 Never-submitted drafts can explicitly refresh corrected issuer/recipient identity
 with revision/audit protection; saved amounts stay unchanged, and any prior

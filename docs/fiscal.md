@@ -438,3 +438,17 @@ The action is available only with current draft/attempt queries and no prior
 attempt; company changes, stale revisions and late responses cannot overwrite
 another context. A new revision resets authorization confirmations. Operators
 must review the retained class/IVA selection before any subsequent send.
+
+## Find submissions requiring consultation
+
+GET `/fiscal/drafts` accepts `filter=ALL` (default), `PENDING`,
+`INVOICE_PENDING` or `CREDIT_NOTE_PENDING`. Pending means a persisted SENDING
+or UNKNOWN attempt; unsent drafts, prepared notes and resolved/rejected attempts
+are excluded. Company-scoped relation filters apply before pagination and the
+same predicate counts results. A repeatable-read transaction keeps rows, nested
+status summaries and totals consistent. Listing never contacts ARCA.
+
+Gestión offers all documents, all pending consultations, pending invoices or
+pending notes. Changing the filter starts at page one and uses a separate query
+cache key. Read-only operators can locate the document and open its detail;
+consultation still requires its existing explicit action and write permission.

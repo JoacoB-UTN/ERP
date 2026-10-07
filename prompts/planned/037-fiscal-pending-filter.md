@@ -1,8 +1,8 @@
 # 037 — Find fiscal submissions that need consultation
 
-Status: IMPLEMENTATION IN PROGRESS.
-Base: task 036 e8b95f1, itself based on merged PR #73.
-Branch: isolated agent/codex-fiscal-pending; integrate after task 036.
+Status: IMPLEMENTED — aggregate verification and independent review in progress.
+Base: merged PR #74 / main 2c52912.
+Branch: agent/codex-fiscal-pending-consultations; isolated API/UI work integrated.
 
 Coordinator owns shared query/client contract. API worker owns list service and
 fiscal-authorization.e2e-spec.ts. UI follows after identity-refresh handoff.
