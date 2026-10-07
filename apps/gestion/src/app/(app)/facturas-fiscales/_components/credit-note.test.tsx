@@ -7,6 +7,8 @@ const mock = vi.hoisted(() => ({
   read: true,
   write: true,
   query: vi.fn(),
+  history: vi.fn(),
+  historyRefetch: vi.fn(),
   save: vi.fn(),
   authorization: vi.fn(),
   send: vi.fn(),
@@ -15,6 +17,7 @@ const mock = vi.hoisted(() => ({
 vi.mock('@/lib/auth-client', () => ({
   authClient: { companyContextStore: { getActiveCompanyId: () => mock.company } },
   useActiveCompany: () => ({ activeCompanyId: mock.company }),
+  useFiscalAuthorizationHistory: (...args: unknown[]) => mock.history(...args),
   usePermissions: () => ({
     isLoading: false,
     can: (p: string) => (p === 'sales.invoices.read' ? mock.read : mock.write),
@@ -65,6 +68,14 @@ const state = (draft: unknown = null) => ({
 });
 beforeEach(() => {
   mock.company = 'a';
+  mock.historyRefetch.mockReset();
+  mock.history.mockReset().mockReturnValue({
+    data: { items: [], latestAuthorizationId: null, pagination: { page: 1, pageSize: 25, total: 0 } },
+    isError: false,
+    isPending: false,
+    isFetching: false,
+    refetch: mock.historyRefetch,
+  });
   mock.read = true;
   mock.write = true;
   mock.query.mockReset().mockReturnValue(state());
@@ -153,7 +164,7 @@ it('shows a persisted note read-only using its own original amounts', () => {
   expect(screen.getByText('Importe total de la nota: ARS 99.00')).toBeTruthy();
   expect(screen.getByText('Motivo: Devolución total')).toBeTruthy();
   expect(screen.queryByRole('textbox')).toBeNull();
-  expect(screen.queryByRole('button')).toBeNull();
+  expect(screen.queryByRole('button', { name: /Guardar|Autorizar|Consultar resultado/ })).toBeNull();
 });
 it('does not query without read permission', () => {
   mock.read = false;
@@ -170,6 +181,47 @@ it('disables writes while the original authorization is being verified without l
   ).toBe(true);
   view.rerender(<FiscalCreditNotePanel originalId="original" invoice={invoice} available />);
   expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Motivo conservado');
+});
+
+it('preserves an unsaved reason while opening, refreshing and failing to load note history', () => {
+  mock.query.mockReturnValue(state(saved));
+  const historyState = {
+    data: {
+      items: [
+        {
+          ...attempt,
+          status: 'REJECTED',
+          createdAt: '2026-10-04T12:00:00Z',
+          message: 'Rechazo guardado de la nota',
+        },
+      ],
+      latestAuthorizationId: attempt.id,
+      pagination: { page: 1, pageSize: 25, total: 1 },
+    },
+    isError: false,
+    isPending: false,
+    isFetching: false,
+    refetch: mock.historyRefetch,
+  };
+  mock.history.mockReturnValue(historyState);
+  const view = render(<FiscalCreditNotePanel originalId="original" invoice={invoice} />);
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Motivo local conservado' } });
+  expect(mock.history).toHaveBeenLastCalledWith('credit-note', 'note', 1, false);
+  fireEvent.click(screen.getByRole('button', { name: 'Ver historial de nota de crédito' }));
+  expect(mock.history).toHaveBeenLastCalledWith('credit-note', 'note', 1, true);
+  expect(screen.getByText('Rechazo guardado de la nota')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Recargar historial' }));
+  expect(mock.historyRefetch).toHaveBeenCalledTimes(1);
+  mock.history.mockReturnValue({ ...historyState, isError: true });
+  view.rerender(<FiscalCreditNotePanel originalId="original" invoice={invoice} />);
+  expect(screen.queryByText('Rechazo guardado de la nota')).toBeNull();
+  expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Motivo local conservado');
+  expect(
+    (screen.getByRole('button', { name: 'Guardar borrador de nota' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+  expect(mock.save).not.toHaveBeenCalled();
+  expect(mock.send).not.toHaveBeenCalled();
+  expect(mock.consult).not.toHaveBeenCalled();
 });
 
 it('requires both acknowledgements and sends the saved revision once, then freezes the note', async () => {
@@ -231,7 +283,7 @@ it.each(['AUTHORIZED', 'UNKNOWN', 'REJECTED'])('read-only operators see %s but n
   render(<FiscalCreditNotePanel originalId="original" invoice={invoice} />);
   expect(mock.authorization).toHaveBeenCalledWith('note', true);
   expect(screen.getByText('Motivo: Devolución total')).toBeTruthy();
-  expect(screen.queryByRole('button')).toBeNull();
+  expect(screen.queryByRole('button', { name: /Guardar|Autorizar|Consultar resultado/ })).toBeNull();
   expect(screen.queryByRole('checkbox')).toBeNull();
   expect(mock.send).not.toHaveBeenCalled();
   expect(mock.consult).not.toHaveBeenCalled();
@@ -354,7 +406,7 @@ it('allows a read-only operator to print a verified authorized note without muta
   const print = vi.spyOn(window, 'print').mockImplementation(() => {});
   render(<FiscalCreditNotePanel originalId="original" invoice={invoice} />);
   expect(screen.queryByRole('textbox')).toBeNull();
-  expect(screen.getAllByRole('button')).toHaveLength(1);
+  expect(screen.queryByRole('button', { name: /Guardar|Autorizar|Consultar resultado/ })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Imprimir nota de crédito de prueba' }));
   expect(print).toHaveBeenCalledOnce();
   expect(mock.send).not.toHaveBeenCalled();

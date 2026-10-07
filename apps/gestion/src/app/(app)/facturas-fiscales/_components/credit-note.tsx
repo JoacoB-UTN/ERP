@@ -8,6 +8,7 @@ import {
   type FiscalDraftDto,
 } from '@erp/shared';
 import { FiscalCreditNoteTestPrint } from './credit-note-test-print';
+import { FiscalAuthorizationHistory } from './authorization-history';
 import { Button } from '@/components/ui/button';
 import {
   authClient,
@@ -315,6 +316,11 @@ function CreditNoteForm({
               {operation === 'consult' ? 'Consultando nota…' : 'Consultar resultado de la nota en ARCA'}
             </Button>
           )}
+          <FiscalAuthorizationHistory
+            kind="credit-note"
+            id={saved.id}
+            available={available && !busy && !stale && !mismatchedAttempt}
+          />
         </section>
       )}
       {message && <p role="status">{message}</p>}

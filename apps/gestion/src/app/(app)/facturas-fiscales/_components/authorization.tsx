@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { FiscalCreditNotePanel } from './credit-note';
 import { FiscalTestPrint } from './test-print';
+import { FiscalAuthorizationHistory } from './authorization-history';
 import type { FiscalAuthorizationDto, FiscalDraftDto } from '@erp/shared';
 import { Button } from '@/components/ui/button';
 import {
@@ -168,6 +169,7 @@ export function FiscalAuthorizationPanel({
           Continuar preparación
         </Link>
       )}
+      <FiscalAuthorizationHistory kind="invoice" id={draft.id} available={available && !busy} />
     </section>
   );
 }
