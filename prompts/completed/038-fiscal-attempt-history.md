@@ -1,6 +1,6 @@
 # 038 — Read-only fiscal attempt history
 
-Status: IMPLEMENTED — verified; awaiting CI and merge.
+Status: DONE — merged PR #76, main 2dc96d2.
 Base: merged PR #75, main 205aa92.
 Dependency: PR #75 is merged; developed from its reviewed head before merge.
 Branch: agent/codex-fiscal-attempt-history.

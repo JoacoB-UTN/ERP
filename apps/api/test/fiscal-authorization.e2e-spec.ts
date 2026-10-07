@@ -3,6 +3,7 @@ import {
   type ArcaInvoiceRequest,
 } from '../src/fiscal/arca-wsfe.service';
 import { ArcaWsaaService } from '../src/fiscal/arca-wsaa.service';
+import * as arcaSoap from '../src/fiscal/arca-soap';
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
@@ -1492,6 +1493,67 @@ describe('Fiscal authorization (e2e)', () => {
           expect(after.pagination.total).toBe(1);
           expect(wsfe.authorize).toHaveBeenCalledTimes(sent);
           expect(wsfe.consult).toHaveBeenCalledTimes(1);
+        },
+      );
+      it.each(['invoice', 'credit-note'] as const)(
+        'persists safe ARCA rejection diagnostics in %s history after a manual retry',
+        async (kind) => {
+          const fixture = await historyFixture(kind);
+          const transport = jest.spyOn(arcaSoap, 'soapRequest');
+          const protocol = new ArcaWsfeService({
+            getTicket: jest.fn().mockResolvedValue({
+              token: 'diagnostic-test-token',
+              sign: 'diagnostic-test-sign',
+              expiresAt: new Date(),
+            }),
+          } as unknown as ArcaWsaaService);
+          try {
+            wsfe.authorize.mockImplementationOnce(
+              async (
+                company: string,
+                r: Parameters<ArcaWsfeService['authorize']>[1],
+              ) => {
+                transport.mockResolvedValueOnce(
+                  arcaSoap.parseXml(
+                    `<Body><FECAESolicitarResponse xmlns="http://ar.gov.afip.dif.FEV1/"><FECAESolicitarResult>` +
+                      `<FeCabResp><Cuit>${r.issuerCuit}</Cuit><PtoVta>${r.pointOfSale}</PtoVta><CbteTipo>${r.voucherType}</CbteTipo><CantReg>1</CantReg><Resultado>R</Resultado></FeCabResp>` +
+                      `<FeDetResp><FECAEDetResponse><Concepto>1</Concepto><DocTipo>80</DocTipo><DocNro>${r.recipientCuit}</DocNro><CbteDesde>${r.voucherNumber}</CbteDesde><CbteHasta>${r.voucherNumber}</CbteHasta><CbteFch>${r.date}</CbteFch><Resultado>R</Resultado>` +
+                      `<Observaciones><Obs><Code>10048</Code><Msg>diagnostic-test-token diagnostic-test-sign private upstream text</Msg></Obs><Obs><Code>54321</Code><Msg>private upstream text</Msg></Obs></Observaciones>` +
+                      `</FECAEDetResponse></FeDetResp></FECAESolicitarResult></FECAESolicitarResponse></Body>`,
+                  ),
+                );
+                return protocol.authorize(company, r);
+              },
+            );
+            const rejected = attempt(await fixture.send().expect(201));
+            expect(rejected.status).toBe('REJECTED');
+            expect(rejected.message).toContain('10048');
+            expect(rejected.message).toContain('54321');
+            expect(rejected.message).not.toMatch(
+              /diagnostic-test|private upstream|<Msg>/,
+            );
+            expect(transport).toHaveBeenCalledTimes(1);
+            const beforeRetry = await fixture.read();
+            expect(beforeRetry.items[0]).toMatchObject({
+              id: rejected.id,
+              message: rejected.message,
+            });
+            const authorized = attempt(await fixture.send().expect(201));
+            expect(authorized.status).toBe('AUTHORIZED');
+            const history = await fixture.read();
+            expect(history.pagination.total).toBe(2);
+            expect(history.latestAuthorizationId).toBe(authorized.id);
+            expect(
+              history.items.find((item) => item.id === rejected.id),
+            ).toMatchObject({
+              status: 'REJECTED',
+              message: rejected.message,
+              cae: null,
+            });
+            expect(transport).toHaveBeenCalledTimes(1);
+          } finally {
+            transport.mockRestore();
+          }
         },
       );
       it('filters current invoice and NC uncertainty before pagination while excluding preparations and historical rejections', async () => {

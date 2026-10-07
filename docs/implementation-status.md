@@ -957,7 +957,9 @@ status/number, with access to manual consultation. Company-scoped filters find
 pending invoice/NC consultations across pages without contacting ARCA. A separate
 read-only history lists paginated persisted invoice/NC attempts, distinguishes
 the latest attempt and keeps rejected prior attempts visible without resending
-or deriving current authorization actions from historical rows. Authorized NC test printing
+or deriving current authorization actions from historical rows. Correlated
+rejections retain bounded numeric ARCA observation codes and safe local hints;
+upstream free text/XML remains excluded. Authorized NC test printing
 uses the original snapshot and prints only the explicitly selected document.
 Never-submitted drafts can explicitly refresh corrected issuer/recipient identity
 with revision/audit protection; saved amounts stay unchanged, and any prior
