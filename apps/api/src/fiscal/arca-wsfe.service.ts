@@ -13,6 +13,7 @@ import {
   type ArcaCreditNoteRequest,
   type ArcaVoucherRequest,
 } from './fiscal-request';
+import { readArcaRecipient } from './fiscal-recipient';
 
 export type {
   ArcaInvoiceRequest,
@@ -73,9 +74,10 @@ function compatibleClasses(value: string, expected: string): boolean {
   );
 }
 function matchesDetail(node: XmlNode, r: ArcaVoucherRequest) {
+  const recipient = readArcaRecipient(r);
   same(node, 'Concepto', 1);
-  same(node, 'DocTipo', 80);
-  same(node, 'DocNro', r.recipientCuit);
+  same(node, 'DocTipo', recipient.recipientDocumentType);
+  same(node, 'DocNro', recipient.recipientDocumentNumber);
   same(node, 'CbteDesde', r.voucherNumber);
   same(node, 'CbteHasta', r.voucherNumber);
   same(node, 'CbteFch', r.date);
@@ -238,6 +240,32 @@ export class ArcaWsfeService {
     companyId: string,
     r: Omit<ArcaVoucherRequest, 'voucherNumber'>,
   ): Promise<void> {
+    const recipient = readArcaRecipient(r);
+    if (recipient.recipientDocumentType === 96) {
+      const documents = await this.call(
+        companyId,
+        r.issuerCuit,
+        'FEParamGetTiposDoc',
+      );
+      noErrors(documents);
+      const matches = children(
+        child(documents, 'ResultGet', NS),
+        'DocTipo',
+        NS,
+      ).filter((document) => value(document, 'Id') === '96');
+      if (matches.length !== 1) throw uncertain();
+      const from = value(matches[0], 'FchDesde');
+      const until = optional(matches[0], 'FchHasta');
+      if (
+        !validFiscalDate(r.date) ||
+        !validFiscalDate(from) ||
+        from > r.date ||
+        (until &&
+          until !== 'NULL' &&
+          (!validFiscalDate(until) || until < r.date))
+      )
+        throw uncertain();
+    }
     const points = await this.call(
       companyId,
       r.issuerCuit,
@@ -324,12 +352,13 @@ export class ArcaWsfeService {
     return Number(text);
   }
   async authorize(companyId: string, r: ArcaVoucherRequest) {
+    const recipient = readArcaRecipient(r);
     const associated = association(r);
     const head = `<FeCabReq>${tag('CantReg', 1)}${tag('PtoVta', r.pointOfSale)}${tag('CbteTipo', r.voucherType)}</FeCabReq>`;
     const detail =
       tag('Concepto', 1) +
-      tag('DocTipo', 80) +
-      tag('DocNro', r.recipientCuit) +
+      tag('DocTipo', recipient.recipientDocumentType) +
+      tag('DocNro', recipient.recipientDocumentNumber) +
       tag('CbteDesde', r.voucherNumber) +
       tag('CbteHasta', r.voucherNumber) +
       tag('CbteFch', r.date) +
@@ -385,6 +414,7 @@ export class ArcaWsfeService {
     throw uncertain();
   }
   async consult(companyId: string, r: ArcaVoucherRequest) {
+    readArcaRecipient(r);
     association(r);
     const result = await this.call(
       companyId,

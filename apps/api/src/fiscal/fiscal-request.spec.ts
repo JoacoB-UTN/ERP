@@ -51,6 +51,8 @@ describe('Homologation request builder', () => {
       buildHomologationRequest(source, settings, '20261004'),
     ).toMatchObject({
       issuerCuit: '20123456786',
+      recipientDocumentType: 80,
+      recipientDocumentNumber: '20123456786',
       recipientVatConditionId: 1,
       voucherType: 1,
       total: '121.00',
@@ -95,6 +97,58 @@ describe('Homologation request builder', () => {
       buildHomologationRequest(p, settings, '20261004').recipientVatConditionId,
     ).toBe(6);
   });
+  it('builds B for an explicitly saved DNI consumer without a fabricated CUIT', () => {
+    const p = preview(['121.00'], ['VAT_21'], 'B');
+    p.source.recipient = {
+      legalName: 'Consumidor',
+      documentType: 'DNI',
+      taxId: '0012345678',
+      taxCondition: 'CONSUMIDOR_FINAL',
+    };
+    const before = JSON.stringify(p);
+    const result = buildHomologationRequest(p, settings, '20261004');
+    expect(result).toMatchObject({
+      recipientDocumentType: 96,
+      recipientDocumentNumber: '12345678',
+      recipientVatConditionId: 5,
+      voucherType: 6,
+      total: '121.00',
+      net: '100.00',
+      vat: '21.00',
+      iva: [{ id: 5, base: '100.00', amount: '21.00' }],
+    });
+    expect(result).not.toHaveProperty('recipientCuit');
+    expect(JSON.stringify(p)).toBe(before);
+    delete p.source.recipient.documentType;
+    expect(() => buildHomologationRequest(p, settings, '20261004')).toThrow();
+  });
+  it.each(['A', 'C'] as const)(
+    'rejects DNI for %s even with a known issuer and valid amounts',
+    (invoiceType) => {
+      const p = preview(
+        ['121.00'],
+        [invoiceType === 'C' ? 'C_NO_VAT' : 'VAT_21'],
+        invoiceType,
+      );
+      p.source.recipient = {
+        legalName: 'Consumidor',
+        documentType: 'DNI',
+        taxId: '12345678',
+        taxCondition: 'CONSUMIDOR_FINAL',
+      };
+      expect(() =>
+        buildHomologationRequest(
+          p,
+          {
+            ...settings,
+            vatCondition:
+              invoiceType === 'C' ? 'MONOTRIBUTO' : 'RESPONSABLE_INSCRIPTO',
+          },
+          '20261004',
+        ),
+      ).toThrow();
+    },
+  );
   it.each(['UNKNOWN', 'NO_RESPONSABLE'])(
     'blocks unsupported recipient condition %s',
     (taxCondition) => {

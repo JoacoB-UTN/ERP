@@ -5,6 +5,10 @@ import {
 } from '@erp/shared';
 import { Prisma } from '../generated/prisma/client';
 import { validFiscalDate, type ArcaCreditNoteRequest } from './fiscal-request';
+import {
+  readFiscalRecipient,
+  type ArcaRecipientDocument,
+} from './fiscal-recipient';
 
 const CONDITIONS: Record<string, number> = {
   RESPONSABLE_INSCRIPTO: 1,
@@ -34,10 +38,14 @@ function amount(value: string): Prisma.Decimal {
 export function buildCreditNoteRequest(
   snapshot: FiscalCreditNoteSnapshot,
   date: string,
-): Omit<ArcaCreditNoteRequest, 'voucherNumber'> {
+): Omit<ArcaCreditNoteRequest, 'voucherNumber' | 'recipientCuit'> &
+  ArcaRecipientDocument {
   const { original, invoice, authorizedAmounts: amounts } = snapshot;
   const issuerCuit = cuit(original.issuerCuit);
-  const recipientCuit = cuit(invoice.source.recipient.taxId ?? '');
+  const recipient = readFiscalRecipient(
+    invoice.source.recipient,
+    snapshot.creditNoteType,
+  );
   const recipientVatConditionId =
     CONDITIONS[invoice.source.recipient.taxCondition];
   const types = TYPES[invoice.invoiceType];
@@ -103,7 +111,7 @@ export function buildCreditNoteRequest(
 
   return {
     issuerCuit,
-    recipientCuit,
+    ...recipient,
     recipientVatConditionId,
     pointOfSale: original.pointOfSale,
     voucherType: snapshot.creditNoteType,

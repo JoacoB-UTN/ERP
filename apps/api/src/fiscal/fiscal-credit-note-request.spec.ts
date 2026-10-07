@@ -1,4 +1,5 @@
 import type { FiscalCreditNoteSnapshot } from '@erp/shared';
+import { BadRequestException } from '@nestjs/common';
 import { buildCreditNoteRequest } from './fiscal-credit-note-request';
 
 function snapshot(
@@ -81,7 +82,8 @@ describe('Total credit-note request builder', () => {
       expect(result).toEqual({
         ...saved.authorizedAmounts,
         issuerCuit: '20123456786',
-        recipientCuit: '20123456786',
+        recipientDocumentType: 80,
+        recipientDocumentNumber: '20123456786',
         recipientVatConditionId: type === 'B' ? 5 : 1,
         voucherType: saved.creditNoteType,
         pointOfSale: 1,
@@ -122,6 +124,40 @@ describe('Total credit-note request builder', () => {
     expect(buildCreditNoteRequest(saved, '20261005')).toMatchObject(
       saved.authorizedAmounts,
     );
+  });
+  it('preserves explicit DNI on total NC B and the exact authorized amounts', () => {
+    const saved = snapshot('B');
+    saved.invoice.source.recipient = {
+      legalName: 'Consumidor',
+      documentType: 'DNI',
+      taxId: '0012345678',
+      taxCondition: 'CONSUMIDOR_FINAL',
+    };
+    saved.authorizedAmounts.net = '100.0';
+    const before = JSON.stringify(saved);
+    const result = buildCreditNoteRequest(saved, '20261005');
+    expect(result).toMatchObject({
+      ...saved.authorizedAmounts,
+      voucherType: 8,
+      recipientDocumentType: 96,
+      recipientDocumentNumber: '12345678',
+      recipientVatConditionId: 5,
+      associated: { voucherType: 6, voucherNumber: 9 },
+    });
+    expect(result).not.toHaveProperty('recipientCuit');
+    expect(JSON.stringify(saved)).toBe(before);
+    delete saved.invoice.source.recipient.documentType;
+    expect(() => buildCreditNoteRequest(saved, '20261005')).toThrow();
+  });
+  it.each(['A', 'C'] as const)('rejects DNI on NC %s', (type) => {
+    const saved = snapshot(type);
+    saved.invoice.source.recipient = {
+      legalName: 'Consumidor',
+      documentType: 'DNI',
+      taxId: '12345678',
+      taxCondition: 'CONSUMIDOR_FINAL',
+    };
+    expect(() => buildCreditNoteRequest(saved, '20261005')).toThrow();
   });
   it.each([
     [
@@ -272,7 +308,7 @@ describe('Total credit-note request builder', () => {
     const saved = snapshot();
     mutate(saved);
     expect(() => buildCreditNoteRequest(saved, '20261005')).toThrow(
-      'La nota de crédito',
+      BadRequestException,
     );
   });
   it('rejects zero total and VAT on a C note', () => {

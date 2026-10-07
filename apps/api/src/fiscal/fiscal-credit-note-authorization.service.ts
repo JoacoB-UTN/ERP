@@ -26,6 +26,7 @@ import type {
   ArcaInvoiceRequest,
 } from './fiscal-request';
 import { buildCreditNoteRequest } from './fiscal-credit-note-request';
+import { readArcaRecipient } from './fiscal-recipient';
 
 const pending = ['SENDING', 'UNKNOWN'];
 const publicSelection = {
@@ -177,9 +178,14 @@ export class FiscalCreditNoteAuthorizationService {
     const snapshot = draft.snapshot as unknown as FiscalCreditNoteSnapshot;
     const request = buildCreditNoteRequest(snapshot, date);
     const originalRequest = original.request as unknown as ArcaInvoiceRequest;
+    const recipient = readArcaRecipient(request);
+    const originalRecipient = readArcaRecipient(originalRequest);
     if (
       request.associated.date !== originalRequest.date ||
-      request.recipientCuit !== originalRequest.recipientCuit ||
+      recipient.recipientDocumentType !==
+        originalRecipient.recipientDocumentType ||
+      recipient.recipientDocumentNumber !==
+        originalRecipient.recipientDocumentNumber ||
       request.recipientVatConditionId !==
         originalRequest.recipientVatConditionId ||
       !(['total', 'net', 'vat', 'exempt', 'notTaxed'] as const).every((key) =>

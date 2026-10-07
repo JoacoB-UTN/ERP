@@ -15,6 +15,7 @@ import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { RequestContext } from '../company-context/types';
 import { validFiscalDate, type ArcaInvoiceRequest } from './fiscal-request';
+import { readArcaRecipient, readFiscalRecipient } from './fiscal-recipient';
 
 function dto(row: FiscalCreditNoteDraft): FiscalCreditNoteDraftDto {
   return {
@@ -119,7 +120,16 @@ export class FiscalCreditNoteService {
           );
         const invoice = draft.snapshot as unknown as FiscalPreview;
         const request = original.request as unknown as ArcaInvoiceRequest;
+        const recipient = readArcaRecipient(request);
+        const savedRecipient = readFiscalRecipient(
+          invoice.source.recipient,
+          request.voucherType,
+        );
         if (
+          recipient.recipientDocumentType !==
+            savedRecipient.recipientDocumentType ||
+          recipient.recipientDocumentNumber !==
+            savedRecipient.recipientDocumentNumber ||
           !validFiscalDate(request.date) ||
           request.voucherType !== original.voucherType ||
           request.pointOfSale !== original.pointOfSale ||
