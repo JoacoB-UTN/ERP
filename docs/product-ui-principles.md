@@ -54,6 +54,13 @@ Do not reproduce another product's branding, logos, color palette, tile
 grid, menu layout, or exact screen arrangement. If a screen ends up looking
 like a specific existing product, change it.
 
+## Working from a supplied reference
+
+When the user requests a design or interaction similar to a website, screenshot
+or application, follow [the design-reference workflow](agents/design-references.md).
+Use REA when artifact or runtime evidence helps explain the reference, and
+adapt the findings to these product principles.
+
 ## Gestión: progressive disclosure, calm administration
 
 Gestión should feel modern, calm, and predictable. It should make
