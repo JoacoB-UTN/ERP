@@ -111,3 +111,18 @@ must call `SalesService`, never a parallel sales model. POS's optional
 `SalesTender` (payment method snapshot) is created inside that same
 `confirm()` transaction — see [docs/pos.md](docs/pos.md) — and is never
 a Treasury/AR write.
+
+## Agent skills
+
+### Issue tracker
+Use GitHub issues in JoacoB-UTN/ERP. Preserve existing task files under
+prompts/planned/ and prompts/completed/; link them instead of duplicating tasks.
+See docs/agents/issue-tracker.md.
+
+### Triage labels
+Use the standard five triage labels. See docs/agents/triage-labels.md.
+
+### Domain docs
+Read AGENTS.md and the existing module documentation first.
+Use one shared glossary and system-wide ADR directory when needed.
+See docs/agents/domain.md.
